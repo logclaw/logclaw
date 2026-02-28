@@ -155,22 +155,168 @@ global:
 
 ---
 
+## Running Locally
+
+### Prerequisites
+
+Install the required tools:
+
+```bash
+# Homebrew (macOS)
+brew install helm helmfile kind kubectl
+
+# Helm plugins
+helm plugin install https://github.com/databus23/helm-diff
+helm plugin install https://github.com/helm-unittest/helm-unittest
+```
+
+### 1 — Create a local Kubernetes cluster
+
+```bash
+make kind-create
+```
+
+This spins up a [kind](https://kind.sigs.k8s.io/) cluster named `logclaw-dev` and installs cert-manager CRDs.
+
+Verify:
+```bash
+kubectl cluster-info --context kind-logclaw-dev
+```
+
+### 2 — Install cluster-level operators (once per cluster)
+
+```bash
+make install-operators
+```
+
+Installs into dedicated namespaces:
+
+| Operator | Namespace |
+|---|---|
+| Strimzi Kafka | `strimzi-system` |
+| External Secrets | `external-secrets` |
+| cert-manager | `cert-manager` |
+| OpenSearch Operator | `opensearch-operator-system` |
+
+Wait for all operator pods to be ready:
+```bash
+kubectl get pods -n strimzi-system -w
+kubectl get pods -n external-secrets -w
+kubectl get pods -n cert-manager -w
+kubectl get pods -n opensearch-operator-system -w
+```
+
+### 3 — Configure a local tenant
+
+Copy and edit the template:
+```bash
+cp gitops/tenants/_template.yaml gitops/tenants/tenant-dev-local.yaml
+```
+
+Minimum required values for local dev (no cloud secrets — ESO can be skipped):
+```yaml
+global:
+  tenantId: dev-local
+  tier: standard                # lighter resource requests
+  cloudProvider: local
+  objectStorage:
+    provider: s3
+    bucket: logclaw-dev-local
+    endpoint: "http://minio.minio.svc:9000"   # or leave blank to skip S3 sink
+    region: us-east-1
+  secretStore:
+    provider: aws               # won't matter if ESO disabled per-chart
+```
+
+### 4 — Install the full tenant stack
+
+```bash
+make install TENANT_ID=dev-local STORAGE_CLASS=standard
+```
+
+This runs `helmfile apply` deploying all charts in dependency order. On a typical laptop (~16 GB RAM) expect:
+
+| Time | Milestone |
+|---|---|
+| T+2 min | Namespace, RBAC, NetworkPolicies created |
+| T+6 min | Kafka 3-broker KRaft cluster ready |
+| T+10 min | OpenSearch 3-node cluster green |
+| T+15 min | Flink jobs submitted and running |
+| T+20 min | Full stack operational |
+
+Check progress:
+```bash
+watch kubectl get pods -n logclaw-dev-local
+```
+
+### 5 — Verify the stack
+
+```bash
+# Run built-in Helm tests
+make test TENANT_ID=dev-local
+
+# Kafka cluster health
+kubectl -n logclaw-dev-local get kafka -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'
+# → True
+
+# Flink anomaly job state
+kubectl -n logclaw-dev-local get flinkdeployment -o jsonpath='{.items[*].status.jobStatus.state}'
+# → RUNNING RUNNING RUNNING
+
+# OpenSearch cluster health
+kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-opensearch 9200:9200 &
+curl -s http://localhost:9200/_cluster/health | jq .status
+# → "green"
+```
+
+### 6 — Access the services
+
+```bash
+# OpenSearch Dashboards
+kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-opensearch-dashboards 5601:5601
+open http://localhost:5601
+
+# Flink Web UI
+kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-flink-rest 8081:8081
+open http://localhost:8081
+
+# Airflow
+kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-airflow-webserver 8080:8080
+open http://localhost:8080   # admin / admin (default)
+```
+
+### 7 — Tear down
+
+```bash
+# Remove just the tenant
+make uninstall TENANT_ID=dev-local
+
+# Remove everything including the kind cluster
+make kind-delete
+```
+
+---
+
 ## Development
 
 ```bash
 # Lint all charts
 make lint
 
-# Render umbrella chart (dry-run)
+# Render umbrella chart templates (dry-run, no cluster needed)
 make template TENANT_ID=ci-test
 
-# Full local install on kind
-make kind-create
-make install-operators
-make install TENANT_ID=dev-local
+# Diff what would change on an already-installed release
+make template-diff TENANT_ID=dev-local
 
-# Run Helm tests
-make test TENANT_ID=dev-local
+# Validate values against JSON schemas
+make validate-schema
+
+# Package charts as .tgz
+make package
+
+# Push to OCI registry
+make push HELM_REGISTRY=oci://ghcr.io/logclaw/charts
 ```
 
 ---
