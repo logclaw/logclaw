@@ -1,0 +1,72 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-allow-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/policy-purpose: "egress-traffic-control"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution via kube-dns on port 53 UDP and TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow egress to the monitoring namespace for Prometheus federation and alerting
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.monitoring.namespace | default "monitoring" | quote }}
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # Allow internet egress on port 443 for:
+    #   - AWS Secrets Manager / GCP Secret Manager / Azure Key Vault / HashiCorp Vault
+    #   - PagerDuty webhook delivery
+    #   - Jira webhook and REST API
+    #   - ServiceNow REST API
+    #   - cert-manager ACME (Let's Encrypt) challenges
+    #   - Container image pulls from external registries
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude RFC-1918 private address ranges to prevent lateral movement
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Exclude link-local addresses
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow intra-namespace communication between all pods in the tenant namespace
+    - to:
+        - podSelector: {}
+
+    # Allow egress to ArgoCD for sync status callbacks
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.argocd.namespace | default "argocd" | quote }}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081

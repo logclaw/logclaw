@@ -1,0 +1,15 @@
+releases:
+  - name: logclaw-flink-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-flink
+    values:
+      - charts/logclaw-flink/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.kafkaBrokers
+        value: {{ env "KAFKA_BROKERS" | default "logclaw-kafka-kafka-bootstrap:9093" }}
+      - name: global.objectStorage.bucket
+        value: {{ env "OBJECT_STORAGE_BUCKET" | default "logclaw-dev-local" }}
+      - name: global.objectStorage.provider
+        value: {{ env "OBJECT_STORAGE_PROVIDER" | default "s3" }}

@@ -1,0 +1,24 @@
+airflow:
+  dags:
+    gitSync:
+      enabled: false
+  webserver:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  postgresql:
+    enabled: true

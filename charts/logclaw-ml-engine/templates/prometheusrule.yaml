@@ -1,0 +1,89 @@
+{{- if .Values.global.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    # Label required by most kube-prometheus-stack installs to pick up rules
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: logclaw-ml-engine.slo
+      interval: 30s
+      rules:
+        # SLO: KServe anomaly predictor p99 latency must stay below 200 ms
+        - alert: LogClawKServeLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le, namespace, serving_inference_service) (
+                rate(revision_request_latencies_bucket{
+                  namespace="{{ .Release.Namespace }}",
+                  serving_inference_service="{{ include "logclaw-ml-engine.inferenceServiceName" . }}"
+                }[5m])
+              )
+            ) > 200
+          for: 5m
+          labels:
+            severity: warning
+            tenant: {{ include "logclaw-ml-engine.tenantId" . | quote }}
+            component: kserve-predictor
+          annotations:
+            summary: "KServe predictor p99 latency exceeds 200 ms SLO"
+            description: >
+              The p99 inference latency for InferenceService
+              {{ include "logclaw-ml-engine.inferenceServiceName" . }}
+              in namespace {{ .Release.Namespace }} has exceeded 200 ms for 5
+              minutes. Current value: {{ "{{" }} $value | humanizeDuration {{ "}}" }}.
+            logclaw.io/slo: "sub-200ms-p99"
+            runbook_url: "https://docs.logclaw.io/runbooks/kserve-latency-high"
+
+        # SLO: Feast feature server must materialise features at least once per hour
+        - alert: LogClawFeastStaleness
+          expr: |
+            (
+              time() - feast_materialization_last_success_timestamp{
+                namespace="{{ .Release.Namespace }}"
+              }
+            ) > 3600
+            OR
+            absent(feast_materialization_last_success_timestamp{
+              namespace="{{ .Release.Namespace }}"
+            })
+          for: 10m
+          labels:
+            severity: warning
+            tenant: {{ include "logclaw-ml-engine.tenantId" . | quote }}
+            component: feast-server
+          annotations:
+            summary: "Feast feature server has not materialised features in the last hour"
+            description: >
+              No successful Feast materialisation has been recorded for the
+              feature server in namespace {{ .Release.Namespace }} within the
+              last 60 minutes. Online feature data may be stale, degrading
+              anomaly scoring accuracy.
+            runbook_url: "https://docs.logclaw.io/runbooks/feast-staleness"
+
+        # Availability: KServe predictor must have at least one ready replica
+        - alert: LogClawKServeReplicasZero
+          expr: |
+            kube_deployment_status_replicas_ready{
+              namespace="{{ .Release.Namespace }}",
+              deployment=~"{{ include "logclaw-ml-engine.inferenceServiceName" . }}.*predictor.*"
+            } == 0
+          for: 2m
+          labels:
+            severity: critical
+            tenant: {{ include "logclaw-ml-engine.tenantId" . | quote }}
+            component: kserve-predictor
+          annotations:
+            summary: "KServe predictor has zero ready replicas"
+            description: >
+              The KServe predictor for InferenceService
+              {{ include "logclaw-ml-engine.inferenceServiceName" . }}
+              in namespace {{ .Release.Namespace }} has had zero ready replicas
+              for more than 2 minutes. Anomaly scoring is completely unavailable.
+            runbook_url: "https://docs.logclaw.io/runbooks/kserve-replicas-zero"
+{{- end }}

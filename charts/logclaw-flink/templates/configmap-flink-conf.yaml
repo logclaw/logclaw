@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-flink-conf
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/description: "Shared Flink configuration rendered from .Values.flink.config"
+data:
+  flink-conf.yaml: |
+    {{- /*
+    Render the base config values from .Values.flink.config, then append
+    checkpoint and savepoint directories derived from object storage settings.
+    Each entry is emitted as a YAML mapping scalar on its own line.
+    */}}
+    {{- range $key, $value := .Values.flink.config }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+    state.checkpoints.dir: {{ include "logclaw-flink.checkpointDir" . | quote }}
+    state.savepoints.dir: {{ include "logclaw-flink.savepointDir" . | quote }}
+    {{- /*
+    Tenant-scoped HA storage prefix (RocksDB / ZooKeeper path isolation).
+    */}}
+    high-availability.storageDir: {{ printf "%s://%s/flink/ha/%s"
+      ((.Values.global).objectStorage | default dict | dig "provider" "s3")
+      ((.Values.global).objectStorage | default dict | dig "bucket" "logclaw-data")
+      ((.Values.global).tenantId | default "default") | quote }}

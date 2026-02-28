@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "logclaw-ml-engine.feastServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: feast-server
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-ml-engine.tenantId" . }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "logclaw-ml-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: feast-server
+  ports:
+    - name: grpc
+      port: {{ .Values.mlEngine.feast.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: http
+      port: {{ .Values.mlEngine.feast.service.httpPort }}
+      targetPort: http
+      protocol: TCP

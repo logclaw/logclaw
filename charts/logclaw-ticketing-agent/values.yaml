@@ -1,0 +1,190 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: "ghcr.io/logclaw/ticketing-agent"
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Non-sensitive config (secrets come from ExternalSecret)
+config:
+  # ── PagerDuty Events API v2 ───────────────────────────────────────────────────
+  pagerduty:
+    enabled: false
+    apiUrl: "https://events.pagerduty.com/v2/enqueue"
+    # routingKey comes from ExternalSecret: PAGERDUTY_ROUTING_KEY
+    severityMapping:
+      critical: "critical"
+      high: "error"
+      medium: "warning"
+      low: "info"
+    dedupKeyPrefix: ""             # prefixed with tenantId at runtime
+    autoResolveTimeoutMinutes: 60
+
+  # ── Jira REST API v3 ──────────────────────────────────────────────────────────
+  jira:
+    enabled: false
+    baseUrl: ""                    # e.g. https://yourorg.atlassian.net
+    projectKey: ""                 # e.g. SRE
+    issueType: "Incident"
+    # apiToken comes from ExternalSecret: JIRA_API_TOKEN
+    # username comes from ExternalSecret: JIRA_USERNAME
+    priorityMapping:
+      critical: "Highest"
+      high: "High"
+      medium: "Medium"
+      low: "Low"
+
+  # ── ServiceNow REST API ───────────────────────────────────────────────────────
+  servicenow:
+    enabled: false
+    instanceUrl: ""                # e.g. https://yourinstance.service-now.com
+    table: "incident"
+    # username comes from ExternalSecret: SERVICENOW_USERNAME
+    # password comes from ExternalSecret: SERVICENOW_PASSWORD
+    urgencyMapping:
+      critical: "1"
+      high: "1"
+      medium: "2"
+      low: "3"
+    impactMapping:
+      critical: "1"
+      high: "2"
+      medium: "2"
+      low: "3"
+    categoryField: "Software"
+    subcategoryField: ""
+
+  # ── OpsGenie Alerts API v2 ────────────────────────────────────────────────────
+  opsgenie:
+    enabled: false
+    apiUrl: "https://api.opsgenie.com/v2/alerts"
+    team: ""                       # OpsGenie team name (leave empty for default)
+    tags: []                       # Additional tags added to every alert
+    # apiKey comes from ExternalSecret: OPSGENIE_API_KEY
+    priorityMapping:
+      critical: "P1"
+      high: "P2"
+      medium: "P3"
+      low: "P4"
+
+  # ── Zammad in-cluster ITSM ────────────────────────────────────────────────────
+  # Requires logclaw-zammad chart to be deployed in the same namespace.
+  zammad:
+    enabled: false
+    endpoint: ""                   # auto-resolved to in-cluster FQDN when empty
+    groupName: "SRE Incidents"
+    # apiToken comes from ExternalSecret: ZAMMAD_API_TOKEN
+    priorityMapping:
+      critical: "1 high"
+      high: "2 normal"
+      medium: "3 normal"
+      low: "4 low"
+
+  # ── Slack Incoming Webhook ────────────────────────────────────────────────────
+  # Notification-only — does not create actionable tickets.
+  slack:
+    enabled: false
+    channel: "#sre-incidents"
+    username: "LogClaw SRE Bot"
+    iconEmoji: ":warning:"
+    # webhookUrl comes from ExternalSecret: SLACK_WEBHOOK_URL
+    notifyOnSeverity:
+      - "critical"
+      - "high"
+
+  # ── Severity-based routing ────────────────────────────────────────────────────
+  # Optional. Controls which enabled platforms receive each severity level.
+  # Empty list = route to ALL enabled platforms.
+  # Example: critical -> pagerduty + jira + slack; medium -> jira only
+  routing:
+    critical: []
+    high: []
+    medium: []
+    low: []
+
+  # ── Anomaly processing ────────────────────────────────────────────────────────
+  anomaly:
+    minimumScore: 0.85
+    contextWindowSeconds: 300
+    maxLogLinesInTicket: 50
+    deduplicationWindowMinutes: 15
+
+  # ── Kafka consumer ────────────────────────────────────────────────────────────
+  kafka:
+    consumerGroup: "logclaw-ticketing-agent"
+    autoOffsetReset: "earliest"
+    maxPollRecords: 100
+    sessionTimeoutMs: 30000
+
+# ── LLM configuration for RCA summary generation ─────────────────────────────
+# Global value global.llm.* takes precedence when deployed via umbrella chart.
+llm:
+  provider: "disabled"        # claude | openai | ollama | vllm | disabled
+  model: "llama3.2:8b"
+  endpoint: ""                # auto-resolved for ollama; required for vllm/custom
+  temperature: 0.2
+  maxTokens: 2048
+  timeoutSeconds: 60
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  kafkaConsumerLagThreshold: 1000
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

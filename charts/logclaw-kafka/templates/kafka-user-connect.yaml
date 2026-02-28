@@ -1,0 +1,57 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: logclaw-connect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/component: kafka-connect
+spec:
+  authentication:
+    type: scram-sha-512
+
+  authorization:
+    type: simple
+    acls:
+      # Read from all topics — Connect sinks data from any topic
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+
+      # Manage internal Connect topics (offsets, status, config)
+      - resource:
+          type: topic
+          name: "logclaw-connect-"
+          patternType: prefix
+        operations:
+          - Read
+          - Write
+          - Create
+          - Delete
+          - Alter
+          - Describe
+
+      # Manage Connect consumer groups
+      - resource:
+          type: group
+          name: "logclaw-connect-"
+          patternType: prefix
+        operations:
+          - Read
+          - Describe
+          - Delete
+
+      # Cluster-level operations needed by Connect framework
+      - resource:
+          type: cluster
+          name: kafka-cluster
+          patternType: literal
+        operations:
+          - Describe
+          - DescribeConfigs

@@ -1,0 +1,20 @@
+apiVersion: v2
+name: logclaw-ml-engine
+description: >
+  LogClaw ML inference layer: Feast Feature Store, Redis online store,
+  and KServe InferenceService (TorchServe) for real-time anomaly scoring.
+  Requires KServe v0.13.0+ pre-installed on the cluster.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/operator-prereq: "kserve>=0.13.0"
+dependencies:
+  - name: redis
+    version: "19.6.1"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mlEngine.redis.bundled

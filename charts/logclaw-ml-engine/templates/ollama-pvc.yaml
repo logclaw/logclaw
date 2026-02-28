@@ -1,0 +1,23 @@
+{{- if or (eq ((.Values.global).llm).provider "ollama") .Values.mlEngine.ollama.enabled }}
+# PersistentVolumeClaim for Ollama model weights.
+# IMPORTANT: This PVC is NOT garbage-collected on helm uninstall.
+# Ollama model weights (5–40 GB per model) will persist as orphaned PVCs.
+# To fully clean up: kubectl delete pvc {{ include "logclaw-ml-engine.fullname" . }}-ollama-models -n {{ .Release.Namespace }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-ollama-models
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ ((.Values.global).storageClassHighThroughput) | default ((.Values.global).storageClass) | default "" | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.mlEngine.ollama.persistence.size }}
+{{- end }}

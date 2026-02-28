@@ -1,0 +1,15 @@
+apiVersion: v2
+name: logclaw-opensearch
+description: >
+  OpenSearch hot-tier storage for LogClaw AI context (3-7 day retention).
+  Deployed via OpenSearch Kubernetes Operator CRD.
+  Requires opensearch-operator v2.6.1+ pre-installed on the cluster.
+type: application
+version: 0.1.0
+appVersion: "2.14.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/operator-prereq: "opensearch-operator>=2.6.1"

@@ -1,0 +1,94 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-index-setup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-opensearch.selectorLabels" . | nindent 8 }}
+        logclaw.io/component: "index-setup-job"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: opensearch-setup
+          image: curlimages/curl:8.7.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              OPENSEARCH_URL="https://{{ include "logclaw-opensearch.fullname" . }}.{{ .Release.Namespace }}.svc.{{ include "logclaw-opensearch.clusterDomain" . }}:9200"
+
+              echo "Waiting for OpenSearch at ${OPENSEARCH_URL} ..."
+              until curl -sk -u "admin:${OPENSEARCH_PASSWORD}" \
+                "${OPENSEARCH_URL}/_cluster/health" \
+                | grep -qE '"status":"(green|yellow)"'; do
+                echo "  OpenSearch not ready yet — retrying in 10s"
+                sleep 10
+              done
+              echo "OpenSearch is ready."
+
+              echo "Applying ISM policy ..."
+              curl -sk -X PUT \
+                "${OPENSEARCH_URL}/_plugins/_ism/policies/logclaw-hot-delete" \
+                -H "Content-Type: application/json" \
+                -u "admin:${OPENSEARCH_PASSWORD}" \
+                -d "$(cat /config/ism-policy.json)"
+              echo ""
+
+              echo "Applying index template ..."
+              curl -sk -X PUT \
+                "${OPENSEARCH_URL}/_index_template/logclaw-logs" \
+                -H "Content-Type: application/json" \
+                -u "admin:${OPENSEARCH_PASSWORD}" \
+                -d "$(cat /config/index-template.json)"
+              echo ""
+
+              echo "Setup complete."
+          env:
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logclaw-opensearch.adminSecretName" . }}
+                  key: password
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - "ALL"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "logclaw-opensearch.fullname" . }}-index-templates

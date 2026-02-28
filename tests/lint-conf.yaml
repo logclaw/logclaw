@@ -1,0 +1,3 @@
+rules:
+  chart-version: error
+  maintainer-email: warning

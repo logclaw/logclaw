@@ -1,0 +1,28 @@
+LogClaw Zammad ITSM has been deployed for tenant {{ include "logclaw-zammad.tenantId" . }}.
+
+Zammad is accessible ONLY within the cluster (no external Ingress).
+The ticketing-agent will POST incidents to Zammad automatically.
+
+== Verify Deployment ==
+
+  # Check Zammad pod status
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name=zammad
+
+  # Check ESO secret sync
+  kubectl -n {{ .Release.Namespace }} get externalsecret {{ include "logclaw-zammad.fullname" . }}-credentials
+
+  # Verify no external egress in NetworkPolicy (should return empty)
+  kubectl -n {{ .Release.Namespace }} get networkpolicy {{ include "logclaw-zammad.fullname" . }} -o yaml | grep "0.0.0.0"
+
+== First-Time Setup ==
+
+After Zammad starts, create an API token for the ticketing-agent:
+  1. Open a port-forward: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "logclaw-zammad.fullname" . }}-zammad 3000:3000
+  2. Navigate to http://localhost:3000 and log in with admin credentials from ESO secret
+  3. Go to Profile → Token Access → Create token with "ticket.agent" role
+  4. Store the token at: logclaw/{{ include "logclaw-zammad.tenantId" . }}/zammad/api-token
+
+== Security Note ==
+
+No log data or ticket content leaves the cluster. All Zammad egress is
+restricted to in-cluster PostgreSQL, Elasticsearch, and Redis pods only.

@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LogClaw Tenant Values",
+  "description": "Schema validation for logclaw-tenant Helm chart values",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "description": "Unique tenant identifier (slug format)",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$|^[a-z0-9]$"
+        },
+        "tenantName": {
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "storageClassHighThroughput": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "ha",
+            "ultra-ha"
+          ],
+          "description": "Deployment tier controlling resource quotas and HA settings"
+        },
+        "resourcePreset": {
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "xlarge"
+          ]
+        },
+        "objectStorage": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "s3",
+                "gcs",
+                "azure"
+              ]
+            },
+            "bucket": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "endpoint": {
+              "type": "string"
+            }
+          }
+        },
+        "secretStore": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "aws",
+                "gcp",
+                "vault",
+                "azure"
+              ]
+            },
+            "region": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "vaultAddress": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "SecretStore",
+                "ClusterSecretStore"
+              ]
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "issuerName": {
+              "type": "string"
+            },
+            "issuerKind": {
+              "type": "string",
+              "enum": [
+                "ClusterIssuer",
+                "Issuer"
+              ]
+            }
+          }
+        },
+        "podSecurityStandards": {
+          "type": "object",
+          "properties": {
+            "enforce": {
+              "type": "string",
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            },
+            "audit": {
+              "type": "string",
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            },
+            "warn": {
+              "type": "string",
+              "enum": [
+                "privileged",
+                "baseline",
+                "restricted"
+              ]
+            }
+          }
+        },
+        "monitoring": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "prometheusNamespace": {
+              "type": "string"
+            },
+            "grafanaDashboards": {
+              "type": "boolean"
+            }
+          }
+        },
+        "llm": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "openai",
+                "ollama",
+                "vllm",
+                "disabled"
+              ],
+              "description": "LLM backend for RCA summary generation in the ticketing agent."
+            },
+            "model": {
+              "type": "string"
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "maxTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 131072
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ingestion": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "kafka": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "flink": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "opensearch": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mlEngine": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "airflow": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ticketingAgent": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "zammad": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

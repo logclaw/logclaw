@@ -1,0 +1,41 @@
+name: Publish Helm Charts
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Package and Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.15.3
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io \
+              --username "${{ github.actor }}" \
+              --password-stdin
+      - name: Update dependencies
+        run: |
+          for chart in charts/*/; do
+            helm dependency update "$chart" 2>/dev/null || true
+          done
+      - name: Package charts
+        run: |
+          mkdir -p dist
+          for chart in charts/*/; do
+            helm package "$chart" --destination dist/
+          done
+      - name: Push to GHCR
+        run: |
+          for pkg in dist/*.tgz; do
+            helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
+          done

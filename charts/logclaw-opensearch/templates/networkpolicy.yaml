@@ -1,0 +1,112 @@
+# NetworkPolicy: restrict ingress/egress for all OpenSearch node pools.
+# The opster operator labels pods with app.kubernetes.io/instance=<cluster-name>
+# and opster.io/opensearch-cluster=<cluster-name>.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-allow-clients
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+spec:
+  podSelector:
+    matchLabels:
+      # The operator stamps every OpenSearch pod with this label
+      opster.io/opensearch-cluster: {{ include "logclaw-opensearch.fullname" . }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # ── HTTP (9200) from Flink pods ─────────────────────────────────────────
+    - from:
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: flink
+      ports:
+        - protocol: TCP
+          port: 9200
+
+    # ── HTTP (9200) from ticketing-agent pods ───────────────────────────────
+    - from:
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: ticketing-agent
+      ports:
+        - protocol: TCP
+          port: 9200
+
+    # ── HTTP (9200) from ml-engine pods ────────────────────────────────────
+    - from:
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: ml-engine
+      ports:
+        - protocol: TCP
+          port: 9200
+
+    # ── HTTP (9200) from monitoring namespace (Prometheus scraping) ─────────
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9200
+
+    # ── Transport (9300) within OpenSearch cluster pods (inter-node) ────────
+    - from:
+        - podSelector:
+            matchLabels:
+              opster.io/opensearch-cluster: {{ include "logclaw-opensearch.fullname" . }}
+      ports:
+        - protocol: TCP
+          port: 9300
+
+    # ── OpenSearch operator management traffic ──────────────────────────────
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: opensearch-operator
+      ports:
+        - protocol: TCP
+          port: 9200
+        - protocol: TCP
+          port: 9300
+
+  egress:
+    # ── Allow inter-node transport (9300) ───────────────────────────────────
+    - to:
+        - podSelector:
+            matchLabels:
+              opster.io/opensearch-cluster: {{ include "logclaw-opensearch.fullname" . }}
+      ports:
+        - protocol: TCP
+          port: 9300
+
+    # ── Allow DNS resolution (kube-dns on port 53) ──────────────────────────
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # ── Allow operator to reach back on 9200 (health checks) ────────────────
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: opensearch-operator
+      ports:
+        - protocol: TCP
+          port: 443

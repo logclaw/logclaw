@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-feast-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: feast-server
+spec:
+  replicas: {{ .Values.mlEngine.feast.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-ml-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: feast-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-ml-engine.labels" . | nindent 8 }}
+        app.kubernetes.io/component: feast-server
+      annotations:
+        # Force pod restart when the Feast ConfigMap changes.
+        checksum/feast-config: {{ include (print $.Template.BasePath "/feast-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "logclaw-ml-engine.serviceAccountName" . }}
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      {{- with .Values.mlEngine.feast.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      initContainers:
+        - name: feast-data-dir
+          image: "{{ .Values.mlEngine.feast.image.repository }}:{{ .Values.mlEngine.feast.image.tag }}"
+          imagePullPolicy: {{ .Values.mlEngine.feast.image.pullPolicy }}
+          command: ["sh", "-c", "mkdir -p /feast/data && chmod 770 /feast/data"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # writable only in init to create dir
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: feast-data
+              mountPath: /feast/data
+
+      containers:
+        - name: feast-server
+          image: "{{ .Values.mlEngine.feast.image.repository }}:{{ .Values.mlEngine.feast.image.tag }}"
+          imagePullPolicy: {{ .Values.mlEngine.feast.image.pullPolicy }}
+
+          command:
+            - feast
+            - serve
+            - -h
+            - "0.0.0.0"
+            - -p
+            - "6566"
+
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.auth.existingSecret }}
+                  key: {{ .Values.redis.auth.existingSecretPasswordKey }}
+            - name: FEAST_USAGE
+              value: "False"
+            - name: FEATURE_STORE_YAML_PATH
+              value: /feast/config/feature_store.yaml
+            - name: TENANT_ID
+              value: {{ include "logclaw-ml-engine.tenantId" . }}
+
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.mlEngine.feast.service.grpcPort }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ .Values.mlEngine.feast.service.httpPort }}
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+            timeoutSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          resources:
+            {{- toYaml .Values.mlEngine.feast.resources | nindent 12 }}
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: feast-config
+              mountPath: /feast/config
+              readOnly: true
+            - name: feast-data
+              mountPath: /feast/data
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: feast-config
+          configMap:
+            name: {{ include "logclaw-ml-engine.fullname" . }}-feast-config
+        - name: feast-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ .Values.global.topologyKey | default "topology.kubernetes.io/zone" }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "logclaw-ml-engine.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: feast-server
+
+      terminationGracePeriodSeconds: 30

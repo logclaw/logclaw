@@ -1,0 +1,19 @@
+releases:
+  - name: logclaw-ticketing-agent-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-ticketing-agent
+    values:
+      - charts/logclaw-ticketing-agent/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.kafkaBrokers
+        value: {{ env "KAFKA_BROKERS" | default "logclaw-kafka-kafka-bootstrap:9093" }}
+      - name: global.opensearchEndpoint
+        value: {{ env "OPENSEARCH_ENDPOINT" | default "https://logclaw-opensearch:9200" }}
+      - name: global.llm.provider
+        value: {{ env "LLM_PROVIDER" | default "disabled" }}
+      - name: global.llm.model
+        value: {{ env "LLM_MODEL" | default "llama3.2:8b" }}
+      - name: ticketing.platform
+        value: {{ env "TICKETING_PLATFORM" | default "pagerduty-jira" }}

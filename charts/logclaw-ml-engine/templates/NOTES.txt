@@ -1,0 +1,53 @@
+LogClaw ML Engine
+=================
+
+Tenant:    {{ include "logclaw-ml-engine.tenantId" . }}
+Namespace: {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Feast Feature Server
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  gRPC endpoint (cluster-internal):
+    {{ include "logclaw-ml-engine.feastFQDN" . }}:{{ .Values.mlEngine.feast.service.grpcPort }}
+
+  HTTP endpoint (cluster-internal):
+    {{ include "logclaw-ml-engine.feastFQDN" . }}:{{ .Values.mlEngine.feast.service.httpPort }}
+
+  Port-forward for local access:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "logclaw-ml-engine.feastServiceName" . }} 6566:{{ .Values.mlEngine.feast.service.grpcPort }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KServe Anomaly Predictor
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  InferenceService name:
+    {{ include "logclaw-ml-engine.inferenceServiceName" . }}
+
+  Model storage URI:
+    {{ .Values.global.objectStorage.provider }}://{{ .Values.global.objectStorage.bucket }}/models/anomaly/{{ .Values.mlEngine.kserve.modelVersion }}
+
+  Check InferenceService status:
+    kubectl -n {{ .Release.Namespace }} get inferenceservice {{ include "logclaw-ml-engine.inferenceServiceName" . }}
+
+  Check predictor pods:
+    kubectl -n {{ .Release.Namespace }} get pods -l serving.kserve.io/inferenceservice={{ include "logclaw-ml-engine.inferenceServiceName" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Redis Online Store
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Redis host (cluster-internal):
+    {{ include "logclaw-ml-engine.redisHost" . }}:6379
+
+{{- if .Values.global.monitoring.enabled }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Monitoring
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PrometheusRule deployed. Active alert rules:
+    - LogClawKServeLatencyHigh   (SLO: p99 < 200ms)
+    - LogClawFeastStaleness      (SLO: materialise every 60m)
+    - LogClawKServeReplicasZero  (availability)
+{{- end }}

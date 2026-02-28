@@ -1,0 +1,34 @@
+# PodDisruptionBudgets for logclaw-airflow
+# Ensures that voluntary disruptions (node drains, rolling upgrades) do not
+# simultaneously evict both the scheduler and webserver, preserving pipeline
+# availability during cluster maintenance windows.
+---
+# ── Scheduler PDB ─────────────────────────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-airflow.fullname" . }}-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-airflow.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.scheduler.minAvailable }}
+  selector:
+    matchLabels:
+      component: scheduler
+      release: {{ .Release.Name }}
+---
+# ── Webserver PDB ─────────────────────────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-airflow.fullname" . }}-webserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-airflow.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.webserver.minAvailable }}
+  selector:
+    matchLabels:
+      component: webserver
+      release: {{ .Release.Name }}

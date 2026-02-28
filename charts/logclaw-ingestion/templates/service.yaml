@@ -1,0 +1,31 @@
+{{- if eq .Values.mode "deployment" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/service-type: "privatelink-receiver"
+    {{- with .Values.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "logclaw-ingestion.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http-receiver
+      port: {{ .Values.service.port }}
+      targetPort: http-receiver
+      protocol: TCP
+    - name: metrics
+      port: 9598
+      targetPort: metrics
+      protocol: TCP
+    - name: vector-api
+      port: 8686
+      targetPort: vector-api
+      protocol: TCP
+{{- end }}

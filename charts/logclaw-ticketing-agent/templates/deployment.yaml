@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-ticketing-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ticketing-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-ticketing-agent.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-ticketing-agent.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with ((.Values.global).imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logclaw-ticketing-agent.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ include "logclaw-ticketing-agent.topologyKey" . }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "logclaw-ticketing-agent.selectorLabels" . | nindent 14 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ticketing-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: TENANT_ID
+              value: {{ include "logclaw-ticketing-agent.tenantId" . | quote }}
+            - name: KAFKA_BROKERS
+              value: {{ include "logclaw-ticketing-agent.kafkaBrokers" . | quote }}
+            - name: KAFKA_TOPIC_ANOMALIES
+              value: {{ include "logclaw-ticketing-agent.kafkaTopicAnomalies" . | quote }}
+            - name: OPENSEARCH_ENDPOINT
+              value: {{ include "logclaw-ticketing-agent.opensearchEndpoint" . | quote }}
+            # ── Anomaly thresholds ────────────────────────────────────────────
+            - name: ANOMALY_MINIMUM_SCORE
+              value: {{ .Values.config.anomaly.minimumScore | quote }}
+            - name: ANOMALY_CONTEXT_WINDOW_SECONDS
+              value: {{ .Values.config.anomaly.contextWindowSeconds | quote }}
+            - name: ANOMALY_MAX_LOG_LINES_IN_TICKET
+              value: {{ .Values.config.anomaly.maxLogLinesInTicket | quote }}
+            - name: ANOMALY_DEDUPLICATION_WINDOW_MINUTES
+              value: {{ .Values.config.anomaly.deduplicationWindowMinutes | quote }}
+            # ── Kafka consumer ────────────────────────────────────────────────
+            - name: KAFKA_CONSUMER_GROUP
+              value: {{ .Values.config.kafka.consumerGroup | quote }}
+            - name: KAFKA_AUTO_OFFSET_RESET
+              value: {{ .Values.config.kafka.autoOffsetReset | quote }}
+            - name: KAFKA_MAX_POLL_RECORDS
+              value: {{ .Values.config.kafka.maxPollRecords | quote }}
+            - name: KAFKA_SESSION_TIMEOUT_MS
+              value: {{ .Values.config.kafka.sessionTimeoutMs | quote }}
+            # ── LLM configuration ─────────────────────────────────────────────
+            - name: LLM_PROVIDER
+              value: {{ include "logclaw-ticketing-agent.llmProvider" . | quote }}
+            - name: LLM_MODEL
+              value: {{ include "logclaw-ticketing-agent.llmModel" . | quote }}
+            - name: LLM_ENDPOINT
+              value: {{ include "logclaw-ticketing-agent.llmEndpoint" . | quote }}
+            - name: LLM_TEMPERATURE
+              value: {{ ((.Values.global).llm).temperature | default .Values.llm.temperature | quote }}
+            - name: LLM_MAX_TOKENS
+              value: {{ ((.Values.global).llm).maxTokens | default .Values.llm.maxTokens | quote }}
+            - name: LLM_TIMEOUT_SECONDS
+              value: {{ ((.Values.global).llm).timeoutSeconds | default .Values.llm.timeoutSeconds | quote }}
+            # ── PagerDuty ─────────────────────────────────────────────────────
+            - name: PAGERDUTY_ENABLED
+              value: {{ .Values.config.pagerduty.enabled | quote }}
+            - name: PAGERDUTY_API_URL
+              value: {{ .Values.config.pagerduty.apiUrl | quote }}
+            - name: PAGERDUTY_AUTO_RESOLVE_TIMEOUT_MINUTES
+              value: {{ .Values.config.pagerduty.autoResolveTimeoutMinutes | quote }}
+            # ── Jira ──────────────────────────────────────────────────────────
+            - name: JIRA_ENABLED
+              value: {{ .Values.config.jira.enabled | quote }}
+            - name: JIRA_BASE_URL
+              value: {{ .Values.config.jira.baseUrl | quote }}
+            - name: JIRA_PROJECT_KEY
+              value: {{ .Values.config.jira.projectKey | quote }}
+            - name: JIRA_ISSUE_TYPE
+              value: {{ .Values.config.jira.issueType | quote }}
+            # ── ServiceNow ────────────────────────────────────────────────────
+            - name: SERVICENOW_ENABLED
+              value: {{ .Values.config.servicenow.enabled | quote }}
+            - name: SERVICENOW_INSTANCE_URL
+              value: {{ .Values.config.servicenow.instanceUrl | quote }}
+            - name: SERVICENOW_TABLE
+              value: {{ .Values.config.servicenow.table | quote }}
+            - name: SERVICENOW_CATEGORY_FIELD
+              value: {{ .Values.config.servicenow.categoryField | quote }}
+            # ── OpsGenie ──────────────────────────────────────────────────────
+            - name: OPSGENIE_ENABLED
+              value: {{ .Values.config.opsgenie.enabled | quote }}
+            - name: OPSGENIE_API_URL
+              value: {{ .Values.config.opsgenie.apiUrl | quote }}
+            - name: OPSGENIE_TEAM
+              value: {{ .Values.config.opsgenie.team | quote }}
+            # ── Zammad (in-cluster ITSM) ──────────────────────────────────────
+            - name: ZAMMAD_ENABLED
+              value: {{ .Values.config.zammad.enabled | quote }}
+            - name: ZAMMAD_ENDPOINT
+              value: {{ include "logclaw-ticketing-agent.zammadEndpoint" . | quote }}
+            - name: ZAMMAD_GROUP_NAME
+              value: {{ .Values.config.zammad.groupName | quote }}
+            # ── Slack Webhook ─────────────────────────────────────────────────
+            - name: SLACK_ENABLED
+              value: {{ .Values.config.slack.enabled | quote }}
+            - name: SLACK_CHANNEL
+              value: {{ .Values.config.slack.channel | quote }}
+            - name: SLACK_USERNAME
+              value: {{ .Values.config.slack.username | quote }}
+            - name: SLACK_ICON_EMOJI
+              value: {{ .Values.config.slack.iconEmoji | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "logclaw-ticketing-agent.fullname" . }}-credentials
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /config
+              readOnly: true
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "logclaw-ticketing-agent.configMapName" . }}

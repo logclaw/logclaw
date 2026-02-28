@@ -1,0 +1,39 @@
+# PodDisruptionBudget for OpenSearch data nodes
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+    logclaw.io/nodepool: data
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.dataNodes.minAvailable }}
+  selector:
+    matchLabels:
+      opster.io/opensearch-cluster: {{ include "logclaw-opensearch.fullname" . }}
+      opster.io/opensearch-nodepool: data
+
+---
+# PodDisruptionBudget for OpenSearch master (cluster_manager) nodes
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-masters
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+    logclaw.io/nodepool: masters
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.masterNodes.minAvailable }}
+  selector:
+    matchLabels:
+      opster.io/opensearch-cluster: {{ include "logclaw-opensearch.fullname" . }}
+      opster.io/opensearch-nodepool: masters

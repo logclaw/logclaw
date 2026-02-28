@@ -1,0 +1,12 @@
+apiVersion: v2
+name: logclaw-platform
+description: >
+  LogClaw security and platform layer: External Secrets Operator SecretStore,
+  cert-manager Certificates, NetworkPolicies, and RBAC.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io

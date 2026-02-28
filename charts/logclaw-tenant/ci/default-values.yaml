@@ -1,0 +1,21 @@
+# CI test values — standard tier, minimal resources
+global:
+  tenantId: "ci-test"
+  tenantName: "CI Test Tenant"
+  storageClass: "standard"
+  storageClassHighThroughput: "standard"
+  tier: "standard"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-ci-test"
+    region: "us-east-1"
+  secretStore:
+    provider: "aws"
+    region: "us-east-1"
+  monitoring:
+    enabled: false
+  llm:
+    provider: "disabled"
+
+zammad:
+  enabled: false

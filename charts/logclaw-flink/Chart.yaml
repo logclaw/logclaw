@@ -1,0 +1,15 @@
+apiVersion: v2
+name: logclaw-flink
+description: >
+  Apache Flink stream processing jobs: ETL/parsing, enrichment,
+  and real-time anomaly scoring (<200ms SLO) via Flink Kubernetes Operator.
+  Requires flink-kubernetes-operator v1.9.0+ pre-installed on the cluster.
+type: application
+version: 0.1.0
+appVersion: "1.19.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/operator-prereq: "flink-kubernetes-operator>=1.9.0"

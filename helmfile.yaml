@@ -1,0 +1,31 @@
+helmDefaults:
+  wait: true
+  waitForJobs: true
+  timeout: 600
+  recreatePods: false
+  force: false
+  cleanupOnFail: true
+
+environments:
+  local:
+    values:
+      - gitops/tenants/tenant-example-corp.yaml
+    kubeContext: kind-logclaw-dev
+  staging:
+    values:
+      - gitops/tenants/tenant-example-corp.yaml
+  production:
+    values:
+      - gitops/tenants/tenant-example-corp.yaml
+
+helmfiles:
+  - path: helmfile.d/00-operators.yaml
+  - path: helmfile.d/10-platform.yaml
+  - path: helmfile.d/20-kafka.yaml
+  - path: helmfile.d/30-ingestion.yaml
+  - path: helmfile.d/40-opensearch.yaml
+  - path: helmfile.d/50-flink.yaml
+  - path: helmfile.d/60-ml-engine.yaml
+  - path: helmfile.d/70-airflow.yaml
+  - path: helmfile.d/80-ticketing-agent.yaml
+  - path: helmfile.d/85-zammad.yaml

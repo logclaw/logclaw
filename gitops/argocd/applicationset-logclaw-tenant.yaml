@@ -1,0 +1,86 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: logclaw-tenants
+  namespace: argocd
+  labels:
+    logclaw.io/component: "tenant-applicationset"
+spec:
+  generators:
+    - git:
+        repoURL: "https://github.com/logclaw/logclaw-platform.git"
+        revision: HEAD
+        files:
+          - path: "gitops/tenants/[!_]*.yaml"
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+    applicationsSync: create-update
+  template:
+    metadata:
+      name: "logclaw-tenant-{{ .tenantId }}"
+      namespace: argocd
+      labels:
+        logclaw.io/tenant: "{{ .tenantId }}"
+        logclaw.io/managed-by: "applicationset"
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: "logclaw-alerts"
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: "logclaw-alerts"
+    spec:
+      project: logclaw
+      source:
+        repoURL: "https://github.com/logclaw/logclaw-platform.git"
+        targetRevision: HEAD
+        path: "charts/logclaw-tenant"
+        helm:
+          releaseName: "logclaw-{{ .tenantId }}"
+          valueFiles:
+            - "../../gitops/tenants/{{ .tenantId }}.yaml"
+          values: |
+            global:
+              tenantId: "{{ .tenantId }}"
+      destination:
+        server: '{{ default "https://kubernetes.default.svc" .clusterServer }}'
+        namespace: "logclaw-{{ .tenantId }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+          - ServerSideApply=true
+        managedNamespaceMetadata:
+          labels:
+            logclaw.io/tenant: "{{ .tenantId }}"
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+        retry:
+          limit: 5
+          backoff:
+            duration: "30s"
+            factor: 2
+            maxDuration: "5m"
+      ignoreDifferences:
+        - group: kafka.strimzi.io
+          kind: Kafka
+          jsonPointers: [/status]
+        - group: kafka.strimzi.io
+          kind: KafkaTopic
+          jsonPointers: [/status]
+        - group: flink.apache.org
+          kind: FlinkDeployment
+          jsonPointers: [/status]
+        - group: serving.kserve.io
+          kind: InferenceService
+          jsonPointers: [/status, /spec/predictor/model]
+        - group: opensearch.opster.io
+          kind: OpenSearchCluster
+          jsonPointers: [/status]
+      revisionHistoryLimit: 3

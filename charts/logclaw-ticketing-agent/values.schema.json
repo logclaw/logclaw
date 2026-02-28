@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "logclaw-ticketing-agent values",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of ticketing-agent pod replicas."
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      },
+      "required": ["repository", "tag"]
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "pagerduty": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable PagerDuty Events API v2 integration." },
+            "apiUrl": { "type": "string", "format": "uri" },
+            "severityMapping": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Map LogClaw severity levels to PagerDuty event severity values."
+            },
+            "dedupKeyPrefix": { "type": "string" },
+            "autoResolveTimeoutMinutes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "jira": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable Jira REST API v3 integration." },
+            "baseUrl": { "type": "string" },
+            "projectKey": { "type": "string" },
+            "issueType": { "type": "string" },
+            "priorityMapping": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "servicenow": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable ServiceNow REST API integration." },
+            "instanceUrl": { "type": "string" },
+            "table": { "type": "string" },
+            "urgencyMapping": { "type": "object", "additionalProperties": { "type": "string" } },
+            "impactMapping": { "type": "object", "additionalProperties": { "type": "string" } },
+            "categoryField": { "type": "string" },
+            "subcategoryField": { "type": "string" }
+          }
+        },
+        "opsgenie": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OpsGenie Alerts API v2 integration.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "apiUrl": { "type": "string", "format": "uri" },
+            "team": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "priorityMapping": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "zammad": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Zammad in-cluster ITSM integration.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "endpoint": { "type": "string", "description": "Override Zammad URL; auto-resolved when empty." },
+            "groupName": { "type": "string" },
+            "priorityMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "critical": { "type": "string" },
+                "high": { "type": "string" },
+                "medium": { "type": "string" },
+                "low": { "type": "string" }
+              }
+            }
+          }
+        },
+        "slack": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Slack Incoming Webhook notification integration.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "channel": { "type": "string" },
+            "username": { "type": "string" },
+            "iconEmoji": { "type": "string" },
+            "notifyOnSeverity": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["critical", "high", "medium", "low"] }
+            }
+          }
+        },
+        "routing": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional per-severity routing rules. Empty = route to all enabled platforms.",
+          "properties": {
+            "critical": { "type": "array", "items": { "type": "string" } },
+            "high": { "type": "array", "items": { "type": "string" } },
+            "medium": { "type": "array", "items": { "type": "string" } },
+            "low": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "anomaly": {
+          "type": "object",
+          "properties": {
+            "minimumScore": { "type": "number", "minimum": 0, "maximum": 1 },
+            "contextWindowSeconds": { "type": "integer", "minimum": 1 },
+            "maxLogLinesInTicket": { "type": "integer", "minimum": 1, "maximum": 500 },
+            "deduplicationWindowMinutes": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["minimumScore"]
+        },
+        "kafka": {
+          "type": "object",
+          "properties": {
+            "consumerGroup": { "type": "string", "minLength": 1 },
+            "autoOffsetReset": { "type": "string", "enum": ["earliest", "latest", "none"] },
+            "maxPollRecords": { "type": "integer", "minimum": 1 },
+            "sessionTimeoutMs": { "type": "integer", "minimum": 1000 }
+          },
+          "required": ["consumerGroup", "autoOffsetReset"]
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": { "type": "object", "properties": { "cpu": { "type": "string" }, "memory": { "type": "string" } } },
+        "limits": { "type": "object", "properties": { "cpu": { "type": "string" }, "memory": { "type": "string" } } }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "kafkaConsumerLagThreshold": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "minAvailable": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^[0-9]+%$" }
+          ]
+        }
+      }
+    },
+    "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
+    "securityContext": { "type": "object" },
+    "containerSecurityContext": { "type": "object" },
+    "livenessProbe": { "type": "object" },
+    "readinessProbe": { "type": "object" },
+    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string", "enum": ["claude", "openai", "ollama", "vllm", "disabled"] },
+        "model": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "maxTokens": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "required": ["replicaCount", "image", "config"]
+}

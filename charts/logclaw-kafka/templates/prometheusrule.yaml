@@ -1,0 +1,222 @@
+{{- if .Values.global.monitoring.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-kafka.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    # Label required by the Prometheus Operator to discover this rule
+    prometheus: {{ default "kube-prometheus" .Values.global.monitoring.prometheusSelector }}
+    role: alert-rules
+spec:
+  groups:
+    # ── Broker health ────────────────────────────────────────────────────
+    - name: logclaw.kafka.broker
+      interval: 30s
+      rules:
+        - alert: LogClawKafkaBrokerDown
+          expr: |
+            up{job="kafka", namespace="{{ .Release.Namespace }}"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka broker is down"
+            description: >
+              Kafka broker {{ "{{ $labels.pod }}" }} in namespace
+              {{ "{{ $labels.namespace }}" }} has been unreachable for more than 1 minute.
+              Cluster: {{ .Release.Name }}. This may impact message ingestion and processing.
+            runbook_url: "https://logclaw.io/runbooks/kafka-broker-down"
+            dashboard_url: "https://grafana.logclaw.io/d/kafka-overview"
+
+        - alert: LogClawKafkaBrokerCount
+          expr: |
+            count(up{job="kafka", namespace="{{ .Release.Namespace }}"} == 1) < {{ .Values.kafka.replicas }}
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka cluster has fewer brokers than expected"
+            description: >
+              Expected {{ .Values.kafka.replicas }} brokers but only
+              {{ "{{ $value }}" }} are up in namespace {{ "{{ $labels.namespace }}" }}.
+
+    # ── Replication ──────────────────────────────────────────────────────
+    - name: logclaw.kafka.replication
+      interval: 30s
+      rules:
+        - alert: LogClawKafkaUnderReplicatedPartitions
+          expr: |
+            kafka_server_replicamanager_underreplicatedpartitions{
+              namespace="{{ .Release.Namespace }}"
+            } > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka has under-replicated partitions"
+            description: >
+              Broker {{ "{{ $labels.pod }}" }} reports
+              {{ "{{ $value }}" }} under-replicated partitions.
+              This indicates a replication lag or broker failure.
+              Cluster: {{ .Release.Name }}.
+            runbook_url: "https://logclaw.io/runbooks/kafka-under-replicated"
+
+        - alert: LogClawKafkaUnderMinISR
+          expr: |
+            kafka_server_replicamanager_underminisrpartitioncount{
+              namespace="{{ .Release.Namespace }}"
+            } > 0
+          for: 3m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka partitions are under minimum in-sync replicas"
+            description: >
+              {{ "{{ $value }}" }} partitions are below the minimum in-sync replica
+              threshold. Writes requiring acks=all will fail.
+              Cluster: {{ .Release.Name }}.
+            runbook_url: "https://logclaw.io/runbooks/kafka-under-min-isr"
+
+        - alert: LogClawKafkaOfflinePartitions
+          expr: |
+            kafka_controller_kafkacontroller_offlinepartitionscount{
+              namespace="{{ .Release.Namespace }}"
+            } > 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka has offline partitions"
+            description: >
+              {{ "{{ $value }}" }} partitions are offline in cluster {{ .Release.Name }}.
+              Data may be unavailable.
+            runbook_url: "https://logclaw.io/runbooks/kafka-offline-partitions"
+
+    # ── Storage ──────────────────────────────────────────────────────────
+    - name: logclaw.kafka.storage
+      interval: 60s
+      rules:
+        - alert: LogClawKafkaDiskFull
+          expr: |
+            (
+              kafka_log_log_size{namespace="{{ .Release.Namespace }}"}
+              /
+              on(pod) kubelet_volume_stats_capacity_bytes{
+                namespace="{{ .Release.Namespace }}",
+                persistentvolumeclaim=~".*kafka.*"
+              }
+            ) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka broker disk usage is above 85%"
+            description: >
+              Kafka broker {{ "{{ $labels.pod }}" }} disk is
+              {{ "{{ $value | humanizePercentage }}" }} full.
+              Current log size exceeds 85% of PVC capacity.
+              Consider scaling storage or reducing retention.
+            runbook_url: "https://logclaw.io/runbooks/kafka-disk-full"
+
+        - alert: LogClawKafkaDiskCritical
+          expr: |
+            (
+              kafka_log_log_size{namespace="{{ .Release.Namespace }}"}
+              /
+              on(pod) kubelet_volume_stats_capacity_bytes{
+                namespace="{{ .Release.Namespace }}",
+                persistentvolumeclaim=~".*kafka.*"
+              }
+            ) > 0.95
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka broker disk is critically full (>95%)"
+            description: >
+              Kafka broker {{ "{{ $labels.pod }}" }} disk is critically full at
+              {{ "{{ $value | humanizePercentage }}" }}.
+              Immediate action required to prevent broker shutdown.
+            runbook_url: "https://logclaw.io/runbooks/kafka-disk-critical"
+
+    # ── Consumer lag ─────────────────────────────────────────────────────
+    - name: logclaw.kafka.consumer
+      interval: 30s
+      rules:
+        - alert: LogClawKafkaConsumerGroupLag
+          expr: |
+            kafka_consumergroup_lag_sum{
+              namespace="{{ .Release.Namespace }}",
+              consumergroup=~"logclaw-.*"
+            } > 100000
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka consumer group lag is high"
+            description: >
+              Consumer group {{ "{{ $labels.consumergroup }}" }} has a lag of
+              {{ "{{ $value }}" }} messages on topic {{ "{{ $labels.topic }}" }}.
+              Processing may be falling behind.
+            runbook_url: "https://logclaw.io/runbooks/kafka-consumer-lag"
+
+    # ── Connect health ───────────────────────────────────────────────────
+    {{- if .Values.kafkaConnect.enabled }}
+    - name: logclaw.kafka.connect
+      interval: 30s
+      rules:
+        - alert: LogClawKafkaConnectorFailed
+          expr: |
+            kafka_connect_connector_status{
+              namespace="{{ .Release.Namespace }}",
+              status="failed"
+            } > 0
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka Connect connector has failed"
+            description: >
+              Connector {{ "{{ $labels.connector }}" }} in namespace
+              {{ "{{ $labels.namespace }}" }} is in a failed state.
+            runbook_url: "https://logclaw.io/runbooks/kafka-connect-failed"
+
+        - alert: LogClawKafkaConnectorTaskFailed
+          expr: |
+            kafka_connect_connector_task_status{
+              namespace="{{ .Release.Namespace }}",
+              status="failed"
+            } > 0
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw.tenantId" . }}
+          annotations:
+            summary: "Kafka Connect task has failed"
+            description: >
+              Task {{ "{{ $labels.task }}" }} of connector {{ "{{ $labels.connector }}" }}
+              has failed. S3 sink may be dropping data.
+    {{- end }}
+{{- end }}

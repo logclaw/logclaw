@@ -1,0 +1,176 @@
+{{- if eq .Values.mode "daemonset" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/mode: "daemonset"
+    logclaw.io/tenant-id: {{ include "logclaw.tenantId" . | quote }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "logclaw-ingestion.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-ingestion.selectorLabels" . | nindent 8 }}
+        logclaw.io/tenant-id: {{ include "logclaw.tenantId" . | quote }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-vector.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "logclaw-ingestion.serviceAccountName" . }}
+      automountServiceAccountToken: true
+
+      # Run on every node, including control-plane and tainted nodes
+      tolerations:
+        - operator: Exists
+
+      # Pod-level security context
+      # Note: DaemonSet needs slightly elevated privileges to read host logs
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+
+      terminationGracePeriodSeconds: 30
+
+      volumes:
+        - name: vector-config
+          configMap:
+            name: {{ include "logclaw-ingestion.fullname" . }}-vector-config
+        - name: vector-data
+          hostPath:
+            path: /var/lib/vector
+            type: DirectoryOrCreate
+        - name: varlog
+          hostPath:
+            path: /var/log
+            type: Directory
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
+
+      containers:
+        - name: vector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          # Container security context for DaemonSet (reads host files)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_READ_SEARCH
+
+          env:
+            - name: VECTOR_LOG
+              value: "info"
+            - name: TENANT_ID
+              value: {{ include "logclaw.tenantId" . | quote }}
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: VECTOR_SELF_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: VECTOR_SELF_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KAFKA_BROKERS
+              value: {{ include "logclaw.kafkaBrokers" . | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ include "logclaw.kafkaRawLogsTopic" . | quote }}
+
+          args:
+            - "--config=/etc/vector/vector.toml"
+
+          ports:
+            - name: vector-api
+              containerPort: 8686
+              protocol: TCP
+            - name: metrics
+              containerPort: 9598
+              protocol: TCP
+
+          volumeMounts:
+            - name: vector-config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: vector-data
+              mountPath: /var/lib/vector
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,23 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: raw-logs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/topic-type: ingest
+spec:
+  partitions: {{ .Values.topics.rawLogs.partitions }}
+  replicas: {{ .Values.topics.rawLogs.replicas }}
+  config:
+    retention.ms: {{ .Values.topics.rawLogs.retentionMs | quote }}
+    segment.bytes: {{ .Values.topics.rawLogs.segmentBytes | quote }}
+    # Compaction disabled — time-based retention only
+    cleanup.policy: "delete"
+    # Ensure durability
+    min.insync.replicas: "2"
+    # Optimise for throughput with large batches
+    compression.type: "lz4"
+    max.message.bytes: "10485760"

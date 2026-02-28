@@ -1,0 +1,25 @@
+mlEngine:
+  redis:
+    bundled: true
+  feast:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  kserve:
+    minReplicas: 1
+    maxReplicas: 2
+  ollama:
+    enabled: false
+redis:
+  master:
+    persistence:
+      size: "1Gi"
+  replica:
+    replicaCount: 0
+podDisruptionBudget:
+  minAvailable: 1

@@ -1,0 +1,52 @@
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ── Upstream zammad/zammad chart values ──────────────────────────────────────
+# Values under "zammad:" are passed to the upstream zammad/zammad chart.
+# Run: helm show values zammad/zammad --version 12.4.1 for all available keys.
+# "alias: zammad" in Chart.yaml causes all upstream values to nest here.
+zammad:
+  # Zammad web service — ClusterIP only; accessed by ticketing-agent internally
+  service:
+    type: ClusterIP
+    port: 3000
+
+  # No Ingress — Zammad is in-cluster only for LogClaw
+  ingress:
+    enabled: false
+
+  # Bundled PostgreSQL for Zammad database
+  postgresql:
+    enabled: true
+    auth:
+      # Secret is managed by ExternalSecret (externalsecret-zammad.yaml)
+      # Must match target.name in externalsecret-zammad.yaml
+      existingSecret: ""       # rendered by template: {{ fullname }}-credentials
+
+  # Bundled Elasticsearch for Zammad full-text search
+  elasticsearch:
+    enabled: true
+
+  # Bundled Redis for Zammad ActionCable websockets
+  redis:
+    enabled: true
+
+  zammad:
+    # Run auto-install on first boot
+    initContainers:
+      autoInstall:
+        enabled: true
+
+  # Resource requests/limits for Zammad web/worker pods
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"

@@ -1,0 +1,111 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-readonly
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/rbac-purpose: "readonly-access"
+    logclaw.io/rbac-group: {{ .Values.rbac.readonlyGroupName | quote }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - pods/status
+      - services
+      - endpoints
+      - configmaps
+      - events
+      - persistentvolumeclaims
+      - resourcequotas
+      - limitranges
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["cert-manager.io"]
+    resources:
+      - certificates
+      - certificaterequests
+      - issuers
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["external-secrets.io"]
+    resources:
+      - externalsecrets
+      - secretstores
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-readonly
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/rbac-purpose: "readonly-access"
+    logclaw.io/rbac-group: {{ .Values.rbac.readonlyGroupName | quote }}
+subjects:
+  - kind: Group
+    name: {{ .Values.rbac.readonlyGroupName | quote }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: {{ include "logclaw-platform.fullname" . }}-readonly
+  apiGroup: rbac.authorization.k8s.io

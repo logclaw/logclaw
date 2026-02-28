@@ -1,0 +1,55 @@
+{{- if .Values.flink.sessionCluster.enabled }}
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionCluster
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-session
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+    logclaw.io/job-name: session-cluster
+  annotations:
+    logclaw.io/job-type: "session-cluster"
+    logclaw.io/description: "Interactive session cluster for Flink SQL and ad-hoc queries"
+    logclaw.io/tenant-id: {{ include "logclaw-flink.tenantId" . | quote }}
+spec:
+  image: {{ (.Values.global).imageRegistry | default "docker.io" }}/logclaw-flink-jobs:{{ .Values.flink.jobImageTag }}
+  imagePullPolicy: IfNotPresent
+  flinkVersion: {{ include "logclaw-flink.flinkVersion" . }}
+  flinkConfiguration:
+    {{- include "logclaw-flink.flinkConfiguration" . | nindent 4 }}
+  serviceAccount: {{ include "logclaw-flink.serviceAccountName" . }}
+  jobManager:
+    resource:
+      memory: {{ .Values.flink.jobManager.memory | quote }}
+      cpu: {{ .Values.flink.jobManager.cpu }}
+    replicas: {{ .Values.flink.jobManager.replicas }}
+  taskManager:
+    resource:
+      memory: {{ .Values.flink.taskManager.memory | quote }}
+      cpu: {{ .Values.flink.taskManager.cpu }}
+    replicas: {{ .Values.flink.taskManager.replicas }}
+  podTemplate:
+    spec:
+      serviceAccountName: {{ include "logclaw-flink.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9999
+        fsGroup: 9999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flink-main-container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "cpu" "2" | quote }}
+              memory: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "memory" "4Gi" | quote }}
+            limits:
+              cpu: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "cpu" "4" | quote }}
+              memory: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "memory" "8Gi" | quote }}
+{{- end }}

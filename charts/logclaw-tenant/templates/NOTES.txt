@@ -1,0 +1,34 @@
+╔══════════════════════════════════════════════════════════════╗
+║          LogClaw AI SRE Agent — Tenant Deployed              ║
+╚══════════════════════════════════════════════════════════════╝
+
+Tenant: {{ include "logclaw.tenantId" . }}
+Namespace: {{ .Release.Namespace }}
+Tier: {{ .Values.global.tier }}
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFY KAFKA CLUSTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl -n {{ .Release.Namespace }} get kafka -o wide
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFY FLINK JOBS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl -n {{ .Release.Namespace }} get flinkdeployment -o wide
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFY OPENSEARCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl -n {{ .Release.Namespace }} get opensearchcluster -o wide
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFY EXTERNAL SECRETS SYNCED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  kubectl -n {{ .Release.Namespace }} get externalsecret -o wide
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RUN HELM TESTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --timeout 5m --logs

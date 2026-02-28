@@ -1,0 +1,24 @@
+kafka:
+  replicas: 1
+  storage:
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: "10Gi"
+        deleteClaim: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+  jvmOptions:
+    -Xms: "512m"
+    -Xmx: "1g"
+kafkaConnect:
+  enabled: false
+s3Sink:
+  enabled: false
+mirrorMaker2:
+  enabled: false

@@ -1,0 +1,13 @@
+remote: origin
+target-branch: main
+chart-dirs:
+  - charts
+helm-extra-args: "--timeout 600s"
+excluded-charts:
+  - logclaw-tenant
+namespace: ct-logclaw
+install-timeout: 600
+upgrade-timeout: 600
+debug: false
+print-config: true
+lint-conf: tests/lint-conf.yaml

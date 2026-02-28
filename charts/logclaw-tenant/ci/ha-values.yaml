@@ -1,0 +1,21 @@
+# CI test values — HA tier
+global:
+  tenantId: "ci-ha-test"
+  tenantName: "CI HA Test Tenant"
+  storageClass: "standard"
+  storageClassHighThroughput: "standard"
+  tier: "ha"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-ci-ha-test"
+    region: "us-east-1"
+  secretStore:
+    provider: "aws"
+    region: "us-east-1"
+  monitoring:
+    enabled: true
+  llm:
+    provider: "disabled"
+
+zammad:
+  enabled: false

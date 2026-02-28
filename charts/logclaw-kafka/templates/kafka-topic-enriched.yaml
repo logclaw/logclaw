@@ -1,0 +1,19 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: enriched-logs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/topic-type: processed
+spec:
+  partitions: {{ .Values.topics.enriched.partitions }}
+  replicas: {{ .Values.topics.enriched.replicas }}
+  config:
+    retention.ms: {{ .Values.topics.enriched.retentionMs | quote }}
+    cleanup.policy: "delete"
+    min.insync.replicas: "2"
+    compression.type: "lz4"
+    max.message.bytes: "10485760"

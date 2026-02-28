@@ -1,0 +1,18 @@
+{{- if eq .Values.mode "deployment" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/purpose: >
+      Ensures at least {{ .Values.podDisruptionBudget.minAvailable }} ingestion pod(s)
+      remain available during voluntary disruptions (node drain, rolling upgrades).
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-ingestion.selectorLabels" . | nindent 6 }}
+{{- end }}

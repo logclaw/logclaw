@@ -1,0 +1,50 @@
+# CI test values — minimal config suitable for helm lint / helm template
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+
+config:
+  pagerduty:
+    enabled: false
+  jira:
+    enabled: false
+  servicenow:
+    enabled: false
+  anomaly:
+    minimumScore: 0.5
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# Minimal globals required to pass the helper guards
+global:
+  tenantId: "ci-test"
+  kafkaBrokers: "kafka-broker:9092"
+  kafkaTopics:
+    anomalies: "logclaw.anomalies"
+  opensearchEndpoint: "https://opensearch:9200"
+  topologyKey: "topology.kubernetes.io/zone"
+  imagePullSecrets: []
+  secretStore:
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+  monitoring:
+    enabled: false
+    prometheusNamespace: "monitoring"
+
+llm:
+  provider: "disabled"
+
+ticketing:
+  platform: "pagerduty-jira"
+
+zammad:
+  groupName: "SRE Incidents"

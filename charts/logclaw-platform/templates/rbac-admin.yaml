@@ -1,0 +1,198 @@
+# NOTE: Secret access is intentionally excluded from this Role.
+# Secrets are managed exclusively by External Secrets Operator (ESO) and the
+# logclaw-platform SecretStore. Direct access to Secrets by human operators
+# is controlled separately via a dedicated break-glass Role that requires
+# an audit-logged approval workflow. This prevents inadvertent credential exposure
+# and maintains a full audit trail for compliance (SOC2, ISO27001).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/rbac-purpose: "admin-access"
+    logclaw.io/rbac-group: {{ .Values.rbac.adminGroupName | quote }}
+    logclaw.io/secret-access: "excluded-use-break-glass-role"
+rules:
+  # Core workload resources — full CRUD, excluding Secrets
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - pods/exec
+      - pods/portforward
+      - pods/status
+      - services
+      - endpoints
+      - configmaps
+      - events
+      - persistentvolumeclaims
+      - resourcequotas
+      - limitranges
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  # Secrets — intentionally omitted. See annotation above.
+  # Access to Secrets requires the separate break-glass approval workflow.
+
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["cert-manager.io"]
+    resources:
+      - certificates
+      - certificaterequests
+      - issuers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["external-secrets.io"]
+    resources:
+      - externalsecrets
+      - secretstores
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: ["kafka.strimzi.io"]
+    resources:
+      - kafkas
+      - kafkatopics
+      - kafkausers
+      - kafkaconnects
+      - kafkaconnectors
+      - kafkamirrormakers
+      - kafkabridges
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+  - apiGroups: ["opensearch.opster.io"]
+    resources:
+      - opensearchclusters
+      - opensearchroles
+      - opensearchusers
+      - opensearchrolemappings
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/rbac-purpose: "admin-access"
+    logclaw.io/rbac-group: {{ .Values.rbac.adminGroupName | quote }}
+subjects:
+  - kind: Group
+    name: {{ .Values.rbac.adminGroupName | quote }}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: {{ include "logclaw-platform.fullname" . }}-admin
+  apiGroup: rbac.authorization.k8s.io

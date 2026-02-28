@@ -1,0 +1,68 @@
+OpenSearch Hot-Tier Storage — Deployment Summary
+=================================================
+
+Release   : {{ .Release.Name }}
+Namespace : {{ .Release.Namespace }}
+Version   : {{ .Chart.AppVersion }}
+Tenant    : {{ include "logclaw-opensearch.tenantId" . }}
+
+Cluster Endpoint
+----------------
+Internal (within the cluster):
+
+  https://{{ include "logclaw-opensearch.fullname" . }}.{{ .Release.Namespace }}.svc.{{ include "logclaw-opensearch.clusterDomain" . }}:9200
+
+Admin Credentials
+-----------------
+{{- if .Values.adminCredentialsSecret.createExternalSecret }}
+Admin credentials are synced automatically from your secret store.
+Secret name: {{ include "logclaw-opensearch.adminSecretName" . }}
+Secret path: logclaw/{{ include "logclaw-opensearch.tenantId" . }}/opensearch/admin-password
+
+  kubectl get secret {{ include "logclaw-opensearch.adminSecretName" . }} \
+    -n {{ .Release.Namespace }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+Admin credentials must exist in secret "{{ include "logclaw-opensearch.adminSecretName" . }}".
+Ensure it contains keys: username, password.
+{{- end }}
+
+Index Configuration
+-------------------
+Index pattern  : logclaw-logs-*
+ISM policy     : logclaw-hot-delete
+Hot retention  : {{ .Values.opensearch.ism.hotRetentionDays }} days
+Rollover size  : {{ .Values.opensearch.ism.rolloverSize }}
+Rollover age   : {{ .Values.opensearch.ism.rolloverAge }}
+
+Node Pools
+----------
+  masters      : {{ .Values.opensearch.masters.replicas }} replica(s), {{ .Values.opensearch.masters.diskSize }} disk
+  data         : {{ .Values.opensearch.data.replicas }} replica(s), {{ .Values.opensearch.data.diskSize }} disk
+  coordinators : {{ .Values.opensearch.coordinators.replicas }} replica(s)
+
+Checking Cluster Health
+-----------------------
+  kubectl run os-health --rm -it --image=curlimages/curl:8.7.1 \
+    --restart=Never -n {{ .Release.Namespace }} -- \
+    curl -sk -u admin:<PASSWORD> \
+    https://{{ include "logclaw-opensearch.fullname" . }}.{{ .Release.Namespace }}.svc.{{ include "logclaw-opensearch.clusterDomain" . }}:9200/_cluster/health?pretty
+
+Post-Install Job
+----------------
+A Kubernetes Job "{{ include "logclaw-opensearch.fullname" . }}-index-setup" was submitted
+to apply the ISM policy and index template. Check its status:
+
+  kubectl get jobs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl logs -n {{ .Release.Namespace }} job/{{ include "logclaw-opensearch.fullname" . }}-index-setup
+
+Notes
+-----
+- The OpenSearch Operator must be installed cluster-wide (opensearch-operator >= 2.6.1).
+- TLS is enabled for both transport and HTTP layers (certificates auto-generated).
+- PodDisruptionBudgets ensure at least 2 data and 2 master nodes remain available
+  during voluntary disruptions.
+{{- if ((.Values.global).monitoring).enabled }}
+- PrometheusRule alerts are active: ClusterRed, DiskHigh, JvmHeapHigh.
+{{- else }}
+- Monitoring alerts are disabled. Set global.monitoring.enabled=true to activate.
+{{- end }}

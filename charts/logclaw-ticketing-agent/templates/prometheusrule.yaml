@@ -1,0 +1,71 @@
+{{- if ((.Values.global).monitoring).enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-ticketing-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ticketing-agent.labels" . | nindent 4 }}
+    {{- with ((.Values.global).monitoring).prometheusRuleLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: logclaw-ticketing-agent.rules
+      interval: 30s
+      rules:
+        - alert: TicketingAgentDown
+          expr: |
+            absent(up{job="{{ include "logclaw-ticketing-agent.fullname" . }}", namespace="{{ .Release.Namespace }}"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+            component: ticketing-agent
+            tenant: {{ include "logclaw-ticketing-agent.tenantId" . | quote }}
+          annotations:
+            summary: "LogClaw Ticketing Agent is down"
+            description: >-
+              The ticketing-agent in namespace {{ .Release.Namespace }} has been
+              unreachable for more than 2 minutes. Anomaly events from Kafka will
+              not be processed and no tickets will be created.
+            runbook_url: "https://logclaw.io/runbooks/ticketing-agent-down"
+
+        - alert: TicketCreationFailed
+          expr: |
+            increase(logclaw_ticket_creation_errors_total{
+              namespace="{{ .Release.Namespace }}",
+              job="{{ include "logclaw-ticketing-agent.fullname" . }}"
+            }[5m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: ticketing-agent
+            tenant: {{ include "logclaw-ticketing-agent.tenantId" . | quote }}
+          annotations:
+            summary: "Ticketing Agent: elevated ticket creation failures"
+            description: >-
+              More than 5 ticket creation errors recorded in the last 5 minutes
+              for namespace {{ .Release.Namespace }}.
+              Check PagerDuty / Jira / ServiceNow credentials and connectivity.
+            runbook_url: "https://logclaw.io/runbooks/ticket-creation-failed"
+
+        - alert: AnomalyConsumerLagHigh
+          expr: |
+            kafka_consumergroup_lag{
+              consumergroup="{{ .Values.config.kafka.consumerGroup }}",
+              namespace="{{ .Release.Namespace }}"
+            } > {{ .Values.autoscaling.kafkaConsumerLagThreshold }}
+          for: 5m
+          labels:
+            severity: warning
+            component: ticketing-agent
+            tenant: {{ include "logclaw-ticketing-agent.tenantId" . | quote }}
+          annotations:
+            summary: "Anomaly Kafka consumer lag is high"
+            description: >-
+              Consumer group {{ .Values.config.kafka.consumerGroup | quote }} lag
+              has exceeded {{ .Values.autoscaling.kafkaConsumerLagThreshold }} for
+              more than 5 minutes. Anomaly events may be delayed; consider
+              increasing replica count or reviewing processing throughput.
+            runbook_url: "https://logclaw.io/runbooks/anomaly-consumer-lag-high"
+{{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-flink-operator
+description: >
+  Apache Flink Kubernetes Operator — cluster-level prerequisite for logclaw-flink.
+  Install once per cluster, NOT per tenant.
+type: application
+version: 1.9.0
+appVersion: "1.9.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: flink-kubernetes-operator
+    version: "1.9.0"
+    repository: "https://downloads.apache.org/flink/flink-kubernetes-operator-1.9.0/"

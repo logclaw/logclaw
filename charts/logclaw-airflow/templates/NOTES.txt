@@ -1,0 +1,93 @@
+Thank you for installing {{ .Chart.Name }} (chart version {{ .Chart.Version }}, app version {{ .Chart.AppVersion }}).
+
+Release : {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Tenant  : {{ include "logclaw-airflow.tenantId" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Airflow Webserver URL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if .Values.airflow.webserver }}
+  The Airflow webserver is deployed with {{ .Values.airflow.webserver.replicas | default 1 }} replica(s).
+{{- end }}
+
+  To access the UI, port-forward to your local machine:
+
+    kubectl port-forward svc/{{ .Release.Name }}-webserver 8080:8080 \
+      --namespace {{ .Release.Namespace }}
+
+  Then open: http://localhost:8080
+
+  Default credentials are managed via the createUserJob.
+  See: https://airflow.apache.org/docs/helm-chart/stable/manage-users.html
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DAG Repository
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if and .Values.airflow.dags .Values.airflow.dags.gitSync }}
+  {{- if .Values.airflow.dags.gitSync.enabled }}
+  git-sync is ENABLED.
+    Repo  : {{ .Values.airflow.dags.gitSync.repo | default "(not set — configure in your tenant values file)" }}
+    Branch: {{ .Values.airflow.dags.gitSync.branch | default "main" }}
+    SubPath: {{ .Values.airflow.dags.gitSync.subPath | default "dags/" }}
+
+  The SSH key for DAG repository access is synced from:
+    logclaw/{{ include "logclaw-airflow.tenantId" . }}/airflow/git-ssh-key
+  into the Kubernetes Secret "airflow-git-ssh".
+  {{- else }}
+  git-sync is DISABLED. DAGs must be loaded via another mechanism
+  (e.g., a persistent volume, baked into the image, or an init container).
+  {{- end }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Secrets (managed by ESO ExternalSecrets)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The following secrets are synced from your external secrets store:
+
+    Path prefix : logclaw/{{ include "logclaw-airflow.tenantId" . }}/airflow/
+    Keys synced :
+      - fernet-key            -> logclaw-airflow-credentials
+      - webserver-secret-key  -> logclaw-airflow-credentials
+      - postgresql-password   -> logclaw-airflow-credentials
+      - git-ssh-key           -> airflow-git-ssh
+
+  Verify sync status:
+    kubectl get externalsecrets --namespace {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Service Account (IRSA / Workload Identity)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Service account: {{ include "logclaw-airflow.serviceAccountName" . }}
+
+  To enable object storage access (S3 / GCS), annotate the SA in your
+  tenant values file:
+
+    # AWS — IRSA
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<role-name>
+
+    # GCP — Workload Identity
+    serviceAccount:
+      annotations:
+        iam.gke.io/service-account: <gsa-name>@<project-id>.iam.gserviceaccount.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Useful commands
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Check all pods:
+    kubectl get pods --namespace {{ .Release.Namespace }} -l release={{ .Release.Name }}
+
+  Tail scheduler logs:
+    kubectl logs --namespace {{ .Release.Namespace }} \
+      -l component=scheduler,release={{ .Release.Name }} --follow
+
+  Run Airflow CLI inside the scheduler pod:
+    kubectl exec --namespace {{ .Release.Namespace }} \
+      -it deploy/{{ .Release.Name }}-scheduler -- airflow dags list

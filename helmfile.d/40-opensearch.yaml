@@ -1,0 +1,11 @@
+releases:
+  - name: logclaw-opensearch-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-opensearch
+    values:
+      - charts/logclaw-opensearch/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.storageClass
+        value: {{ env "STORAGE_CLASS" | default "standard" }}

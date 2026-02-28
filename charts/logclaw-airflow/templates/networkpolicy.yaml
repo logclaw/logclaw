@@ -1,0 +1,224 @@
+# NetworkPolicy resources for logclaw-airflow
+# These policies apply defence-in-depth at the network layer:
+#   - Webserver: accepts inbound from ingress-controller and ArgoCD namespaces.
+#   - Scheduler: outbound to kube-dns, object storage (S3/GCS), and Kafka.
+#   - Workers (KubernetesExecutor pods): same egress as scheduler.
+# All other traffic is denied by default (assumes a default-deny baseline policy
+# is applied at the namespace level by the platform team).
+---
+# ── Airflow Webserver ─────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-airflow.fullname" . }}-webserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-airflow.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: webserver
+      release: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from the ingress-controller namespace (port 8080)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow ArgoCD health checks from the argocd namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # kube-dns — UDP and TCP port 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Object storage (S3 / GCS) for remote task logging — HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # PostgreSQL (bundled or external)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# ── Airflow Scheduler ─────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-airflow.fullname" . }}-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-airflow.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: scheduler
+      release: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ArgoCD health checks from the argocd namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - protocol: TCP
+          port: 8974  # Airflow scheduler health port
+  egress:
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Kubernetes API server (for spawning KubernetesExecutor pods)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Object storage (S3 / GCS) for remote task logging — HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # Kafka — DAG-triggered producers (default Kafka broker port)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9093  # TLS Kafka
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Airflow webserver (internal API calls from scheduler)
+    - to:
+        - podSelector:
+            matchLabels:
+              component: webserver
+              release: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# ── Airflow Workers (KubernetesExecutor task pods) ────────────────────────────
+# KubernetesExecutor spawns pods with the label component=worker;
+# this policy gives them the same controlled egress as the scheduler.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-airflow.fullname" . }}-workers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-airflow.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: worker
+      release: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Scheduler needs to reach worker pods for log fetching (port 8793)
+    - from:
+        - podSelector:
+            matchLabels:
+              component: scheduler
+              release: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 8793
+  egress:
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Object storage (S3 / GCS) — HTTPS for remote logging and artifact uploads
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # Kafka — DAG-triggered producers
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9093
+    # PostgreSQL (workers may open DB connections for XCom / metadata reads)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432

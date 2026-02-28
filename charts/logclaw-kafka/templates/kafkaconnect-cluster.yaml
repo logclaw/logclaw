@@ -1,0 +1,148 @@
+{{- if .Values.kafkaConnect.enabled }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: {{ .Release.Name }}-connect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    logclaw.io/component: kafka-connect
+  annotations:
+    # Allow KafkaConnector CRDs to be managed through this Connect cluster
+    strimzi.io/use-connector-resources: "true"
+spec:
+  version: {{ .Values.kafka.version | quote }}
+  replicas: {{ .Values.kafkaConnect.replicas }}
+
+  # Custom image with S3/Parquet plugins pre-installed
+  image: {{ .Values.kafkaConnect.image | quote }}
+
+  # Bootstrap to our Kafka cluster TLS listener
+  bootstrapServers: {{ include "logclaw-kafka.bootstrapServer" . | quote }}
+
+  # ── TLS configuration ──────────────────────────────────────────────────
+  tls:
+    trustedCertificates:
+      - secretName: {{ .Release.Name }}-cluster-ca-cert
+        certificate: ca.crt
+
+  # ── SCRAM-SHA-512 authentication ───────────────────────────────────────
+  authentication:
+    type: scram-sha-512
+    username: logclaw-connect
+    passwordSecret:
+      secretName: logclaw-connect
+      password: password
+
+  # ── Connect worker configuration ───────────────────────────────────────
+  config:
+    group.id: {{ index .Values.kafkaConnect.config "group.id" | quote }}
+    offset.storage.topic: "logclaw-connect-offsets"
+    offset.storage.replication.factor: {{ index .Values.kafkaConnect.config "offset.storage.replication.factor" | quote }}
+    status.storage.topic: "logclaw-connect-status"
+    status.storage.replication.factor: {{ index .Values.kafkaConnect.config "status.storage.replication.factor" | quote }}
+    config.storage.topic: "logclaw-connect-configs"
+    config.storage.replication.factor: {{ index .Values.kafkaConnect.config "config.storage.replication.factor" | quote }}
+    # Converter defaults — connectors can override per-topic
+    key.converter: "org.apache.kafka.connect.storage.StringConverter"
+    value.converter: "io.confluent.connect.avro.AvroConverter"
+    value.converter.schema.registry.url: {{ default "" .Values.s3Sink.format.schemaRegistryUrl | quote }}
+    # Parallelism
+    task.shutdown.graceful.timeout.ms: "10000"
+    offset.flush.interval.ms: "10000"
+    # REST API
+    rest.advertised.host.name: "$(POD_IP)"
+    rest.advertised.port: "8083"
+
+  # ── Resources ──────────────────────────────────────────────────────────
+  resources:
+    requests:
+      cpu: {{ .Values.kafkaConnect.resources.requests.cpu | quote }}
+      memory: {{ .Values.kafkaConnect.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.kafkaConnect.resources.limits.cpu | quote }}
+      memory: {{ .Values.kafkaConnect.resources.limits.memory | quote }}
+
+  # ── JVM options ────────────────────────────────────────────────────────
+  jvmOptions:
+    "-Xms": "1g"
+    "-Xmx": "2g"
+
+  # ── Metrics ────────────────────────────────────────────────────────────
+  metricsConfig:
+    type: jmxPrometheusExporter
+    valueFrom:
+      configMapKeyRef:
+        name: {{ .Release.Name }}-connect-metrics
+        key: connect-metrics-config.yml
+
+  # ── Pod template ───────────────────────────────────────────────────────
+  template:
+    pod:
+      metadata:
+        labels:
+          logclaw.io/component: kafka-connect
+          logclaw.io/tenant-id: {{ include "logclaw.tenantId" . }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    strimzi.io/cluster: {{ .Release.Name }}-connect
+                topologyKey: "kubernetes.io/hostname"
+    connectContainer:
+      env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: AWS_REGION
+          value: {{ default "us-east-1" .Values.global.objectStorage.region | quote }}
+
+---
+# ConfigMap for Kafka Connect JMX Prometheus metrics
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-connect-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+data:
+  connect-metrics-config.yml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    rules:
+      - pattern: kafka.connect<type=connect-worker-metrics><>([a-z-]+)
+        name: kafka_connect_worker_$1
+        type: GAUGE
+      - pattern: kafka.connect<type=connect-worker-rebalance-metrics><>([a-z-]+)
+        name: kafka_connect_worker_rebalance_$1
+        type: GAUGE
+      - pattern: kafka.connect<type=connector-metrics, connector=(.+)><>([a-z-]+)
+        name: kafka_connect_connector_$2
+        type: GAUGE
+        labels:
+          connector: "$1"
+      - pattern: kafka.connect<type=connector-task-metrics, connector=(.+), task=(.+)><>([a-z-]+)
+        name: kafka_connect_connector_task_$3
+        type: GAUGE
+        labels:
+          connector: "$1"
+          task: "$2"
+      - pattern: kafka.connect<type=sink-task-metrics, connector=(.+), task=(.+)><>([a-z-]+)
+        name: kafka_connect_sink_task_$3
+        type: GAUGE
+        labels:
+          connector: "$1"
+          task: "$2"
+      - pattern: kafka.connect<type=source-task-metrics, connector=(.+), task=(.+)><>([a-z-]+)
+        name: kafka_connect_source_task_$3
+        type: GAUGE
+        labels:
+          connector: "$1"
+          task: "$2"
+{{- end }}

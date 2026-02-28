@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-strimzi-operator
+description: >
+  Strimzi Kafka Operator — cluster-level prerequisite for logclaw-kafka.
+  Install once per cluster, NOT per tenant.
+type: application
+version: 0.41.0
+appVersion: "0.41.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: strimzi-kafka-operator
+    version: "0.41.0"
+    repository: "https://strimzi.io/charts/"

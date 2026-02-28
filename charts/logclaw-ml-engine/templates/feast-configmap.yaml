@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-feast-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: feast-server
+data:
+  feature_store.yaml: |
+    project: {{ include "logclaw-ml-engine.tenantId" . }}
+    provider: local
+    registry:
+      registry_type: file
+      path: /feast/data/registry.db
+    online_store:
+      type: redis
+      {{- /*
+        The password placeholder $(REDIS_PASSWORD) is resolved at Feast server
+        startup via the REDIS_PASSWORD environment variable injected from the
+        Kubernetes Secret.  Feast reads the connection_string verbatim and the
+        shell does NOT expand it — Feast's Redis client picks up the env var
+        through its own env-substitution layer.
+      */}}
+      connection_string: "{{ include "logclaw-ml-engine.redisHost" . }}:{{ .Values.global.externalRedis.port | default 6379 }},password=$(REDIS_PASSWORD)"
+    offline_store:
+      type: {{ .Values.mlEngine.feast.offlineStore.type | default "file" }}
+    entity_key_serialization_version: {{ .Values.mlEngine.feast.config.entity_key_serialization_version | default 2 }}

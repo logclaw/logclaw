@@ -1,0 +1,117 @@
+{{- if .Values.mirrorMaker2.enabled }}
+{{- $sourceBootstrap := required "mirrorMaker2.sourceBootstrapServers is required when mirrorMaker2.enabled=true" .Values.mirrorMaker2.sourceBootstrapServers }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaMirrorMaker2
+metadata:
+  name: {{ .Release.Name }}-mirror
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    logclaw.io/component: mirror-maker2
+spec:
+  version: {{ .Values.kafka.version | quote }}
+  replicas: 2
+
+  # ── Cluster definitions ────────────────────────────────────────────────
+  clusters:
+    # Source cluster (remote — cross-region)
+    - alias: {{ .Values.mirrorMaker2.sourceClusterAlias | quote }}
+      bootstrapServers: {{ $sourceBootstrap | quote }}
+      tls:
+        trustedCertificates:
+          - secretName: {{ .Release.Name }}-mirror-source-ca-cert
+            certificate: ca.crt
+      authentication:
+        type: scram-sha-512
+        username: logclaw-mirror-source
+        passwordSecret:
+          secretName: logclaw-mirror-source
+          password: password
+      config:
+        # Consumer config for source cluster
+        auto.offset.reset: "earliest"
+        max.poll.records: "500"
+
+    # Target cluster (local — this cluster)
+    - alias: {{ .Values.mirrorMaker2.targetClusterAlias | quote }}
+      bootstrapServers: {{ include "logclaw-kafka.bootstrapServer" . | quote }}
+      tls:
+        trustedCertificates:
+          - secretName: {{ .Release.Name }}-cluster-ca-cert
+            certificate: ca.crt
+      authentication:
+        type: scram-sha-512
+        username: logclaw-mirror-target
+        passwordSecret:
+          secretName: logclaw-mirror-target
+          password: password
+      config:
+        # Producer config for target cluster
+        acks: "all"
+        compression.type: "lz4"
+
+  # ── Mirror connectors ──────────────────────────────────────────────────
+  mirrors:
+    - sourceCluster: {{ .Values.mirrorMaker2.sourceClusterAlias | quote }}
+      targetCluster: {{ .Values.mirrorMaker2.targetClusterAlias | quote }}
+
+      sourceConnector:
+        tasksMax: 4
+        config:
+          # Topics to replicate (comma-separated pattern)
+          topics: {{ .Values.mirrorMaker2.replication.topics | quote }}
+          topics.exclude: ".*internal,.*connect.*,__.*"
+          # Replication factor for mirrored topics
+          replication.factor: {{ .Values.mirrorMaker2.replication.factor }}
+          # Preserve original partition count
+          sync.topic.configs.enabled: "true"
+          sync.topic.acls.enabled: "false"
+          # Offset tracking
+          offset-syncs.topic.replication.factor: {{ .Values.mirrorMaker2.replication.factor }}
+          # Refresh interval
+          refresh.topics.interval.seconds: "60"
+          # Prepend source alias to topic names on target
+          replication.policy.class: "org.apache.kafka.connect.mirror.DefaultReplicationPolicy"
+
+      heartbeatConnector:
+        config:
+          heartbeats.topic.replication.factor: {{ .Values.mirrorMaker2.replication.factor }}
+
+      checkpointConnector:
+        tasksMax: 1
+        config:
+          checkpoints.topic.replication.factor: {{ .Values.mirrorMaker2.replication.factor }}
+          # Sync consumer group offsets for seamless failover
+          sync.group.offsets.enabled: "true"
+          sync.group.offsets.interval.seconds: "60"
+          emit.checkpoints.interval.seconds: "60"
+          groups: "logclaw-flink-*,logclaw-connect-*"
+          groups.exclude: ".*internal.*"
+
+  # ── Resources ──────────────────────────────────────────────────────────
+  resources:
+    requests:
+      cpu: {{ .Values.mirrorMaker2.resources.requests.cpu | quote }}
+      memory: {{ .Values.mirrorMaker2.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.mirrorMaker2.resources.limits.cpu | quote }}
+      memory: {{ .Values.mirrorMaker2.resources.limits.memory | quote }}
+
+  # ── Pod template ───────────────────────────────────────────────────────
+  template:
+    pod:
+      metadata:
+        labels:
+          logclaw.io/component: mirror-maker2
+          logclaw.io/tenant-id: {{ include "logclaw.tenantId" . }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    strimzi.io/cluster: {{ .Release.Name }}-mirror
+                topologyKey: "kubernetes.io/hostname"
+{{- end }}

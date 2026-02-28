@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-cert-manager
+description: >
+  cert-manager — TLS certificate management for LogClaw.
+  Install once per cluster, NOT per tenant.
+type: application
+version: 1.16.1
+appVersion: "v1.16.1"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: cert-manager
+    version: "v1.16.1"
+    repository: "https://charts.jetstack.io"

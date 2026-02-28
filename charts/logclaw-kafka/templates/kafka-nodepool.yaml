@@ -1,0 +1,51 @@
+{{- $storageClass := default "standard" .Values.global.storageClassHighThroughput }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: combined
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+  annotations:
+    strimzi.io/next-node-ids: "[0-9]"
+spec:
+  # Combined pool handles both broker and controller roles (KRaft mode)
+  roles:
+    - broker
+    - controller
+
+  replicas: {{ .Values.kafka.replicas }}
+
+  storage:
+    type: {{ .Values.kafka.storage.type }}
+    volumes:
+      {{- range .Values.kafka.storage.volumes }}
+      - id: {{ .id }}
+        type: {{ .type }}
+        size: {{ .size | quote }}
+        deleteClaim: {{ .deleteClaim }}
+        class: {{ $storageClass | quote }}
+      {{- end }}
+
+  resources:
+    requests:
+      cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
+      memory: {{ .Values.kafka.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
+      memory: {{ .Values.kafka.resources.limits.memory | quote }}
+
+  jvmOptions:
+    "-Xms": {{ index .Values.kafka.jvmOptions "-Xms" | quote }}
+    "-Xmx": {{ index .Values.kafka.jvmOptions "-Xmx" | quote }}
+    gcLoggingEnabled: true
+
+  template:
+    pod:
+      metadata:
+        labels:
+          logclaw.io/component: kafka-broker
+          logclaw.io/tenant-id: {{ include "logclaw.tenantId" . }}
+      terminationGracePeriodSeconds: 60

@@ -1,0 +1,18 @@
+flink-kubernetes-operator:
+  webhook:
+    create: true
+  operatorPod:
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+  metrics:
+    port: 9249
+  watchNamespaces: []
+  namespaceLabelSelector:
+    matchExpressions:
+      - key: "logclaw.io/tenant"
+        operator: Exists

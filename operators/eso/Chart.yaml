@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-eso
+description: >
+  External Secrets Operator — cluster-level prerequisite for all LogClaw secret management.
+  Install once per cluster, NOT per tenant.
+type: application
+version: 0.10.3
+appVersion: "0.10.3"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: external-secrets
+    version: "0.10.3"
+    repository: "https://charts.external-secrets.io"

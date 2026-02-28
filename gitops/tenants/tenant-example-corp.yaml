@@ -1,0 +1,114 @@
+tenantId: "example-corp"
+clusterServer: ""
+
+global:
+  tenantName: "Example Corporation"
+  storageClass: "gp3"
+  storageClassHighThroughput: "io2"
+  tier: "ha"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-example-corp-data"
+    region: "us-east-1"
+  secretStore:
+    provider: "aws"
+    region: "us-east-1"
+  imagePullSecrets:
+    - name: "logclaw-registry-pull"
+  llm:
+    provider: "ollama"          # in-cluster, fully air-gapped
+    model: "llama3.2:8b"
+  monitoring:
+    enabled: true
+
+platform:
+  enabled: true
+ingestion:
+  enabled: true
+kafka:
+  enabled: true
+flink:
+  enabled: true
+opensearch:
+  enabled: true
+mlEngine:
+  enabled: true
+airflow:
+  enabled: true
+ticketingAgent:
+  enabled: true
+
+logclaw-kafka:
+  kafka:
+    replicas: 3
+    storage:
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: "1Ti"
+          deleteClaim: false
+
+logclaw-opensearch:
+  opensearch:
+    masters:
+      replicas: 3
+    data:
+      replicas: 3
+      diskSize: "1Ti"
+
+logclaw-ingestion:
+  replicaCount: 5
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 30
+
+# Multi-platform ticketing: PagerDuty for P1 alerting, Jira for all tickets,
+# Zammad for internal SRE team workflow. All three enabled simultaneously.
+logclaw-ticketing-agent:
+  config:
+    pagerduty:
+      enabled: true             # P1/P2 immediate alerting
+      severityMapping:
+        critical: "critical"
+        high: "error"
+        medium: "warning"
+        low: "info"
+      autoResolveTimeoutMinutes: 60
+    jira:
+      enabled: true             # Ticket creation for all severities
+      baseUrl: "https://example-corp.atlassian.net"
+      projectKey: "SRE"
+      issueType: "Incident"
+    servicenow:
+      enabled: false
+    opsgenie:
+      enabled: false
+    zammad:
+      enabled: true             # In-cluster ITSM (no data egress for log context)
+      groupName: "SRE Incidents"
+    slack:
+      enabled: true             # Slack notifications for critical/high
+      channel: "#sre-incidents"
+      notifyOnSeverity:
+        - "critical"
+        - "high"
+    routing:
+      critical: ["pagerduty", "jira", "zammad", "slack"]
+      high: ["jira", "zammad", "slack"]
+      medium: ["jira", "zammad"]
+      low: ["jira"]
+    anomaly:
+      minimumScore: 0.90
+
+logclaw-airflow:
+  airflow:
+    dags:
+      gitSync:
+        enabled: true
+        repo: "git@github.com:example-corp/logclaw-ml-pipelines.git"
+        branch: "main"
+
+# Enable in-cluster Zammad ITSM deployment
+zammad:
+  enabled: true

@@ -1,0 +1,27 @@
+flink:
+  jobManager:
+    cpu: 0.5
+    memory: "512m"
+    replicas: 1
+  taskManager:
+    cpu: 1
+    memory: "1024m"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+  etlJob:
+    enabled: true
+    parallelism: 1
+  enrichmentJob:
+    enabled: true
+    parallelism: 1
+  anomalyJob:
+    enabled: true
+    parallelism: 2
+  sessionCluster:
+    enabled: false

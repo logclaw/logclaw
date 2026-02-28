@@ -1,0 +1,113 @@
+# =============================================================
+# GLOBAL — inherited by all subcharts via .Values.global
+# =============================================================
+global:
+  # Tenant identity (required — will fail helm lint if empty)
+  tenantId: ""
+  tenantName: ""
+
+  # Multi-cloud storage (CSI-compatible — no cloud-specific names)
+  storageClass: ""
+  storageClassHighThroughput: ""
+  storageClassArchive: ""
+
+  # Image registry and pull secrets
+  imagePullSecrets: []
+  imageRegistry: "ghcr.io/logclaw"
+
+  # Kafka — injected into Flink, Vector, ticketing-agent
+  kafkaBrokers: ""
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
+    dlq: "dead-letter-queue"
+
+  # OpenSearch hot-tier endpoint
+  opensearchEndpoint: ""
+
+  # Object storage (multi-cloud abstraction)
+  objectStorage:
+    provider: "s3"        # s3 | gcs | azure
+    bucket: ""
+    endpoint: ""          # for self-hosted MinIO
+    region: "us-east-1"
+
+  # Secret management backend
+  secretStore:
+    provider: "aws"       # aws | gcp | vault | azure
+    region: "us-east-1"
+    projectId: ""
+    vaultAddress: ""
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+
+  # Networking
+  clusterDomain: "cluster.local"
+  ingressClass: "nginx"
+
+  # TLS via cert-manager
+  tls:
+    enabled: true
+    issuerName: "logclaw-issuer"
+    issuerKind: "ClusterIssuer"
+
+  # HA tier: standard | ha | ultra-ha
+  tier: "ha"
+
+  # Multi-AZ topology spreading
+  topologyKey: "topology.kubernetes.io/zone"
+
+  # Pod Security Standards
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
+
+  # Observability
+  monitoring:
+    enabled: true
+    prometheusNamespace: "monitoring"
+    grafanaDashboards: true
+
+  # ── LLM provider for RCA summary generation ──────────────────────────────
+  llm:
+    provider: "disabled"        # claude | openai | ollama | vllm | disabled
+    model: "llama3.2:8b"        # model name (ollama: llama3.2:8b, claude: claude-3-5-haiku, etc.)
+    endpoint: ""                # auto-resolved for ollama; required only for vllm/custom
+    temperature: 0.2
+    maxTokens: 2048
+    timeoutSeconds: 60
+
+  # Resource scaling preset applied as defaults to all subcharts
+  resourcePreset: "medium"    # small | medium | large | xlarge
+
+# =============================================================
+# SUBCHART ENABLE/DISABLE TOGGLES
+# =============================================================
+platform:
+  enabled: true
+
+ingestion:
+  enabled: true
+
+kafka:
+  enabled: true
+
+flink:
+  enabled: true
+
+opensearch:
+  enabled: true
+
+mlEngine:
+  enabled: true
+
+airflow:
+  enabled: true
+
+ticketingAgent:
+  enabled: true
+
+zammad:
+  enabled: false                # opt-in: deploy in-cluster Zammad ITSM (replaces PD + Jira)

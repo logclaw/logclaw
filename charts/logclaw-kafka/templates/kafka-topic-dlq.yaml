@@ -1,0 +1,20 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dead-letter-queue
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/topic-type: dlq
+spec:
+  partitions: {{ .Values.topics.dlq.partitions }}
+  replicas: {{ .Values.topics.dlq.replicas }}
+  config:
+    retention.ms: {{ .Values.topics.dlq.retentionMs | quote }}
+    # Long retention for DLQ — supports 30-day incident investigation
+    cleanup.policy: "delete"
+    min.insync.replicas: "2"
+    compression.type: "gzip"
+    max.message.bytes: "10485760"

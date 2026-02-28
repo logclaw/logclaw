@@ -1,0 +1,103 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/purpose: >
+      Controls ingress/egress for the logclaw-ingestion pods.
+      Allows: PrivateLink log ingest, Kafka egress, DNS resolution,
+      and Prometheus scraping.
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-ingestion.selectorLabels" . | nindent 6 }}
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # --- Allow inbound log data on the HTTP receiver port from anywhere ---
+    # This is the PrivateLink endpoint; the cloud provider's NLB enforces
+    # network-level restrictions; here we allow from all sources.
+    - ports:
+        - port: {{ .Values.sources.http.port }}
+          protocol: TCP
+      # No `from` block = allow from all sources (required for PrivateLink NLB health checks)
+
+    {{- if .Values.sources.syslog.enabled }}
+    # --- Allow syslog inbound (if enabled) ---
+    - ports:
+        - port: {{ .Values.sources.syslog.port }}
+          protocol: TCP
+      # No `from` block = allow from all sources
+    {{- end }}
+
+    # --- Allow Prometheus scraping on metrics port ---
+    - ports:
+        - port: 9598
+          protocol: TCP
+      from:
+        # Scraping from any pod in the cluster bearing the prometheus scrape label
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        # Allow scraping from Prometheus in the same namespace
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+
+    # --- Allow Vector internal API port (health checks from same namespace) ---
+    - ports:
+        - port: 8686
+          protocol: TCP
+      from:
+        - podSelector: {}
+
+  egress:
+    # --- Allow outbound to Kafka brokers on port 9093 (TLS) ---
+    # Brokers may be in the same namespace or a dedicated infra namespace
+    - ports:
+        - port: 9093
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+
+    # --- Also allow plaintext Kafka port 9092 (for environments without mTLS) ---
+    - ports:
+        - port: 9092
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+
+    # --- Allow DNS resolution via kube-dns ---
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+
+    # --- Allow Kubernetes API server access (for metadata enrichment) ---
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+
+    # --- Allow HTTPS egress for cert-manager webhook and external endpoints ---
+    - ports:
+        - port: 443
+          protocol: TCP

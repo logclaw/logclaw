@@ -1,0 +1,74 @@
+{{- $tenantId := include "logclaw.tenantId" . -}}
+# Pod Security Standards (PSS) are enforced at the namespace level via labels
+# applied by the umbrella chart. This ConfigMap serves as in-cluster documentation
+# of the PSS configuration in effect for this tenant namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-security-info
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant-id: {{ $tenantId | quote }}
+    logclaw.io/config-purpose: "pod-security-standards-documentation"
+data:
+  pss-level: |
+    Pod Security Standards (PSS) Configuration for Tenant: {{ $tenantId }}
+    =========================================================================
+
+    Enforcement Mode:
+      - enforce: {{ .Values.global.podSecurity.enforceLevel | default "restricted" }}
+      - audit:   {{ .Values.global.podSecurity.auditLevel | default "restricted" }}
+      - warn:    {{ .Values.global.podSecurity.warnLevel | default "restricted" }}
+
+    PSS Level: {{ .Values.global.podSecurity.enforceLevel | default "restricted" | upper }}
+
+    Restrictions in effect (per Kubernetes PSS 'restricted' profile):
+      - Privilege Escalation:   DENIED  (allowPrivilegeEscalation: false)
+      - Privileged Containers:  DENIED  (privileged: false)
+      - Host Network:           DENIED  (hostNetwork: false)
+      - Host PID:               DENIED  (hostPID: false)
+      - Host IPC:               DENIED  (hostIPC: false)
+      - Host Ports:             DENIED  (hostPort not allowed)
+      - /proc Mount Type:       DEFAULT only (procMount: Default)
+      - Seccomp Profile:        REQUIRED (RuntimeDefault or Localhost)
+      - AppArmor:               Allowed (RuntimeDefault or Localhost if set)
+      - SELinux:                Restricted (no custom type, role, or user)
+      - Sysctls:                RESTRICTED (only safe sysctls permitted)
+      - Capabilities:           DROP ALL required; no NET_RAW; only allowed adds: []
+      - Volume Types:           Restricted to: configMap, emptyDir, ephemeral,
+                                  projected, secret, downwardAPI, persistentVolumeClaim
+      - Run As Non-Root:        REQUIRED (runAsNonRoot: true)
+      - Run As User:            MUST NOT be 0 (root)
+      - Seccomp:                RuntimeDefault or Localhost profile required
+
+    Namespace Labels Applied by Umbrella Chart:
+      pod-security.kubernetes.io/enforce: {{ .Values.global.podSecurity.enforceLevel | default "restricted" }}
+      pod-security.kubernetes.io/enforce-version: {{ .Values.global.podSecurity.enforceVersion | default "latest" }}
+      pod-security.kubernetes.io/audit: {{ .Values.global.podSecurity.auditLevel | default "restricted" }}
+      pod-security.kubernetes.io/audit-version: {{ .Values.global.podSecurity.auditVersion | default "latest" }}
+      pod-security.kubernetes.io/warn: {{ .Values.global.podSecurity.warnLevel | default "restricted" }}
+      pod-security.kubernetes.io/warn-version: {{ .Values.global.podSecurity.warnVersion | default "latest" }}
+
+    Reference: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+    Chart Version: {{ .Chart.Version }}
+    Generated: {{ now | date "2006-01-02" }}
+
+  recommended-securitycontext: |
+    # Recommended SecurityContext for all LogClaw workloads in this namespace:
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    containers:
+      - name: example
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL

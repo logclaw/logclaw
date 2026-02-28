@@ -1,0 +1,73 @@
+# CI default values for logclaw-platform chart
+# Used by helm lint and helm unittest in CI pipelines.
+# Provides all required global.* values that would normally come from the umbrella chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+tls:
+  issuerType: "selfsigned"
+  acme:
+    email: "platform@logclaw.io"
+    server: "https://acme-v02.api.letsencrypt.org/directory"
+  ca:
+    secretName: "logclaw-ca-tls"
+
+rbac:
+  readonlyGroupName: "logclaw-readonly"
+  adminGroupName: "logclaw-admin"
+
+# Global values normally injected by the umbrella chart
+global:
+  tenantId: "ci-tenant"
+
+  secretStore:
+    provider: "aws"
+    refreshInterval: "1h"
+    aws:
+      region: "us-east-1"
+      iamRoleArn: "arn:aws:iam::123456789012:role/logclaw-ci-tenant-eso"
+    gcp:
+      projectId: "logclaw-ci-project"
+      clusterName: "logclaw-ci-cluster"
+      clusterLocation: "us-central1"
+      serviceAccount: "logclaw-eso@logclaw-ci-project.iam.gserviceaccount.com"
+    vault:
+      server: "https://vault.logclaw.io"
+      path: "secret"
+      version: "v2"
+      namespace: "logclaw"
+      auth:
+        mountPath: "kubernetes"
+        role: "logclaw-ci-tenant"
+    azure:
+      vaultUrl: "https://logclaw-ci-kv.vault.azure.net"
+      clientId: "00000000-0000-0000-0000-000000000000"
+      tenantId: "00000000-0000-0000-0000-000000000001"
+
+  tls:
+    issuerName: "logclaw-selfsigned"
+    issuerKind: "ClusterIssuer"
+    duration: "2160h"
+    renewBefore: "360h"
+    internalDuration: "8760h"
+    internalRenewBefore: "720h"
+
+  monitoring:
+    namespace: "monitoring"
+
+  argocd:
+    namespace: "argocd"
+
+  podSecurity:
+    enforceLevel: "restricted"
+    enforceVersion: "latest"
+    auditLevel: "restricted"
+    auditVersion: "latest"
+    warnLevel: "restricted"
+    warnVersion: "latest"

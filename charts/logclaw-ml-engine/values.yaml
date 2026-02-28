@@ -1,0 +1,113 @@
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+mlEngine:
+  redis:
+    bundled: true    # false = use external Redis
+
+  feast:
+    image:
+      repository: "ghcr.io/feast-dev/feast"
+      tag: "0.40.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    service:
+      grpcPort: 6566
+      httpPort: 6567
+    offlineStore:
+      type: "file"    # file | bigquery | snowflake | redshift
+    onlineStore:
+      type: "redis"   # redis is the online store
+    config:
+      project: ""     # set to global.tenantId at runtime
+      entity_key_serialization_version: 2
+
+  kserve:
+    torchServeVersion: "0.11.0"
+    modelVersion: "latest"
+    minReplicas: 2
+    maxReplicas: 10
+    scaleTarget: 5
+    gpu:
+      enabled: false
+    resources:
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+
+  # ── Ollama in-cluster LLM inference ──────────────────────────────────────
+  # Enabled automatically when global.llm.provider=ollama.
+  # Used by the ticketing-agent for RCA summary generation.
+  ollama:
+    enabled: false              # auto-enabled via global.llm.provider=ollama
+    image:
+      repository: "ollama/ollama"
+      tag: "0.5"
+      pullPolicy: IfNotPresent
+    port: 11434
+    resources:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+    persistence:
+      size: "50Gi"              # model weights storage (llama3.2:8b ≈ 5GB, llama3.1:70b ≈ 40GB)
+    nodeSelector: {}
+    tolerations: []
+
+# Bitnami Redis values (passed through)
+redis:
+  auth:
+    enabled: true
+    existingSecret: "logclaw-ml-engine-redis-credentials"
+    existingSecretPasswordKey: "redis-password"
+  master:
+    persistence:
+      enabled: true
+      size: "20Gi"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: "20Gi"
+
+podDisruptionBudget:
+  minAvailable: 1
+
+# Global values — typically injected by parent chart or umbrella chart
+global:
+  tenantId: ""          # required: e.g. "acme-corp"
+  clusterDomain: "cluster.local"
+  topologyKey: "topology.kubernetes.io/zone"
+  objectStorage:
+    provider: "s3"      # s3 | gs | azure
+    bucket: "logclaw-models"
+  monitoring:
+    enabled: false      # set true to deploy PrometheusRule
+  externalRedis:
+    host: ""            # required when mlEngine.redis.bundled=false
+    port: 6379

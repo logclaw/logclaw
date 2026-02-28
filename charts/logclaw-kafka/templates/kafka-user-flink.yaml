@@ -1,0 +1,95 @@
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: logclaw-flink
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/component: flink
+spec:
+  authentication:
+    type: scram-sha-512
+
+  authorization:
+    type: simple
+    acls:
+      # Read enriched logs for stream processing
+      - resource:
+          type: topic
+          name: "enriched-logs"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+
+      # Read anomaly events for pattern detection
+      - resource:
+          type: topic
+          name: "anomaly-events"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+
+      # Write enriched output back to enriched-logs
+      - resource:
+          type: topic
+          name: "enriched-logs"
+          patternType: literal
+        operations:
+          - Write
+
+      # Write detected anomalies
+      - resource:
+          type: topic
+          name: "anomaly-events"
+          patternType: literal
+        operations:
+          - Write
+
+      # Write failed records to DLQ
+      - resource:
+          type: topic
+          name: "dead-letter-queue"
+          patternType: literal
+        operations:
+          - Write
+          - Describe
+
+      # Also needs raw-logs for initial enrichment pipeline
+      - resource:
+          type: topic
+          name: "raw-logs"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+
+      # Flink consumer group access — supports wildcard for job parallelism
+      - resource:
+          type: group
+          name: "logclaw-flink-"
+          patternType: prefix
+        operations:
+          - Read
+          - Describe
+          - Delete
+
+      # Transactional ID for exactly-once processing
+      - resource:
+          type: transactionalId
+          name: "logclaw-flink-"
+          patternType: prefix
+        operations:
+          - Write
+          - Describe
+
+      # Idempotent producer
+      - resource:
+          type: cluster
+          name: kafka-cluster
+          patternType: literal
+        operations:
+          - IdempotentWrite

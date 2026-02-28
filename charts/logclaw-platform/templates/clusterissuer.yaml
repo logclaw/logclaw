@@ -1,0 +1,33 @@
+{{- if eq (.Values.global.tls.issuerKind | default "ClusterIssuer") "ClusterIssuer" -}}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.global.tls.issuerName | required "global.tls.issuerName is required" | quote }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/issuer-type: {{ .Values.tls.issuerType | quote }}
+spec:
+  {{- if eq .Values.tls.issuerType "acme" }}
+  acme:
+    email: {{ .Values.tls.acme.email | required "tls.acme.email is required when issuerType is acme" | quote }}
+    server: {{ .Values.tls.acme.server | quote }}
+    privateKeySecretRef:
+      name: {{ printf "%s-acme-account-key" (include "logclaw-platform.fullname" .) | quote }}
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+            podTemplate:
+              spec:
+                nodeSelector:
+                  kubernetes.io/os: linux
+  {{- else if eq .Values.tls.issuerType "selfsigned" }}
+  selfSigned: {}
+  {{- else if eq .Values.tls.issuerType "ca" }}
+  ca:
+    secretName: {{ .Values.tls.ca.secretName | required "tls.ca.secretName is required when issuerType is ca" | quote }}
+  {{- else }}
+  {{- fail (printf "Unsupported tls.issuerType: %s. Must be one of: acme, selfsigned, ca" .Values.tls.issuerType) }}
+  {{- end }}
+{{- end }}

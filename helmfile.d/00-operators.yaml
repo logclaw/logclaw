@@ -1,0 +1,45 @@
+repositories:
+  - name: strimzi
+    url: "https://strimzi.io/charts/"
+  - name: external-secrets
+    url: "https://charts.external-secrets.io"
+  - name: jetstack
+    url: "https://charts.jetstack.io"
+  - name: opensearch-operator
+    url: "https://opster.github.io/opensearch-k8s-operator/"
+
+releases:
+  - name: strimzi-kafka-operator
+    namespace: strimzi-system
+    chart: strimzi/strimzi-kafka-operator
+    version: "0.41.0"
+    createNamespace: true
+    values:
+      - operators/strimzi/values.yaml
+    set:
+      - name: watchAnyNamespace
+        value: true
+
+  - name: external-secrets
+    namespace: external-secrets
+    chart: external-secrets/external-secrets
+    version: "0.10.3"
+    createNamespace: true
+    values:
+      - operators/eso/values.yaml
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: "v1.16.1"
+    createNamespace: true
+    values:
+      - operators/cert-manager/values.yaml
+
+  - name: opensearch-operator
+    namespace: opensearch-operator-system
+    chart: opensearch-operator/opensearch-operator
+    version: "2.6.1"
+    createNamespace: true
+    values:
+      - operators/opensearch-operator/values.yaml

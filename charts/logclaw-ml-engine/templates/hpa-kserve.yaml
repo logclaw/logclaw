@@ -1,0 +1,35 @@
+{{/*
+KServe manages autoscaling natively via the predictor spec fields
+(minReplicas, maxReplicas, scaleTarget, scaleMetric) set in
+kserve-inferenceservice.yaml. When the cluster runs Knative/KPA, the
+KServe operator wires up the Knative PodAutoscaler automatically; no
+external HPA is required or desired.
+
+This ConfigMap documents the active scaling configuration so that
+platform operators can inspect it without reading the InferenceService
+spec directly.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-kserve-scaling-info
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kserve-predictor
+  annotations:
+    logclaw.io/description: >
+      KServe predictor scaling is managed natively by the KServe/Knative
+      operator. This ConfigMap documents the scaling parameters in use.
+      Do NOT attach an external HPA to the KServe predictor Deployment —
+      it will conflict with the KPA/HPA that KServe manages internally.
+data:
+  minReplicas: {{ .Values.mlEngine.kserve.minReplicas | quote }}
+  maxReplicas: {{ .Values.mlEngine.kserve.maxReplicas | quote }}
+  scaleTarget: {{ .Values.mlEngine.kserve.scaleTarget | quote }}
+  scaleMetric: "concurrency"
+  inferenceServiceName: {{ include "logclaw-ml-engine.inferenceServiceName" . | quote }}
+  note: >
+    To change scaling parameters, update mlEngine.kserve.minReplicas,
+    mlEngine.kserve.maxReplicas, and mlEngine.kserve.scaleTarget in your
+    values file and run helm upgrade.

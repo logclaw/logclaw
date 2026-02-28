@@ -1,0 +1,87 @@
+{{- if .Values.flink.anomalyJob.enabled }}
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-anomaly
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+    logclaw.io/job-name: anomaly
+  annotations:
+    logclaw.io/job-type: "anomaly-scoring"
+    logclaw.io/slo: "sub-200ms-p99"
+    logclaw.io/tenant-id: {{ include "logclaw-flink.tenantId" . | quote }}
+    logclaw.io/critical: "true"
+spec:
+  image: {{ (.Values.global).imageRegistry | default "docker.io" }}/logclaw-flink-jobs:{{ .Values.flink.jobImageTag }}
+  imagePullPolicy: IfNotPresent
+  flinkVersion: {{ include "logclaw-flink.flinkVersion" . }}
+  flinkConfiguration:
+    {{- include "logclaw-flink.flinkConfiguration" . | nindent 4 }}
+    {{- /* Tighten checkpointing for low-latency anomaly job */}}
+    execution.checkpointing.interval: "15s"
+    execution.checkpointing.timeout: "30s"
+    {{- /* Reduce network buffer timeout to lower end-to-end latency */}}
+    execution.buffer-timeout: "1ms"
+    pipeline.operator-chaining: "true"
+  serviceAccount: {{ include "logclaw-flink.serviceAccountName" . }}
+  jobManager:
+    resource:
+      memory: {{ .Values.flink.jobManager.memory | quote }}
+      cpu: {{ .Values.flink.jobManager.cpu }}
+    replicas: {{ .Values.flink.jobManager.replicas }}
+  taskManager:
+    resource:
+      memory: {{ .Values.flink.taskManager.memory | quote }}
+      cpu: {{ .Values.flink.taskManager.cpu }}
+    {{- /*
+    Anomaly scoring is the latency-critical path; run more TaskManagers
+    than other jobs. We double the default replica count, with a minimum of 4.
+    */}}
+    replicas: {{ max 4 (mul .Values.flink.taskManager.replicas 2) }}
+  job:
+    jarURI: local:///opt/flink/jobs/logclaw-anomaly-scorer-{{ .Values.flink.jobImageTag }}.jar
+    entryClass: "io.logclaw.flink.AnomalyScoringJob"
+    parallelism: {{ .Values.flink.anomalyJob.parallelism }}
+    upgradeMode: last-state
+    args:
+      - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
+      - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"
+      - "--kafka.output.topic={{ ((.Values.global).kafkaTopics).anomalies | default "anomalies" }}"
+      - "--kafka.dlq.topic={{ ((.Values.global).kafkaTopics).dlq | default "dlq" }}"
+      - "--tenant.id={{ include "logclaw-flink.tenantId" . }}"
+      - "--kserve.endpoint=http://logclaw-ml-engine-anomaly-model-predictor.{{ .Release.Namespace }}.svc.{{ include "logclaw-flink.clusterDomain" . }}"
+      - "--opensearch.endpoint={{ (.Values.global).opensearchEndpoint | default "" }}"
+    state: running
+  podTemplate:
+    spec:
+      serviceAccountName: {{ include "logclaw-flink.serviceAccountName" . }}
+      {{- /* Priority class for the latency-critical anomaly job */}}
+      {{- if ((.Values.global).highPriorityClassName) }}
+      priorityClassName: {{ .Values.global.highPriorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9999
+        fsGroup: 9999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flink-main-container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "cpu" "2" | quote }}
+              memory: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "memory" "4Gi" | quote }}
+            limits:
+              cpu: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "cpu" "4" | quote }}
+              memory: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "memory" "8Gi" | quote }}
+          env:
+            - name: FLINK_JOB_LATENCY_SLO_MS
+              value: "200"
+{{- end }}

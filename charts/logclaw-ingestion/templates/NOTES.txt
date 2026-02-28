@@ -1,0 +1,117 @@
+=============================================================================
+  LogClaw Ingestion — {{ .Release.Name }}
+=============================================================================
+
+  Chart version : {{ .Chart.Version }}
+  App version   : {{ .Chart.AppVersion }}
+  Namespace     : {{ .Release.Namespace }}
+  Tenant ID     : {{ include "logclaw.tenantId" . }}
+  Mode          : {{ .Values.mode }}
+
+-----------------------------------------------------------------------------
+{{- if eq .Values.mode "deployment" }}
+
+  MODE: PrivateLink Receiver (Deployment)
+
+  The ingestion edge is running as a Deployment with {{ .Values.replicaCount }} replica(s)
+  {{- if .Values.autoscaling.enabled }}
+  (autoscaling: {{ .Values.autoscaling.minReplicas }}–{{ .Values.autoscaling.maxReplicas }} replicas).
+  {{- else }}.{{- end }}
+
+  SERVICE ENDPOINT
+  ----------------
+  The ClusterIP Service is available at:
+
+    http{{ if .Values.sources.http.tls.enabled }}s{{ end }}://{{ include "logclaw-ingestion.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.sources.http.port }}
+
+  To verify connectivity from within the cluster:
+
+    kubectl -n {{ .Release.Namespace }} run curl-test --image=curlimages/curl --rm -it -- \
+      curl -v http{{ if .Values.sources.http.tls.enabled }}s{{ end }}://{{ include "logclaw-ingestion.fullname" . }}:{{ .Values.sources.http.port }}/health
+
+  PRIVATELINK SETUP
+  -----------------
+  To expose this Service externally via AWS PrivateLink:
+    1. Create a Network Load Balancer targeting this Service.
+    2. Create a VPC Endpoint Service from the NLB.
+    3. Share the endpoint service with your enterprise customer VPCs.
+
+{{- else }}
+
+  MODE: Node Log Collection (DaemonSet)
+
+  The ingestion edge is running as a DaemonSet on all nodes
+  (tolerations: [{operator: Exists}]).
+
+  Logs are collected from:
+    - /var/log/containers/*.log  (Kubernetes container logs)
+    - /var/lib/docker/containers (Docker JSON logs)
+
+  To check collection status:
+
+    kubectl -n {{ .Release.Namespace }} get pods -l {{ include "logclaw-ingestion.selectorLabels" . | replace ": " "=" | replace "\n" "," }}
+
+{{- end }}
+
+-----------------------------------------------------------------------------
+
+  KAFKA SINK
+  ----------
+  Kafka topic : {{ include "logclaw.kafkaRawLogsTopic" . }}
+  Brokers     : {{ include "logclaw.kafkaBrokers" . }}
+  Compression : {{ .Values.sink.kafka.compression }}
+  Encoding    : {{ .Values.sink.kafka.encoding }}
+
+  DROP-SAMPLING (intentional, before Kafka)
+  -----------------------------------------
+  {{- range .Values.sampling.rules }}
+  {{ .level | printf "%-8s" }} → {{ mulf .rate 100.0 }}% pass-through
+  {{- end }}
+
+-----------------------------------------------------------------------------
+
+  METRICS
+  -------
+  Prometheus metrics are exposed at:
+
+    http://<pod-ip>:9598/metrics
+
+  Pod annotations are set for auto-discovery:
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   "9598"
+    prometheus.io/path:   "/metrics"
+
+{{- if ((.Values.global).monitoring).enabled }}
+
+  PrometheusRules deployed:
+    - LogClawIngestionLagHigh       (Kafka latency > 500ms)
+    - LogClawIngestionKafkaErrors   (Kafka send errors > 0)
+    - LogClawIngestionDroppedEvents (discarded events > 0)
+    - LogClawIngestionBufferNearFull (buffer > 80%)
+    - LogClawIngestionReplicasLow   (replicas < PDB minimum)
+
+{{- else }}
+
+  NOTE: global.monitoring.enabled is false — PrometheusRules not deployed.
+  Set global.monitoring.enabled=true to enable alerting rules.
+
+{{- end }}
+
+-----------------------------------------------------------------------------
+
+  USEFUL COMMANDS
+  ---------------
+
+  # Stream Vector logs from all ingestion pods:
+  kubectl -n {{ .Release.Namespace }} logs -l {{ "app.kubernetes.io/name=" }}{{ include "logclaw-ingestion.name" . }} -f --max-log-requests 20
+
+  # Check Vector internal health:
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "logclaw-ingestion.fullname" . }} -- \
+    vector top
+
+  # Upgrade this release:
+  helm upgrade {{ .Release.Name }} logclaw/logclaw-ingestion \
+    --namespace {{ .Release.Namespace }} \
+    --reuse-values
+
+=============================================================================

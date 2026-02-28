@@ -1,0 +1,139 @@
+{{- if ((.Values.global).monitoring).enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+    {{- /*
+    Standard label so Prometheus Operator picks up these rules.
+    Override with global.monitoring.ruleLabels if your Prometheus uses
+    a different selector (e.g. release: kube-prometheus-stack).
+    */}}
+    {{- with ((.Values.global).monitoring).ruleLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- else }}
+    release: kube-prometheus-stack
+    {{- end }}
+spec:
+  groups:
+    - name: logclaw-flink-jobs
+      interval: 30s
+      rules:
+        # ──────────────────────────────────────────────────────────────────────
+        # Alert: any Flink job is not in RUNNING state
+        # flink_jobmanager_job_uptime < 0 means the job is not running
+        # ──────────────────────────────────────────────────────────────────────
+        - alert: LogClawFlinkJobNotRunning
+          expr: |
+            flink_jobmanager_job_uptime{namespace="{{ .Release.Namespace }}"} < 0
+          for: 2m
+          labels:
+            severity: critical
+            namespace: {{ .Release.Namespace }}
+            team: platform
+          annotations:
+            summary: "Flink job {{ "{{" }} $labels.job_name {{ "}}" }} is not running"
+            description: |
+              The Flink job {{ "{{" }} $labels.job_name {{ "}}" }} in namespace
+              {{ .Release.Namespace }} has reported a negative uptime for more than
+              2 minutes, indicating the job is not in RUNNING state.
+              Operator may be restarting it — check FlinkDeployment status:
+                kubectl get flinkdeployment -n {{ .Release.Namespace }}
+            runbook: "https://wiki.logclaw.io/runbooks/flink/job-not-running"
+
+        # ──────────────────────────────────────────────────────────────────────
+        # Alert: checkpoint failures detected on any TaskManager
+        # ──────────────────────────────────────────────────────────────────────
+        - alert: LogClawFlinkCheckpointFailure
+          expr: |
+            increase(
+              flink_taskmanager_job_task_numFailedCheckpoints{
+                namespace="{{ .Release.Namespace }}"
+              }[5m]
+            ) > 0
+          for: 0m
+          labels:
+            severity: warning
+            namespace: {{ .Release.Namespace }}
+            team: platform
+          annotations:
+            summary: "Flink checkpoint failures on {{ "{{" }} $labels.tm_id {{ "}}" }}"
+            description: |
+              TaskManager {{ "{{" }} $labels.tm_id {{ "}}" }} in namespace
+              {{ .Release.Namespace }} has recorded {{ "{{" }} $value {{ "}}" }}
+              checkpoint failure(s) in the last 5 minutes.
+              Failing checkpoints risk data loss on job failure.
+              Check TaskManager logs and RocksDB state backend health.
+            runbook: "https://wiki.logclaw.io/runbooks/flink/checkpoint-failure"
+
+        # ──────────────────────────────────────────────────────────────────────
+        # Alert: anomaly scoring Kafka consumer group lag is too high.
+        # High lag on the anomaly job risks breaching the sub-200ms p99 SLO.
+        # ──────────────────────────────────────────────────────────────────────
+        - alert: LogClawFlinkAnomalyJobLag
+          expr: |
+            kafka_consumer_lag{
+              namespace="{{ .Release.Namespace }}",
+              group=~"logclaw-anomaly.*"
+            } > 10000
+          for: 5m
+          labels:
+            severity: critical
+            namespace: {{ .Release.Namespace }}
+            team: platform
+            slo: "sub-200ms-p99"
+          annotations:
+            summary: >-
+              Anomaly scoring Kafka consumer lag > 10000 (SLO risk)
+            description: |
+              Consumer group {{ "{{" }} $labels.group {{ "}}" }} in namespace
+              {{ .Release.Namespace }} has a lag of {{ "{{" }} $value {{ "}}" }}
+              messages on topic {{ "{{" }} $labels.topic {{ "}}" }}.
+              A lag this high risks breaching the sub-200ms p99 anomaly
+              detection SLO. Consider scaling up flink.anomalyJob.parallelism
+              or adding more TaskManager replicas.
+            runbook: "https://wiki.logclaw.io/runbooks/flink/anomaly-lag"
+
+    - name: logclaw-flink-infrastructure
+      interval: 60s
+      rules:
+        # ──────────────────────────────────────────────────────────────────────
+        # Alert: Flink operator not reconciling any FlinkDeployments
+        # ──────────────────────────────────────────────────────────────────────
+        - alert: LogClawFlinkOperatorNotReconciling
+          expr: |
+            absent(
+              flink_operator_reconcile_total{
+                namespace="{{ .Release.Namespace }}"
+              }
+            )
+          for: 10m
+          labels:
+            severity: warning
+            namespace: {{ .Release.Namespace }}
+            team: platform
+          annotations:
+            summary: "Flink Kubernetes Operator may not be running"
+            description: |
+              No flink_operator_reconcile_total metric has been reported for
+              namespace {{ .Release.Namespace }} in the last 10 minutes.
+              This may indicate the Flink Kubernetes Operator is down.
+            runbook: "https://wiki.logclaw.io/runbooks/flink/operator-down"
+
+        # ──────────────────────────────────────────────────────────────────────
+        # Recording rule: anomaly job end-to-end processing latency (p99)
+        # ──────────────────────────────────────────────────────────────────────
+        - record: logclaw:flink_anomaly_e2e_latency_p99
+          expr: |
+            histogram_quantile(
+              0.99,
+              rate(
+                flink_taskmanager_job_latency_source_id_operator_id_operator_subtask_index_bucket{
+                  namespace="{{ .Release.Namespace }}",
+                  job_name=~".*anomaly.*"
+                }[5m]
+              )
+            )
+{{- end }}

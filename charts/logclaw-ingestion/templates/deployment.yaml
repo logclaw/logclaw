@@ -1,0 +1,169 @@
+{{- if eq .Values.mode "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/mode: "deployment"
+    logclaw.io/tenant-id: {{ include "logclaw.tenantId" . | quote }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-ingestion.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-ingestion.selectorLabels" . | nindent 8 }}
+        logclaw.io/tenant-id: {{ include "logclaw.tenantId" . | quote }}
+      annotations:
+        # Force pod restart on ConfigMap changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-vector.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "logclaw-ingestion.serviceAccountName" . }}
+      automountServiceAccountToken: true
+
+      # Pod-level security context
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+
+      # Ensure pods spread across availability zones
+      topologySpreadConstraints:
+        {{- range .Values.topologySpreadConstraints }}
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ include "logclaw.topologyKey" $ }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "logclaw-ingestion.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      terminationGracePeriodSeconds: 60
+
+      volumes:
+        - name: vector-config
+          configMap:
+            name: {{ include "logclaw-ingestion.fullname" . }}-vector-config
+        - name: vector-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+
+      containers:
+        - name: vector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          # Container-level security context
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+          env:
+            - name: VECTOR_LOG
+              value: "info"
+            - name: TENANT_ID
+              value: {{ include "logclaw.tenantId" . | quote }}
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: VECTOR_SELF_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: VECTOR_SELF_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KAFKA_BROKERS
+              value: {{ include "logclaw.kafkaBrokers" . | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ include "logclaw.kafkaRawLogsTopic" . | quote }}
+
+          args:
+            - "--config=/etc/vector/vector.toml"
+
+          ports:
+            - name: http-receiver
+              containerPort: {{ .Values.sources.http.port }}
+              protocol: TCP
+            - name: vector-api
+              containerPort: 8686
+              protocol: TCP
+            - name: metrics
+              containerPort: 9598
+              protocol: TCP
+
+          volumeMounts:
+            - name: vector-config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: vector-data
+              mountPath: /var/log/vector
+            - name: tmp
+              mountPath: /tmp
+
+          # Readiness: check the Vector internal API health endpoint
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Liveness: same endpoint; give more time before killing
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+
+          # Startup probe: allow up to 2 min for cold start
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8686
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-index-templates
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+data:
+  ism-policy.json: |
+    {
+      "policy": {
+        "policy_id": "logclaw-hot-delete",
+        "description": "Delete logs older than retention period",
+        "default_state": "hot",
+        "states": [
+          {
+            "name": "hot",
+            "actions": [
+              {
+                "rollover": {
+                  "min_size": {{ .Values.opensearch.ism.rolloverSize | quote }},
+                  "min_index_age": {{ .Values.opensearch.ism.rolloverAge | quote }}
+                }
+              }
+            ],
+            "transitions": [
+              {
+                "state_name": "delete",
+                "conditions": {
+                  "min_index_age": {{ printf "%dd" (int .Values.opensearch.ism.hotRetentionDays) | quote }}
+                }
+              }
+            ]
+          },
+          {
+            "name": "delete",
+            "actions": [{"delete": {}}],
+            "transitions": []
+          }
+        ],
+        "ism_template": [
+          {
+            "index_patterns": ["logclaw-logs-*"],
+            "priority": 100
+          }
+        ]
+      }
+    }
+
+  index-template.json: |
+    {
+      "index_patterns": ["logclaw-logs-*"],
+      "template": {
+        "settings": {
+          "number_of_shards": 3,
+          "number_of_replicas": 1,
+          "index.lifecycle.name": "logclaw-hot-delete",
+          "index.lifecycle.rollover_alias": "logclaw-logs",
+          "index.codec": "best_compression",
+          "index.refresh_interval": "10s"
+        },
+        "mappings": {
+          "dynamic": false,
+          "properties": {
+            "@timestamp": {
+              "type": "date",
+              "format": "strict_date_optional_time||epoch_millis"
+            },
+            "level": {
+              "type": "keyword",
+              "ignore_above": 32
+            },
+            "service": {
+              "type": "keyword",
+              "ignore_above": 256
+            },
+            "tenant_id": {
+              "type": "keyword",
+              "ignore_above": 128
+            },
+            "message": {
+              "type": "text",
+              "analyzer": "standard",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 2048
+                }
+              }
+            },
+            "trace_id": {
+              "type": "keyword",
+              "ignore_above": 64
+            },
+            "span_id": {
+              "type": "keyword",
+              "ignore_above": 64
+            },
+            "anomaly_score": {
+              "type": "float"
+            }
+          }
+        }
+      },
+      "priority": 100,
+      "version": 1,
+      "_meta": {
+        "managed_by": "logclaw",
+        "chart": {{ include "logclaw-opensearch.chart" . | quote }}
+      }
+    }

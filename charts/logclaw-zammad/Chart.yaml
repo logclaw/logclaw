@@ -1,0 +1,22 @@
+apiVersion: v2
+name: logclaw-zammad
+description: >
+  LogClaw wrapper for Zammad ITSM. Provides in-cluster incident ticket management
+  as a full replacement for PagerDuty + Jira. Wraps the official zammad/zammad
+  Helm chart with ESO secrets, NetworkPolicy, and LogClaw-specific defaults.
+  No log data leaves the cluster when using this chart.
+type: application
+version: 0.1.0
+appVersion: "6.4.1"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/platform-tier: "optional"
+  logclaw.io/replaces: "pagerduty,jira"
+dependencies:
+  - name: zammad
+    version: "12.4.1"
+    repository: "https://zammad.github.io/zammad-helm"
+    alias: zammad

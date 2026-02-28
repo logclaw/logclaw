@@ -1,0 +1,109 @@
+---
+# NetworkPolicy for Kafka brokers
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-kafka.fullname" . }}-kafka-broker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: {{ .Release.Name }}
+      strimzi.io/kind: Kafka
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # ── TLS Kafka port from workloads in same namespace ──────────────────
+    - ports:
+        - protocol: TCP
+          port: 9093
+      from:
+        # Flink job managers and task managers
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: flink
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+        # Kafka Connect workers
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: kafka-connect
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+        # Ingestion services
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: ingestion
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+        # MirrorMaker2 — may run in the same namespace
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: mirror-maker2
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+
+    # ── JMX metrics scraping from monitoring namespace ───────────────────
+    - ports:
+        - protocol: TCP
+          port: 9404
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ default "monitoring" .Values.global.monitoringNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+
+    # ── Strimzi operator communication ──────────────────────────────────
+    - ports:
+        - protocol: TCP
+          port: 9443
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ default "strimzi" .Values.global.strimziNamespace }}
+
+  egress:
+    # ── DNS resolution ───────────────────────────────────────────────────
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+
+    # ── Inter-broker communication ───────────────────────────────────────
+    - ports:
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 9091
+      to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: {{ .Release.Name }}
+              strimzi.io/kind: Kafka
+
+    # ── Entity Operator ──────────────────────────────────────────────────
+    - ports:
+        - protocol: TCP
+          port: 8080
+      to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: {{ .Release.Name }}
+              strimzi.io/kind: EntityOperator

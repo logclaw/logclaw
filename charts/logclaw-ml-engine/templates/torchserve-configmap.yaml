@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-torchserve-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kserve-predictor
+data:
+  config.properties: |
+    # -----------------------------------------------------------------------
+    # TorchServe runtime configuration
+    # Mounted read-only into the KServe predictor container at:
+    #   /mnt/models/config/config.properties
+    # Referenced via TS_CONFIG_FILE env var in kserve-inferenceservice.yaml.
+    # -----------------------------------------------------------------------
+
+    # Network — bind to all interfaces so KServe's sidecar can reach TorchServe.
+    inference_address=http://0.0.0.0:8080
+    management_address=http://0.0.0.0:8081
+    metrics_address=http://0.0.0.0:8082
+
+    # gRPC port used when protocolVersion=grpc-v2 is set on the InferenceService.
+    grpc_inference_port=7070
+
+    # Threading — tune for CPU-only inference; increase for GPU nodes.
+    number_of_netty_threads=4
+    job_queue_size=100
+    default_workers_per_model=1
+
+    # Metrics — expose Prometheus-compatible metrics on :8082/metrics.
+    enable_metrics_api=true
+    metrics_mode=prometheus
+
+    # Dependency management — disable per-model pip installs for reproducibility.
+    # All required packages must be baked into the model archive (.mar).
+    install_py_dep_per_model=false

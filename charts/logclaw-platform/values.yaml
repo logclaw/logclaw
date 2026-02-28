@@ -1,0 +1,21 @@
+# Platform chart values — overrides via global.* from umbrella chart
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ClusterIssuer type: acme | selfsigned | ca
+tls:
+  issuerType: "selfsigned"   # acme | selfsigned | ca
+  acme:
+    email: "platform@logclaw.io"
+    server: "https://acme-v02.api.letsencrypt.org/directory"
+  ca:
+    secretName: "logclaw-ca-tls"
+
+rbac:
+  readonlyGroupName: "logclaw-readonly"
+  adminGroupName: "logclaw-admin"

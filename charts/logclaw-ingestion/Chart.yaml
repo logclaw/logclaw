@@ -1,0 +1,13 @@
+apiVersion: v2
+name: logclaw-ingestion
+description: >
+  LogClaw log ingestion edge using Vector.dev (DaemonSet or Deployment mode).
+  Receives forwarded logs from enterprise log routers via PrivateLink,
+  applies drop-sampling, and forwards to Kafka.
+type: application
+version: 0.1.0
+appVersion: "0.38.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io

@@ -1,0 +1,92 @@
+{{- if or (eq ((.Values.global).llm).provider "ollama") .Values.mlEngine.ollama.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+  annotations:
+    logclaw.io/llm-provider: "ollama"
+    logclaw.io/model: {{ ((.Values.global).llm).model | default .Values.mlEngine.ollama.image.tag | quote }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "logclaw-ml-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama
+  # Recreate strategy is required — PVC is ReadWriteOnce; RollingUpdate would
+  # deadlock two pods competing for the same volume mount on the same node.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-ml-engine.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama
+    spec:
+      {{- with ((.Values.global).imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logclaw-ml-engine.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ollama
+          image: "{{ .Values.mlEngine.ollama.image.repository }}:{{ .Values.mlEngine.ollama.image.tag }}"
+          imagePullPolicy: {{ .Values.mlEngine.ollama.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            # readOnlyRootFilesystem is intentionally false: Ollama writes model
+            # weight files to /models at pull time. PSA restricted mode permits
+            # this — it only mandates allowPrivilegeEscalation: false and
+            # non-root user, both of which are set above.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mlEngine.ollama.port }}
+              protocol: TCP
+          env:
+            - name: OLLAMA_MODELS
+              value: /models
+          resources:
+            {{- toYaml .Values.mlEngine.ollama.resources | nindent 12 }}
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /models
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+      {{- with .Values.mlEngine.ollama.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mlEngine.ollama.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: {{ include "logclaw-ml-engine.fullname" . }}-ollama-models
+{{- end }}

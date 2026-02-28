@@ -1,0 +1,224 @@
+{{- $topologyKey := default "topology.kubernetes.io/zone" .Values.global.topologyKey }}
+{{- $storageClass := default "standard" .Values.global.storageClassHighThroughput }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    logclaw.io/tenant-id: {{ include "logclaw.tenantId" . }}
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: {{ .Values.kafka.version | quote }}
+    metadataVersion: "3.7-IV4"
+
+    # ── Listeners ──────────────────────────────────────────────────────────
+    listeners:
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+
+    # ── Authorization ──────────────────────────────────────────────────────
+    authorization:
+      type: simple
+      superUsers:
+        - User:admin
+
+    # ── Rack awareness ─────────────────────────────────────────────────────
+    rack:
+      topologyKey: {{ $topologyKey | quote }}
+
+    # ── Broker configuration ───────────────────────────────────────────────
+    config:
+      auto.create.topics.enable: {{ index .Values.kafka.config "auto.create.topics.enable" | quote }}
+      default.replication.factor: {{ index .Values.kafka.config "default.replication.factor" | quote }}
+      min.insync.replicas: {{ index .Values.kafka.config "min.insync.replicas" | quote }}
+      log.retention.hours: {{ index .Values.kafka.config "log.retention.hours" | quote }}
+      log.segment.bytes: {{ index .Values.kafka.config "log.segment.bytes" | quote }}
+      offsets.topic.replication.factor: {{ index .Values.kafka.config "offsets.topic.replication.factor" | quote }}
+      transaction.state.log.replication.factor: {{ index .Values.kafka.config "transaction.state.log.replication.factor" | quote }}
+      transaction.state.log.min.isr: {{ index .Values.kafka.config "transaction.state.log.min.isr" | quote }}
+      # Performance tuning
+      num.network.threads: "8"
+      num.io.threads: "16"
+      socket.send.buffer.bytes: "102400"
+      socket.receive.buffer.bytes: "102400"
+      socket.request.max.bytes: "104857600"
+      num.partitions: "1"
+      num.recovery.threads.per.data.dir: "2"
+      log.flush.interval.messages: "10000"
+      log.flush.interval.ms: "1000"
+
+    # ── Resources ──────────────────────────────────────────────────────────
+    resources:
+      requests:
+        cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
+        memory: {{ .Values.kafka.resources.requests.memory | quote }}
+      limits:
+        cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
+        memory: {{ .Values.kafka.resources.limits.memory | quote }}
+
+    # ── JVM options ────────────────────────────────────────────────────────
+    jvmOptions:
+      "-Xms": {{ index .Values.kafka.jvmOptions "-Xms" | quote }}
+      "-Xmx": {{ index .Values.kafka.jvmOptions "-Xmx" | quote }}
+      gcLoggingEnabled: true
+
+    # ── Metrics ────────────────────────────────────────────────────────────
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: {{ .Release.Name }}-kafka-metrics
+          key: kafka-metrics-config.yml
+
+    # ── Pod template ───────────────────────────────────────────────────────
+    template:
+      pod:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: {{ $topologyKey | quote }}
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                strimzi.io/cluster: {{ .Release.Name }}
+                strimzi.io/kind: Kafka
+        terminationGracePeriodSeconds: 60
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: strimzi.io/cluster
+                      operator: In
+                      values:
+                        - {{ .Release.Name }}
+                    - key: strimzi.io/kind
+                      operator: In
+                      values:
+                        - Kafka
+                topologyKey: "kubernetes.io/hostname"
+      kafkaContainer:
+        env:
+          - name: KAFKA_HEAP_OPTS
+            value: "-Xms{{ index .Values.kafka.jvmOptions "-Xms" }} -Xmx{{ index .Values.kafka.jvmOptions "-Xmx" }}"
+
+  # ── Entity Operator ──────────────────────────────────────────────────────
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+      logging:
+        type: inline
+        loggers:
+          rootLogger.level: INFO
+    userOperator:
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+      logging:
+        type: inline
+        loggers:
+          rootLogger.level: INFO
+
+---
+# ConfigMap for Kafka JMX Prometheus metrics configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-kafka-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    rules:
+      # Kafka broker metrics
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          topic: "$4"
+          partition: "$5"
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          broker: "$4:$5"
+      - pattern: kafka.server<type=(.+), name=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+      # ReplicaManager metrics
+      - pattern: kafka.server<type=ReplicaManager, name=(.+)><>(Value|OneMinuteRate)
+        name: kafka_server_replicamanager_$1
+        type: GAUGE
+      # Log metrics
+      - pattern: kafka.log<type=Log, name=(.+), topic=(.+), partition=(.+)><>Value
+        name: kafka_log_log_$1
+        type: GAUGE
+        labels:
+          topic: "$2"
+          partition: "$3"
+      # Network request metrics
+      - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>OneMinuteRate
+        name: kafka_network_requestmetrics_requestspersec
+        type: GAUGE
+        labels:
+          request: "$1"
+      - pattern: kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(.+)><>(50thPercentile|75thPercentile|95thPercentile|99thPercentile)
+        name: kafka_network_requestmetrics_totaltimems
+        type: GAUGE
+        labels:
+          request: "$1"
+          quantile: "$2"
+      # Controller metrics
+      - pattern: kafka.controller<type=(.+), name=(.+)><>(Value|OneMinuteRate)
+        name: kafka_controller_$1_$2
+        type: GAUGE
+      # Producer/Consumer metrics
+      - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+), topic=(.+)><>OneMinuteRate
+        name: kafka_server_brokertopicmetrics_$1
+        type: GAUGE
+        labels:
+          topic: "$2"
+      - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+)><>OneMinuteRate
+        name: kafka_server_brokertopicmetrics_$1
+        type: GAUGE
+      # JVM metrics
+      - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionCount
+        name: jvm_gc_collection_count
+        type: GAUGE
+        labels:
+          gc: "$1"
+      - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionTime
+        name: jvm_gc_collection_time_ms
+        type: GAUGE
+        labels:
+          gc: "$1"
+      - pattern: java.lang<type=Memory><>HeapMemoryUsage.used
+        name: jvm_memory_heap_used_bytes
+        type: GAUGE
+      - pattern: java.lang<type=Memory><>HeapMemoryUsage.max
+        name: jvm_memory_heap_max_bytes
+        type: GAUGE

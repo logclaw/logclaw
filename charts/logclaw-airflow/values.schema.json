@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LogClaw Airflow Values",
+  "type": "object",
+  "properties": {
+    "airflow": {
+      "type": "object",
+      "properties": {
+        "executor": {
+          "type": "string",
+          "enum": ["KubernetesExecutor", "CeleryExecutor", "LocalExecutor"]
+        }
+      }
+    }
+  }
+}

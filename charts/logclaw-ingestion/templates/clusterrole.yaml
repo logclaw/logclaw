@@ -1,0 +1,50 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/purpose: >
+      Grants Vector read-only access to Pod, Node, and Namespace metadata
+      so that it can enrich log events with Kubernetes context fields
+      (e.g. namespace, pod name, node name, labels) before forwarding to Kafka.
+rules:
+  # Pod metadata — needed for kubernetes_logs source and metadata enrichment
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Node metadata — enriches events with node-level labels/annotations
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Namespace metadata — enriches events with namespace labels
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Endpoints — used for service discovery when scraping metrics
+  - apiGroups: [""]
+    resources:
+      - endpoints
+      - services
+    verbs:
+      - get
+      - list
+      - watch

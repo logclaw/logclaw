@@ -1,0 +1,147 @@
+{{- $monitoringNs := (.Values.global).monitoringNamespace | default "monitoring" }}
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy: allow Flink UI access FROM monitoring namespace
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-allow-ui-from-monitoring
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      component: jobmanager
+      {{- include "logclaw-flink.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Flink JobManager REST / UI on 8081 from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringNs | quote }}
+      ports:
+        - protocol: TCP
+          port: 8081
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy: allow Flink metrics scraping (9249) FROM monitoring namespace
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-allow-metrics-from-monitoring
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-flink.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Prometheus scrape port for Flink PrometheusReporter
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringNs | quote }}
+      ports:
+        - protocol: TCP
+          port: 9249
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy: Flink egress to Kafka (9093), KServe (80), Feast (6566),
+#               object storage (443), and kube-dns (53)
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-flink.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # Kafka brokers — TLS port within the same namespace (or kafka namespace)
+    - ports:
+        - protocol: TCP
+          port: 9093
+      to:
+        - podSelector: {}
+
+    # KServe model predictor — anomaly scoring calls (HTTP port 80)
+    - ports:
+        - protocol: TCP
+          port: 80
+      to:
+        - podSelector: {}
+
+    # Feast feature server (gRPC + HTTP port 6566)
+    - ports:
+        - protocol: TCP
+          port: 6566
+      to:
+        - podSelector: {}
+
+    # Object storage (S3 / GCS / ADLS) — HTTPS egress, any destination IP
+    - ports:
+        - protocol: TCP
+          port: 443
+
+    # OpenSearch / Elasticsearch — default HTTPS port
+    - ports:
+        - protocol: TCP
+          port: 9200
+        - protocol: TCP
+          port: 443
+
+    # kube-dns — UDP and TCP for DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy: allow intra-namespace traffic (JobManager <-> TaskManager RPC)
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-allow-intra-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-flink.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "logclaw-flink.selectorLabels" . | nindent 14 }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "logclaw-flink.selectorLabels" . | nindent 14 }}

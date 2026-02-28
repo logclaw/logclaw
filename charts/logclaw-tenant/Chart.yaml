@@ -1,0 +1,57 @@
+apiVersion: v2
+name: logclaw-tenant
+description: >
+  LogClaw AI-powered SRE Agent — Umbrella chart for a single tenant deployment.
+  Installs all subsystems: ingestion edge, Kafka, Flink, OpenSearch,
+  ML engine, Airflow, and the Ticketing Agent.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.27.0"
+keywords:
+  - logclaw
+  - sre
+  - ai
+  - observability
+  - kafka
+  - flink
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: logclaw-platform
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: platform.enabled
+  - name: logclaw-ingestion
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: ingestion.enabled
+  - name: logclaw-kafka
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: kafka.enabled
+  - name: logclaw-flink
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: flink.enabled
+  - name: logclaw-opensearch
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: opensearch.enabled
+  - name: logclaw-ml-engine
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: mlEngine.enabled
+  - name: logclaw-airflow
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: airflow.enabled
+  - name: logclaw-ticketing-agent
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: ticketingAgent.enabled
+  - name: logclaw-zammad
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: zammad.enabled

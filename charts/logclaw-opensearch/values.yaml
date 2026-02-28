@@ -1,0 +1,65 @@
+nameOverride: ""
+fullnameOverride: ""
+
+opensearch:
+  version: "2.14.0"
+
+  masters:
+    replicas: 3
+    diskSize: "50Gi"
+    resources:
+      requests:
+        cpu: "1"
+        memory: "4Gi"
+      limits:
+        cpu: "2"
+        memory: "8Gi"
+    jvm:
+      xms: "2g"
+      xmx: "4g"
+
+  data:
+    replicas: 3
+    diskSize: "500Gi"
+    resources:
+      requests:
+        cpu: "2"
+        memory: "8Gi"
+      limits:
+        cpu: "4"
+        memory: "16Gi"
+    jvm:
+      xms: "4g"
+      xmx: "8g"
+
+  coordinators:
+    replicas: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "1"
+        memory: "4Gi"
+
+  security:
+    adminPassword: ""  # Set via ExternalSecret (never in values)
+    tls:
+      enabled: true
+
+  # Index Lifecycle Management (ISM) policy
+  ism:
+    hotRetentionDays: 7     # Delete indices older than this
+    rolloverSize: "50gb"    # Rollover when index exceeds this size
+    rolloverAge: "1d"       # Or when older than 1 day
+
+podDisruptionBudget:
+  dataNodes:
+    minAvailable: 2
+  masterNodes:
+    minAvailable: 2
+
+adminCredentialsSecret:
+  name: "opensearch-admin-credentials"
+  createExternalSecret: true
+  secretStoreName: ""  # Uses global.secretStore.name if empty

@@ -1,0 +1,35 @@
+{{- $tenantId := include "logclaw.tenantId" . -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "logclaw-platform.fullname" . }}-ingress-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-platform.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant-id: {{ $tenantId | quote }}
+    logclaw.io/certificate-purpose: "ingress-wildcard"
+spec:
+  secretName: {{ printf "%s-ingress-tls" $tenantId | quote }}
+  duration: {{ .Values.global.tls.duration | default "2160h" | quote }}
+  renewBefore: {{ .Values.global.tls.renewBefore | default "360h" | quote }}
+  subject:
+    organizations:
+      - LogClaw
+  commonName: {{ printf "*.%s.logclaw.internal" $tenantId | quote }}
+  dnsNames:
+    - {{ printf "*.%s.logclaw.internal" $tenantId | quote }}
+    - {{ printf "%s.logclaw.internal" $tenantId | quote }}
+  issuerRef:
+    name: {{ .Values.global.tls.issuerName | required "global.tls.issuerName is required" | quote }}
+    kind: {{ .Values.global.tls.issuerKind | default "ClusterIssuer" | quote }}
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+    - digital signature
+    - key encipherment

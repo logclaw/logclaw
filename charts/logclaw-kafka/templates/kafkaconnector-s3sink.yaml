@@ -1,0 +1,70 @@
+{{- if and .Values.kafkaConnect.enabled .Values.s3Sink.enabled }}
+{{- $bucket := required "global.objectStorage.bucket is required when s3Sink.enabled=true" .Values.global.objectStorage.bucket }}
+{{- $region := default "us-east-1" .Values.global.objectStorage.region }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: {{ .Release.Name }}-s3-sink
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    logclaw.io/component: s3-sink-connector
+    # This label binds the connector to the KafkaConnect cluster
+    strimzi.io/cluster: {{ .Release.Name }}-connect
+spec:
+  # Cloud-agnostic Aiven S3 sink connector (works with AWS S3, GCS, MinIO)
+  class: io.aiven.kafka.connect.s3.AivenKafkaConnectS3SinkConnector
+  tasksMax: 6
+
+  config:
+    # ── Topic routing ───────────────────────────────────────────────────
+    topics: {{ .Values.s3Sink.topics | quote }}
+
+    # ── S3 destination ──────────────────────────────────────────────────
+    s3.bucket.name: {{ $bucket | quote }}
+    s3.region: {{ $region | quote }}
+    s3.part.size: "67108864"
+    # Organised by topic/year/month/day/hour for efficient querying
+    s3.object.prefix: "kafka-data/{topic}/{date:YYYY}/{date:MM}/{date:dd}/{date:HH}/"
+
+    # ── Storage & format ────────────────────────────────────────────────
+    storage.class: io.aiven.kafka.connect.s3.storage.S3Storage
+    format.output.type: parquet
+    format.output.fields: "key,value,offset,timestamp,headers"
+    parquet.codec: snappy
+
+    # ── Batching & flushing ─────────────────────────────────────────────
+    # Flush when either threshold is hit
+    flush.size: {{ .Values.s3Sink.flushSize | quote }}
+    rotate.schedule.interval.ms: {{ .Values.s3Sink.rotateScheduleIntervalMs | quote }}
+    rotate.interval.ms: "600000"
+
+    # ── Schema integration ──────────────────────────────────────────────
+    {{- if .Values.s3Sink.format.schemaRegistryUrl }}
+    value.converter: io.confluent.connect.avro.AvroConverter
+    value.converter.schema.registry.url: {{ .Values.s3Sink.format.schemaRegistryUrl | quote }}
+    {{- else }}
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: "false"
+    {{- end }}
+    key.converter: org.apache.kafka.connect.storage.StringConverter
+
+    # ── Error handling ──────────────────────────────────────────────────
+    # Route errors to DLQ rather than stopping the connector
+    errors.tolerance: all
+    errors.deadletterqueue.topic.name: "dead-letter-queue"
+    errors.deadletterqueue.topic.replication.factor: "3"
+    errors.deadletterqueue.context.headers.enable: "true"
+    errors.retry.delay.max.ms: "60000"
+    errors.retry.timeout: "0"
+
+    # ── Performance ─────────────────────────────────────────────────────
+    # Allow tasks to write to S3 in parallel
+    s3.multipart.upload.threshold: "67108864"
+    file.name.timestamp.timezone: UTC
+
+    # ── Consumer group ──────────────────────────────────────────────────
+    consumer.override.auto.offset.reset: "latest"
+    consumer.override.max.poll.records: "500"
+{{- end }}

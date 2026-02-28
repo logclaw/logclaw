@@ -1,0 +1,25 @@
+# CI test values for logclaw-zammad chart
+# Used by helm chart-testing (ct) and local development
+
+global:
+  tenantId: ci-test
+  secretStore:
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+  monitoring:
+    prometheusNamespace: "monitoring"
+
+zammad:
+  postgresql:
+    enabled: true
+  elasticsearch:
+    enabled: false    # disabled in CI to reduce resource usage
+  redis:
+    enabled: true
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"

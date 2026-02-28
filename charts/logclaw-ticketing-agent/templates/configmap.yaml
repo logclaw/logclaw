@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-ticketing-agent.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ticketing-agent.labels" . | nindent 4 }}
+data:
+  agent.yaml: |
+    platforms:
+      pagerduty:
+        enabled: {{ .Values.config.pagerduty.enabled }}
+        api_url: {{ .Values.config.pagerduty.apiUrl }}
+        severity_mapping:
+          critical: {{ (.Values.config.pagerduty.severityMapping).critical | default "critical" }}
+          high: {{ (.Values.config.pagerduty.severityMapping).high | default "error" }}
+          medium: {{ (.Values.config.pagerduty.severityMapping).medium | default "warning" }}
+          low: {{ (.Values.config.pagerduty.severityMapping).low | default "info" }}
+        dedup_key_prefix: "{{ include "logclaw-ticketing-agent.tenantId" . }}"
+        auto_resolve_timeout_minutes: {{ .Values.config.pagerduty.autoResolveTimeoutMinutes }}
+
+      jira:
+        enabled: {{ .Values.config.jira.enabled }}
+        base_url: {{ .Values.config.jira.baseUrl | quote }}
+        project_key: {{ .Values.config.jira.projectKey | quote }}
+        issue_type: {{ .Values.config.jira.issueType }}
+        priority_mapping:
+          critical: {{ (.Values.config.jira.priorityMapping).critical | default "Highest" }}
+          high: {{ (.Values.config.jira.priorityMapping).high | default "High" }}
+          medium: {{ (.Values.config.jira.priorityMapping).medium | default "Medium" }}
+          low: {{ (.Values.config.jira.priorityMapping).low | default "Low" }}
+
+      servicenow:
+        enabled: {{ .Values.config.servicenow.enabled }}
+        instance_url: {{ .Values.config.servicenow.instanceUrl | quote }}
+        table: {{ .Values.config.servicenow.table }}
+        category_field: {{ .Values.config.servicenow.categoryField | quote }}
+        subcategory_field: {{ .Values.config.servicenow.subcategoryField | quote }}
+        urgency_mapping:
+          critical: {{ (.Values.config.servicenow.urgencyMapping).critical | default "1" | quote }}
+          high: {{ (.Values.config.servicenow.urgencyMapping).high | default "1" | quote }}
+          medium: {{ (.Values.config.servicenow.urgencyMapping).medium | default "2" | quote }}
+          low: {{ (.Values.config.servicenow.urgencyMapping).low | default "3" | quote }}
+        impact_mapping:
+          critical: {{ (.Values.config.servicenow.impactMapping).critical | default "1" | quote }}
+          high: {{ (.Values.config.servicenow.impactMapping).high | default "2" | quote }}
+          medium: {{ (.Values.config.servicenow.impactMapping).medium | default "2" | quote }}
+          low: {{ (.Values.config.servicenow.impactMapping).low | default "3" | quote }}
+
+      opsgenie:
+        enabled: {{ .Values.config.opsgenie.enabled }}
+        api_url: {{ .Values.config.opsgenie.apiUrl }}
+        team: {{ .Values.config.opsgenie.team | quote }}
+        tags: {{ toJson .Values.config.opsgenie.tags }}
+        priority_mapping:
+          critical: {{ (.Values.config.opsgenie.priorityMapping).critical | default "P1" }}
+          high: {{ (.Values.config.opsgenie.priorityMapping).high | default "P2" }}
+          medium: {{ (.Values.config.opsgenie.priorityMapping).medium | default "P3" }}
+          low: {{ (.Values.config.opsgenie.priorityMapping).low | default "P4" }}
+
+      zammad:
+        enabled: {{ .Values.config.zammad.enabled }}
+        endpoint: {{ include "logclaw-ticketing-agent.zammadEndpoint" . | quote }}
+        group_name: {{ .Values.config.zammad.groupName | quote }}
+        priority_mapping:
+          critical: {{ (.Values.config.zammad.priorityMapping).critical | default "1 high" | quote }}
+          high: {{ (.Values.config.zammad.priorityMapping).high | default "2 normal" | quote }}
+          medium: {{ (.Values.config.zammad.priorityMapping).medium | default "3 normal" | quote }}
+          low: {{ (.Values.config.zammad.priorityMapping).low | default "4 low" | quote }}
+
+      slack:
+        enabled: {{ .Values.config.slack.enabled }}
+        channel: {{ .Values.config.slack.channel | quote }}
+        username: {{ .Values.config.slack.username | quote }}
+        icon_emoji: {{ .Values.config.slack.iconEmoji | quote }}
+        notify_on_severity: {{ toJson .Values.config.slack.notifyOnSeverity }}
+
+    routing:
+      critical: {{ toJson .Values.config.routing.critical }}
+      high: {{ toJson .Values.config.routing.high }}
+      medium: {{ toJson .Values.config.routing.medium }}
+      low: {{ toJson .Values.config.routing.low }}
+
+    anomaly:
+      minimum_score: {{ .Values.config.anomaly.minimumScore }}
+      context_window_seconds: {{ .Values.config.anomaly.contextWindowSeconds }}
+      max_log_lines_in_ticket: {{ .Values.config.anomaly.maxLogLinesInTicket }}
+      deduplication_window_minutes: {{ .Values.config.anomaly.deduplicationWindowMinutes }}
+
+    kafka:
+      consumer_group: {{ .Values.config.kafka.consumerGroup }}
+      auto_offset_reset: {{ .Values.config.kafka.autoOffsetReset }}
+      max_poll_records: {{ .Values.config.kafka.maxPollRecords }}
+
+    llm:
+      provider: {{ include "logclaw-ticketing-agent.llmProvider" . }}
+      model: {{ include "logclaw-ticketing-agent.llmModel" . }}
+      endpoint: {{ include "logclaw-ticketing-agent.llmEndpoint" . | quote }}
+      temperature: {{ ((.Values.global).llm).temperature | default .Values.llm.temperature }}
+      max_tokens: {{ ((.Values.global).llm).maxTokens | default .Values.llm.maxTokens }}
+      timeout_seconds: {{ ((.Values.global).llm).timeoutSeconds | default .Values.llm.timeoutSeconds }}

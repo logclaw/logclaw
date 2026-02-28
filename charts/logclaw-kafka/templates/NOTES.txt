@@ -1,0 +1,126 @@
+Apache Kafka cluster {{ .Release.Name }} has been deployed successfully.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CLUSTER INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Kafka Version:   {{ .Values.kafka.version }}
+  Replicas:        {{ .Values.kafka.replicas }}
+  Namespace:       {{ .Release.Namespace }}
+
+  Bootstrap Server (TLS/SCRAM):
+    {{ include "logclaw-kafka.bootstrapServer" . }}
+
+  Note: Allow 2-5 minutes for all brokers to become ready.
+  Monitor status with:
+
+    kubectl get kafka {{ .Release.Name }} -n {{ .Release.Namespace }} -w
+    kubectl get kafkanodepool combined -n {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  TOPICS CREATED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  raw-logs          {{ .Values.topics.rawLogs.partitions }} partitions   Retention: 1 day
+  enriched-logs     {{ .Values.topics.enriched.partitions }} partitions    Retention: 1 day
+  anomaly-events    {{ .Values.topics.anomalies.partitions }} partitions    Retention: 7 days
+  dead-letter-queue {{ .Values.topics.dlq.partitions }} partitions    Retention: 30 days
+
+  Check topic status:
+    kubectl get kafkatopics -n {{ .Release.Namespace }} -l strimzi.io/cluster={{ .Release.Name }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  USER CREDENTIALS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The Strimzi User Operator creates a Secret for each KafkaUser.
+  Credentials are stored in:
+
+    Ingestion service:  secret/logclaw-ingestion   (namespace: {{ .Release.Namespace }})
+    Flink jobs:         secret/logclaw-flink        (namespace: {{ .Release.Namespace }})
+    Kafka Connect:      secret/logclaw-connect       (namespace: {{ .Release.Namespace }})
+
+  Retrieve a password:
+    kubectl get secret logclaw-ingestion -n {{ .Release.Namespace }} \
+      -o jsonpath='{.data.password}' | base64 --decode
+
+  Check user status:
+    kubectl get kafkausers -n {{ .Release.Namespace }} -l strimzi.io/cluster={{ .Release.Name }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  TLS CERTIFICATES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The cluster CA certificate is available at:
+    secret/{{ .Release.Name }}-cluster-ca-cert   key: ca.crt
+
+  Retrieve CA cert for client configuration:
+    kubectl get secret {{ .Release.Name }}-cluster-ca-cert \
+      -n {{ .Release.Namespace }} \
+      -o jsonpath='{.data.ca\.crt}' | base64 --decode > kafka-ca.crt
+
+{{- if .Values.kafkaConnect.enabled }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  KAFKA CONNECT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Connect cluster: {{ .Release.Name }}-connect
+  Image:           {{ .Values.kafkaConnect.image }}
+  Replicas:        {{ .Values.kafkaConnect.replicas }}
+
+  Check Connect status:
+    kubectl get kafkaconnect {{ .Release.Name }}-connect -n {{ .Release.Namespace }}
+
+  List connectors:
+    kubectl get kafkaconnectors -n {{ .Release.Namespace }}
+
+{{- if .Values.s3Sink.enabled }}
+  S3 Sink connector is enabled.
+  Topics being sinked to S3: {{ .Values.s3Sink.topics }}
+  S3 Bucket: Configured via global.objectStorage.bucket
+  Format: Parquet (snappy compressed)
+{{- end }}
+{{- end }}
+
+{{- if .Values.mirrorMaker2.enabled }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MIRRORMAKER2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Mirror: {{ .Values.mirrorMaker2.sourceClusterAlias }} -> {{ .Values.mirrorMaker2.targetClusterAlias }}
+  Topics replicated: {{ .Values.mirrorMaker2.replication.topics }}
+
+  Check MirrorMaker2 status:
+    kubectl get kafkamirrormaker2 {{ .Release.Name }}-mirror -n {{ .Release.Namespace }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MONITORING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  JMX metrics are exposed on port 9404 on each broker pod.
+{{- if .Values.global.monitoring.enabled }}
+  PrometheusRule has been created with the following alerts:
+    - LogClawKafkaBrokerDown          (critical)
+    - LogClawKafkaBrokerCount         (warning)
+    - LogClawKafkaUnderReplicatedPartitions (warning)
+    - LogClawKafkaUnderMinISR         (critical)
+    - LogClawKafkaOfflinePartitions   (critical)
+    - LogClawKafkaDiskFull            (warning at 85%)
+    - LogClawKafkaDiskCritical        (critical at 95%)
+    - LogClawKafkaConsumerGroupLag    (warning)
+{{- if .Values.kafkaConnect.enabled }}
+    - LogClawKafkaConnectorFailed     (warning)
+    - LogClawKafkaConnectorTaskFailed (warning)
+{{- end }}
+{{- else }}
+  Monitoring is disabled. Enable with --set global.monitoring.enabled=true
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DOCUMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Runbooks: https://logclaw.io/runbooks/kafka
+  Strimzi:  https://strimzi.io/docs/operators/0.41.0/
+  Chart:    logclaw-kafka v{{ .Chart.Version }} (Strimzi >= 0.41.0 required)

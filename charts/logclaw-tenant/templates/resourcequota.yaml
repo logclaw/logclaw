@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "logclaw-tenant.fullname" . }}-quota
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-tenant.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- include "logclaw-tenant.quotaPreset" . | nindent 4 }}

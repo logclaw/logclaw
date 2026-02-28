@@ -1,0 +1,105 @@
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+spec:
+  general:
+    version: {{ .Values.opensearch.version | quote }}
+    httpPort: 9200
+    serviceName: {{ include "logclaw-opensearch.fullname" . }}
+    setVMMaxMapCount: true
+    pluginsList:
+      - "analysis-icu"
+
+  security:
+    config:
+      adminCredentialsSecret:
+        name: {{ include "logclaw-opensearch.adminSecretName" . }}
+    tls:
+      transport:
+        generate: true
+      http:
+        generate: true
+
+  nodePools:
+    # ─── Master / Cluster-manager nodes ───────────────────────────────────────
+    - component: masters
+      replicas: {{ .Values.opensearch.masters.replicas }}
+      diskSize: {{ .Values.opensearch.masters.diskSize | quote }}
+      resources:
+        requests:
+          cpu: {{ .Values.opensearch.masters.resources.requests.cpu | quote }}
+          memory: {{ .Values.opensearch.masters.resources.requests.memory | quote }}
+        limits:
+          cpu: {{ .Values.opensearch.masters.resources.limits.cpu | quote }}
+          memory: {{ .Values.opensearch.masters.resources.limits.memory | quote }}
+      roles:
+        - "cluster_manager"
+      persistence:
+        {{- with (include "logclaw-opensearch.storageClass" .) }}
+        storageClass: {{ . | quote }}
+        {{- end }}
+      additionalConfig:
+        node.ml: "false"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              opster.io/opensearch-nodepool: masters
+      jvm: "-Xms{{ .Values.opensearch.masters.jvm.xms }} -Xmx{{ .Values.opensearch.masters.jvm.xmx }}"
+
+    # ─── Data / Ingest nodes ──────────────────────────────────────────────────
+    - component: data
+      replicas: {{ .Values.opensearch.data.replicas }}
+      diskSize: {{ .Values.opensearch.data.diskSize | quote }}
+      resources:
+        requests:
+          cpu: {{ .Values.opensearch.data.resources.requests.cpu | quote }}
+          memory: {{ .Values.opensearch.data.resources.requests.memory | quote }}
+        limits:
+          cpu: {{ .Values.opensearch.data.resources.limits.cpu | quote }}
+          memory: {{ .Values.opensearch.data.resources.limits.memory | quote }}
+      roles:
+        - "data"
+        - "ingest"
+      persistence:
+        {{- with (include "logclaw-opensearch.storageClass" .) }}
+        storageClass: {{ . | quote }}
+        {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              opster.io/opensearch-nodepool: data
+      jvm: "-Xms{{ .Values.opensearch.data.jvm.xms }} -Xmx{{ .Values.opensearch.data.jvm.xmx }}"
+
+    # ─── Coordinator / Search-only nodes ──────────────────────────────────────
+    - component: coordinators
+      replicas: {{ .Values.opensearch.coordinators.replicas }}
+      resources:
+        requests:
+          cpu: {{ .Values.opensearch.coordinators.resources.requests.cpu | quote }}
+          memory: {{ .Values.opensearch.coordinators.resources.requests.memory | quote }}
+        limits:
+          cpu: {{ .Values.opensearch.coordinators.resources.limits.cpu | quote }}
+          memory: {{ .Values.opensearch.coordinators.resources.limits.memory | quote }}
+      roles:
+        - "search"
+      # Coordinators are stateless — no persistent volume needed
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              opster.io/opensearch-nodepool: coordinators

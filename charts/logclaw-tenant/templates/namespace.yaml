@@ -1,0 +1,14 @@
+{{- $tenantId := include "logclaw.tenantId" . }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-tenant.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ .Values.global.podSecurityStandards.enforce | quote }}
+    pod-security.kubernetes.io/audit: {{ .Values.global.podSecurityStandards.audit | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.global.podSecurityStandards.warn | quote }}
+  annotations:
+    logclaw.io/tenant-name: {{ .Values.global.tenantName | default $tenantId | quote }}
+    logclaw.io/managed-by: "helm"
+    logclaw.io/chart-version: {{ .Chart.Version | quote }}

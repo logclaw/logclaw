@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LogClaw Tenant Onboarding Template
+# Copy this file to gitops/tenants/{tenantId}.yaml and fill in the values.
+# ArgoCD will detect the new file and begin provisioning within ~2 minutes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+tenantId: ""          # REQUIRED — slug, e.g. "acme-corp". Alphanumeric + hyphens only.
+clusterServer: ""     # ArgoCD destination server URL (leave empty for in-cluster)
+
+global:
+  tenantName: ""      # Human-readable name, e.g. "Acme Corporation"
+  storageClass: ""    # CSI StorageClass name; leave empty for cluster default
+  storageClassHighThroughput: ""  # For Kafka/OpenSearch data volumes
+  tier: "standard"    # standard | ha | ultra-ha
+  objectStorage:
+    provider: "s3"    # s3 | gcs | azure
+    bucket: ""        # Bucket name for Flink checkpoints + Kafka Connect sink
+    region: "us-east-1"
+  secretStore:
+    provider: "aws"   # aws | gcp | vault | azure
+    region: "us-east-1"
+    # projectId: ""   # GCP only
+    # vaultAddress: "" # Vault only
+
+  # ── LLM provider for RCA summary generation ──────────────────────────────
+  # disabled: no LLM (raw anomaly data only)
+  # ollama:   in-cluster Llama model (no API key, no data egress — recommended)
+  # vllm:     in-cluster vLLM server (set global.llm.endpoint)
+  # claude:   Anthropic Claude API (set LLM_API_KEY in secret store)
+  # openai:   OpenAI API (set LLM_API_KEY in secret store)
+  llm:
+    provider: "disabled"
+    model: "llama3.2:8b"
+    # endpoint: ""    # Required for vllm
+
+  monitoring:
+    enabled: true
+
+# ── Subcomponent enable/disable ──────────────────────────────────────────────
+platform:
+  enabled: true
+ingestion:
+  enabled: true
+kafka:
+  enabled: true
+flink:
+  enabled: true
+opensearch:
+  enabled: true
+mlEngine:
+  enabled: true
+airflow:
+  enabled: true
+ticketingAgent:
+  enabled: true
+
+# ── Ticketing platform integrations (enable any combination) ─────────────────
+# Each platform is independently enabled — mix and match for your workflow.
+# Secrets must be pre-populated in your secret store under:
+#   logclaw/{tenantId}/ticketing/{secret-name}
+logclaw-ticketing-agent:
+  config:
+    # PagerDuty Events API v2 — for immediate on-call alerting
+    pagerduty:
+      enabled: false
+      # autoResolveTimeoutMinutes: 60
+
+    # Jira REST API v3 — for incident ticket lifecycle management
+    jira:
+      enabled: false
+      # baseUrl: "https://yourorg.atlassian.net"
+      # projectKey: "SRE"
+
+    # ServiceNow REST API — for enterprise ITSM workflows
+    servicenow:
+      enabled: false
+      # instanceUrl: "https://yourinstance.service-now.com"
+
+    # OpsGenie Alerts API v2 — for alert routing and on-call scheduling
+    opsgenie:
+      enabled: false
+      # team: "sre-team"
+
+    # Zammad in-cluster ITSM — zero data egress; requires zammad.enabled: true below
+    zammad:
+      enabled: false
+      # groupName: "SRE Incidents"
+
+    # Slack Incoming Webhook — for real-time team notifications
+    slack:
+      enabled: false
+      # channel: "#sre-incidents"
+      # notifyOnSeverity: [critical, high]
+
+    # Severity-based routing: which platforms handle each severity
+    # Empty list = all enabled platforms receive all severities
+    routing:
+      critical: []
+      high: []
+      medium: []
+      low: []
+
+    anomaly:
+      minimumScore: 0.85
+
+# ── In-cluster Zammad ITSM deployment (required if config.zammad.enabled: true) ─
+zammad:
+  enabled: false    # Set true to deploy Zammad server in this tenant namespace
+
+# ── Chart-specific overrides (uncomment and adjust as needed) ────────────────
+# logclaw-kafka:
+#   kafka:
+#     replicas: 3
+
+# logclaw-opensearch:
+#   opensearch:
+#     data:
+#       diskSize: "500Gi"
+
+# logclaw-ingestion:
+#   replicaCount: 3

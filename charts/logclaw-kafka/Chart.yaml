@@ -1,0 +1,15 @@
+apiVersion: v2
+name: logclaw-kafka
+description: >
+  Apache Kafka cluster (Strimzi CRDs), Kafka Connect with Parquet/S3 sink,
+  MirrorMaker2 cross-region replication, and topic/user provisioning.
+  Requires Strimzi Kafka Operator v0.41.0+ pre-installed on the cluster.
+type: application
+version: 0.1.0
+appVersion: "3.7.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/operator-prereq: "strimzi-kafka-operator>=0.41.0"

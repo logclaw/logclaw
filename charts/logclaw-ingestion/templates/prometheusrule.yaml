@@ -1,0 +1,145 @@
+{{- if ((.Values.global).monitoring).enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+    # Standard label for Prometheus Operator rule discovery
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    # -------------------------------------------------------------------------
+    # Group: Kafka Sink Health
+    # -------------------------------------------------------------------------
+    - name: logclaw.ingestion.kafka
+      interval: 30s
+      rules:
+        # Alert when the Kafka producer request latency average exceeds 500ms.
+        # This indicates broker pressure or network issues between ingestion
+        # pods and the Kafka cluster.
+        - alert: LogClawIngestionLagHigh
+          expr: |
+            avg by (namespace, pod) (
+              logclaw_ingestion_kafka_producer_request_latency_avg{
+                namespace="{{ .Release.Namespace }}"
+              }
+            ) > 500
+          for: 2m
+          labels:
+            severity: warning
+            team: logclaw-platform
+            tenant: {{ include "logclaw.tenantId" . | quote }}
+            component: ingestion
+          annotations:
+            summary: "LogClaw ingestion Kafka producer latency is high"
+            description: >
+              Kafka producer request latency for pod {{ "{{" }} $labels.pod {{ "}}" }}
+              in namespace {{ "{{" }} $labels.namespace {{ "}}" }} is
+              {{ "{{" }} $value | humanizeDuration {{ "}}" }}, exceeding the 500ms threshold.
+              Check Kafka broker health and network connectivity from the ingestion pods.
+            runbook_url: "https://docs.logclaw.io/runbooks/ingestion-kafka-lag"
+            dashboard_url: "https://grafana.logclaw.io/d/ingestion-overview"
+
+        # Alert when Kafka producer error rate is non-zero.
+        # Any Kafka send failures may result in data loss.
+        - alert: LogClawIngestionKafkaErrors
+          expr: |
+            rate(logclaw_ingestion_kafka_producer_record_error_total{
+              namespace="{{ .Release.Namespace }}"
+            }[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            team: logclaw-platform
+            tenant: {{ include "logclaw.tenantId" . | quote }}
+            component: ingestion
+          annotations:
+            summary: "LogClaw ingestion is experiencing Kafka send errors"
+            description: >
+              Kafka producer errors detected in pod {{ "{{" }} $labels.pod {{ "}}" }}
+              at a rate of {{ "{{" }} $value | humanize {{ "}}" }} errors/sec.
+              Events may be lost. Investigate Kafka connectivity and topic permissions.
+            runbook_url: "https://docs.logclaw.io/runbooks/ingestion-kafka-errors"
+
+    # -------------------------------------------------------------------------
+    # Group: Event Drop Monitoring
+    # -------------------------------------------------------------------------
+    - name: logclaw.ingestion.drops
+      interval: 30s
+      rules:
+        # Alert when Vector is actively dropping events (buffer overflow or
+        # explicit drop policy). Distinct from intentional drop-sampling.
+        - alert: LogClawIngestionDroppedEvents
+          expr: |
+            rate(logclaw_ingestion_component_discarded_events_total{
+              namespace="{{ .Release.Namespace }}"
+            }[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            team: logclaw-platform
+            tenant: {{ include "logclaw.tenantId" . | quote }}
+            component: ingestion
+          annotations:
+            summary: "LogClaw ingestion is dropping log events"
+            description: >
+              Vector in pod {{ "{{" }} $labels.pod {{ "}}" }} is discarding events
+              at a rate of {{ "{{" }} $value | humanize {{ "}}" }} events/sec.
+              This may be caused by buffer backpressure, Kafka unavailability,
+              or the `when_full = block` buffer policy preventing ingestion.
+            runbook_url: "https://docs.logclaw.io/runbooks/ingestion-dropped-events"
+
+        # Alert when Vector's internal buffer utilisation is approaching capacity.
+        - alert: LogClawIngestionBufferNearFull
+          expr: |
+            logclaw_ingestion_buffer_byte_size{
+              namespace="{{ .Release.Namespace }}"
+            } / logclaw_ingestion_buffer_max_byte_size{
+              namespace="{{ .Release.Namespace }}"
+            } > 0.80
+          for: 5m
+          labels:
+            severity: warning
+            team: logclaw-platform
+            tenant: {{ include "logclaw.tenantId" . | quote }}
+            component: ingestion
+          annotations:
+            summary: "LogClaw ingestion buffer is near capacity"
+            description: >
+              Vector disk buffer in pod {{ "{{" }} $labels.pod {{ "}}" }} is at
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} capacity.
+              If the buffer fills completely, ingestion will stall.
+              Investigate downstream Kafka throughput.
+            runbook_url: "https://docs.logclaw.io/runbooks/ingestion-buffer-full"
+
+    # -------------------------------------------------------------------------
+    # Group: Availability
+    # -------------------------------------------------------------------------
+    - name: logclaw.ingestion.availability
+      interval: 60s
+      rules:
+        # Alert when available replica count drops below the PDB minimum.
+        - alert: LogClawIngestionReplicasLow
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="{{ .Release.Namespace }}",
+              deployment="{{ include "logclaw-ingestion.fullname" . }}"
+            } < {{ .Values.podDisruptionBudget.minAvailable }}
+          for: 2m
+          labels:
+            severity: critical
+            team: logclaw-platform
+            tenant: {{ include "logclaw.tenantId" . | quote }}
+            component: ingestion
+          annotations:
+            summary: "LogClaw ingestion deployment has fewer than minimum available replicas"
+            description: >
+              Only {{ "{{" }} $value {{ "}}" }} replica(s) are available for the
+              logclaw-ingestion Deployment in namespace {{ .Release.Namespace }}.
+              Minimum required: {{ .Values.podDisruptionBudget.minAvailable }}.
+              PrivateLink ingestion capacity may be degraded.
+            runbook_url: "https://docs.logclaw.io/runbooks/ingestion-replicas-low"
+{{- end }}

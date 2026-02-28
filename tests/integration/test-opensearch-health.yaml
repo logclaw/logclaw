@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ .Release.Name }}-test-opensearch"
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: opensearch-test
+      image: curlimages/curl:8.7.1
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          echo "Testing OpenSearch cluster health..."
+          STATUS=$(curl -sk "https://logclaw-opensearch:9200/_cluster/health" \
+            -u "admin:${OPENSEARCH_PASSWORD}" \
+            | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+          echo "Cluster status: $STATUS"
+          [ "$STATUS" = "green" ] || [ "$STATUS" = "yellow" ] || exit 1
+          echo "OpenSearch health test PASSED"
+      env:
+        - name: OPENSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: opensearch-admin-credentials
+              key: password
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]

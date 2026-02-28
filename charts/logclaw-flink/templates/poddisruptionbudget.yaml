@@ -1,0 +1,17 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-flink.fullname" . }}-jobmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-flink.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/description: >
+      Ensures at least one Flink JobManager pod remains available during
+      voluntary disruptions (node drains, cluster upgrades).
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      component: jobmanager
+      {{- include "logclaw-flink.selectorLabels" . | nindent 6 }}

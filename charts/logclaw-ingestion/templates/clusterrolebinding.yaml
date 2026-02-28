@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "logclaw-ingestion.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "logclaw-ingestion.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

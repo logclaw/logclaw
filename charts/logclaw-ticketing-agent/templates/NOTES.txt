@@ -1,0 +1,59 @@
+LogClaw Ticketing Agent has been deployed successfully.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Version:   {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KAFKA CONSUMER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Consumer Group : {{ .Values.config.kafka.consumerGroup }}
+Anomaly Topic  : {{ include "logclaw-ticketing-agent.kafkaTopicAnomalies" . }}
+Brokers        : {{ include "logclaw-ticketing-agent.kafkaBrokers" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENABLED INTEGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PagerDuty  : {{ if .Values.config.pagerduty.enabled }}ENABLED (severity: {{ .Values.config.pagerduty.severity }}){{ else }}disabled{{ end }}
+Jira       : {{ if .Values.config.jira.enabled }}ENABLED (project: {{ .Values.config.jira.projectKey }}, type: {{ .Values.config.jira.issueType }}){{ else }}disabled{{ end }}
+ServiceNow : {{ if .Values.config.servicenow.enabled }}ENABLED (table: {{ .Values.config.servicenow.table }}){{ else }}disabled{{ end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANOMALY PROCESSING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Minimum Anomaly Score  : {{ .Values.config.anomaly.minimumScore }}
+Context Window         : {{ .Values.config.anomaly.contextWindowSeconds }}s
+Max Log Lines / Ticket : {{ .Values.config.anomaly.maxLogLinesInTicket }}
+Dedup Window           : {{ .Values.config.anomaly.deduplicationWindowMinutes }}m
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+METRICS & HEALTH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Metrics endpoint is available inside the cluster at:
+
+  http://{{ include "logclaw-ticketing-agent.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:8080/metrics
+
+Health endpoints:
+  Liveness  : http://<pod-ip>:8080/health
+  Readiness : http://<pod-ip>:8080/ready
+
+To port-forward for local inspection:
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "logclaw-ticketing-agent.fullname" . }} 8080:8080
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCALING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.autoscaling.enabled }}
+HPA is ENABLED: {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} replicas
+  Kafka lag threshold : {{ .Values.autoscaling.kafkaConsumerLagThreshold }}
+  CPU target          : {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%
+{{- else }}
+HPA is disabled. Fixed replica count: {{ .Values.replicaCount }}
+{{- end }}
+
+VPA is installed in Recommend (Off) mode. Check recommendations with:
+  kubectl describe vpa -n {{ .Release.Namespace }} {{ include "logclaw-ticketing-agent.fullname" . }}
+
+Secrets are managed by ExternalSecret (auto-refreshed every 1h).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

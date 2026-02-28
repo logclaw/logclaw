@@ -1,0 +1,12 @@
+releases:
+  - name: logclaw-platform-{{ requiredEnv "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ requiredEnv "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-platform
+    createNamespace: true
+    values:
+      - charts/logclaw-platform/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ requiredEnv "TENANT_ID" | default "dev-local" }}
+      - name: global.storageClass
+        value: {{ env "STORAGE_CLASS" | default "standard" }}

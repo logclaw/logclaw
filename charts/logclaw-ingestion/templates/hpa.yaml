@@ -1,0 +1,57 @@
+{{- if and .Values.autoscaling.enabled (eq .Values.mode "deployment") }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "logclaw-ingestion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ingestion.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/purpose: >
+      Autoscales ingestion Deployment pods based on CPU utilisation.
+      Bounded between {{ .Values.autoscaling.minReplicas }} and
+      {{ .Values.autoscaling.maxReplicas }} replicas.
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "logclaw-ingestion.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    # Primary: CPU utilisation — reacts to throughput spikes
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    # Secondary: memory utilisation — guards against OOM conditions
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        # Allow fast scale-up: add up to 4 pods per 60 seconds
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+        # Or scale up by 100% of current count, whichever is larger
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        # Conservative scale-down: remove at most 1 pod per 120 seconds
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min
+{{- end }}

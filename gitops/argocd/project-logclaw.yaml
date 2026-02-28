@@ -1,0 +1,58 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: logclaw
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "LogClaw AI SRE Agent — multi-tenant platform"
+  sourceRepos:
+    - "https://github.com/logclaw/logclaw-platform.git"
+    - "oci://ghcr.io/logclaw/charts"
+  destinations:
+    - namespace: "logclaw-*"
+      server: "*"
+    - namespace: "logclaw-operators"
+      server: "*"
+    - namespace: "strimzi-system"
+      server: "*"
+    - namespace: "flink-system"
+      server: "*"
+    - namespace: "external-secrets"
+      server: "*"
+    - namespace: "cert-manager"
+      server: "*"
+    - namespace: "opensearch-operator-system"
+      server: "*"
+  clusterResourceWhitelist:
+    - group: "kafka.strimzi.io"
+      kind: "*"
+    - group: "flink.apache.org"
+      kind: "*"
+    - group: "external-secrets.io"
+      kind: "ClusterSecretStore"
+    - group: "cert-manager.io"
+      kind: "ClusterIssuer"
+    - group: ""
+      kind: "Namespace"
+    - group: "rbac.authorization.k8s.io"
+      kind: "ClusterRole"
+    - group: "rbac.authorization.k8s.io"
+      kind: "ClusterRoleBinding"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  roles:
+    - name: tenant-admin
+      description: "Full access for LogClaw platform operators"
+      policies:
+        - "p, proj:logclaw:tenant-admin, applications, *, logclaw/*, allow"
+      groups:
+        - logclaw-admins
+    - name: readonly
+      description: "Read-only access for SRE team"
+      policies:
+        - "p, proj:logclaw:readonly, applications, get, logclaw/*, allow"
+      groups:
+        - logclaw-sre

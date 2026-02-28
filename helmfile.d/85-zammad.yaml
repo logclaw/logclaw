@@ -1,0 +1,18 @@
+repositories:
+  - name: zammad
+    url: "https://zammad.github.io/zammad-helm"
+
+releases:
+  - name: logclaw-zammad-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-zammad
+    installed: {{ env "ZAMMAD_ENABLED" | default "false" }}
+    values:
+      - charts/logclaw-zammad/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.secretStore.name
+        value: {{ env "SECRET_STORE_NAME" | default "logclaw-secret-store" }}
+      - name: global.secretStore.kind
+        value: {{ env "SECRET_STORE_KIND" | default "ClusterSecretStore" }}

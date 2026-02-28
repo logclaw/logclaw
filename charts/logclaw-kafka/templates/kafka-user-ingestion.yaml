@@ -1,0 +1,43 @@
+{{- $rawLogsTopic := default "raw-logs" .Values.global.kafkaTopics.rawLogs }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: logclaw-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ .Release.Name }}
+    logclaw.io/component: ingestion
+spec:
+  authentication:
+    type: scram-sha-512
+
+  authorization:
+    type: simple
+    acls:
+      # Write raw log events to the ingest topic
+      - resource:
+          type: topic
+          name: {{ $rawLogsTopic | quote }}
+          patternType: literal
+        operations:
+          - Write
+          - Describe
+
+      # Transactional writes — ensures exactly-once semantics
+      - resource:
+          type: transactionalId
+          name: "logclaw-ingestion-*"
+          patternType: prefix
+        operations:
+          - Write
+          - Describe
+
+      # Required for idempotent producer
+      - resource:
+          type: cluster
+          name: kafka-cluster
+          patternType: literal
+        operations:
+          - IdempotentWrite

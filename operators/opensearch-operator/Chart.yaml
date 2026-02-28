@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-opensearch-operator
+description: >
+  OpenSearch Kubernetes Operator — cluster-level prerequisite for logclaw-opensearch.
+  Install once per cluster, NOT per tenant.
+type: application
+version: 2.6.1
+appVersion: "2.6.1"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+dependencies:
+  - name: opensearch-operator
+    version: "2.6.1"
+    repository: "https://opster.github.io/opensearch-k8s-operator/"

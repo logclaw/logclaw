@@ -1,0 +1,19 @@
+# Helm
+.helmignore
+charts/*.tgz
+charts/*/charts/
+
+# Helmfile
+.helmfile/
+
+# kind / local cluster artifacts
+kubeconfig-*.yaml
+*.kubeconfig
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

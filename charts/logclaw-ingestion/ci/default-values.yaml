@@ -1,0 +1,56 @@
+# CI test values for logclaw-ingestion
+# These override defaults to produce a minimal, fast-starting deployment
+# suitable for `helm lint` and `helm template` validation in CI pipelines.
+
+# Use Deployment mode (PrivateLink receiver) — the recommended production mode
+mode: "deployment"
+
+# Single replica for CI — avoids scheduling constraints in test clusters
+replicaCount: 1
+
+# Disable autoscaling so replicaCount above is used directly
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+
+# Disable monitoring alerts (PrometheusRule CRD may not exist in CI)
+global:
+  tenantId: "ci-test-tenant"
+  kafkaBrokers: "kafka.ci-infra.svc.cluster.local:9092"
+  kafkaTopics:
+    rawLogs: "logclaw-raw-logs-ci"
+  topologyKey: "kubernetes.io/hostname"
+  tls:
+    enabled: false
+  monitoring:
+    enabled: false
+
+# Reduce resource requests for CI resource-constrained environments
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Single-replica PDB — avoids blocking rollouts in CI
+podDisruptionBudget:
+  minAvailable: 1
+
+# TLS disabled in CI (no cert-manager)
+sources:
+  http:
+    enabled: true
+    port: 8080
+    tls:
+      enabled: false
+      certSecretName: "logclaw-ingestion-tls-ci"
+
+# Fluentd disabled in CI
+fluentd:
+  enabled: false
+
+# No topology spread in CI (single-node clusters)
+topologySpreadConstraints: []

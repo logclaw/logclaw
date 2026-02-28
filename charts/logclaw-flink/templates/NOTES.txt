@@ -1,0 +1,107 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        logclaw-flink deployed                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Release   : {{ .Release.Name }}
+Namespace : {{ .Release.Namespace }}
+Flink ver : {{ include "logclaw-flink.flinkVersion" . }}
+Image tag : {{ .Values.flink.jobImageTag }}
+Tenant    : {{ (.Values.global).tenantId | default "(not set — required!)" }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Deployed Flink Jobs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.flink.etlJob.enabled }}
+  [ENABLED]  ETL / Parsing Job
+             Name        : {{ include "logclaw-flink.fullname" . }}-etl
+             Entry class : io.logclaw.flink.EtlParsingJob
+             Parallelism : {{ .Values.flink.etlJob.parallelism }}
+             SLO         : parsing
+{{- else }}
+  [DISABLED] ETL / Parsing Job       (set flink.etlJob.enabled=true to enable)
+{{- end }}
+
+{{- if .Values.flink.enrichmentJob.enabled }}
+  [ENABLED]  Enrichment Job
+             Name        : {{ include "logclaw-flink.fullname" . }}-enrichment
+             Entry class : io.logclaw.flink.EnrichmentJob
+             Parallelism : {{ .Values.flink.enrichmentJob.parallelism }}
+             SLO         : enrichment
+{{- else }}
+  [DISABLED] Enrichment Job    (set flink.enrichmentJob.enabled=true to enable)
+{{- end }}
+
+{{- if .Values.flink.anomalyJob.enabled }}
+  [ENABLED]  Anomaly Scoring Job  *** LATENCY-CRITICAL — sub-200ms p99 SLO ***
+             Name        : {{ include "logclaw-flink.fullname" . }}-anomaly
+             Entry class : io.logclaw.flink.AnomalyScoringJob
+             Parallelism : {{ .Values.flink.anomalyJob.parallelism }}
+             SLO         : sub-200ms-p99
+{{- else }}
+  [DISABLED] Anomaly Scoring Job  (set flink.anomalyJob.enabled=true to enable)
+{{- end }}
+
+{{- if .Values.flink.sessionCluster.enabled }}
+  [ENABLED]  Flink Session Cluster (interactive SQL)
+             Name : {{ include "logclaw-flink.fullname" . }}-session
+{{- else }}
+  [DISABLED] Flink Session Cluster  (set flink.sessionCluster.enabled=true)
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Checkpoint / Savepoint Storage
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Checkpoints : {{ include "logclaw-flink.checkpointDir" . }}
+  Savepoints  : {{ include "logclaw-flink.savepointDir" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Flink JobManager UI Access
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Port-forward the JobManager REST UI (replace <job> with etl, enrichment, or anomaly):
+
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "logclaw-flink.fullname" . }}-<job>-rest 8081:8081
+
+Then open: http://localhost:8081
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Useful kubectl Commands
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# List all FlinkDeployments in this namespace
+kubectl get flinkdeployment -n {{ .Release.Namespace }}
+
+# Check status of the ETL job
+kubectl describe flinkdeployment \
+  {{ include "logclaw-flink.fullname" . }}-etl \
+  -n {{ .Release.Namespace }}
+
+# Check status of the anomaly scoring job (critical path)
+kubectl describe flinkdeployment \
+  {{ include "logclaw-flink.fullname" . }}-anomaly \
+  -n {{ .Release.Namespace }}
+
+# Watch all Flink pods
+kubectl get pods -n {{ .Release.Namespace }} -w \
+  -l app.kubernetes.io/instance={{ .Release.Name }}
+
+# Tail JobManager logs for the anomaly job
+kubectl logs -n {{ .Release.Namespace }} \
+  -l app={{ include "logclaw-flink.fullname" . }}-anomaly,component=jobmanager \
+  --tail=100 -f
+
+# Trigger a savepoint on the ETL job (replace JOB_ID from the UI)
+kubectl exec -n {{ .Release.Namespace }} \
+  $(kubectl get pod -n {{ .Release.Namespace }} \
+    -l app={{ include "logclaw-flink.fullname" . }}-etl,component=jobmanager \
+    -o jsonpath='{.items[0].metadata.name}') \
+  -- /opt/flink/bin/flink savepoint <JOB_ID> \
+     {{ include "logclaw-flink.savepointDir" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTE: The Flink Kubernetes Operator (>= v1.9.0) must be installed cluster-wide.
+      If jobs are not starting, check the operator:
+        kubectl get pod -n flink-operator-system
+        kubectl logs -n flink-operator-system \
+          -l app.kubernetes.io/name=flink-kubernetes-operator --tail=50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

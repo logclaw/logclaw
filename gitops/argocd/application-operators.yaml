@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: logclaw-operators
+  namespace: argocd
+  labels:
+    logclaw.io/component: "cluster-operators"
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: logclaw
+  source:
+    repoURL: "https://github.com/logclaw/logclaw-platform.git"
+    targetRevision: HEAD
+    path: "operators"
+    directory:
+      recurse: true
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: "logclaw-operators"
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: "30s"
+        factor: 2
+        maxDuration: "5m"

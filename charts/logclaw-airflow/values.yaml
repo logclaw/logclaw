@@ -1,0 +1,79 @@
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+airflow:
+  executor: KubernetesExecutor
+  # Secrets injected via ESO ExternalSecrets — never set here
+  fernetKeySecretName: "logclaw-airflow-credentials"
+  webserverSecretKeySecretName: "logclaw-airflow-credentials"
+
+  config:
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+    AIRFLOW__CORE__PARALLELISM: "32"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "16"
+
+  dags:
+    gitSync:
+      enabled: true
+      repo: ""
+      branch: "main"
+      rev: "HEAD"
+      depth: 1
+      subPath: "dags/"
+      sshKeySecret: "airflow-git-ssh"
+
+  images:
+    airflow:
+      repository: "ghcr.io/logclaw/airflow"
+      tag: "2.9.3"
+      pullPolicy: IfNotPresent
+
+  postgresql:
+    enabled: true
+    auth:
+      existingSecret: "logclaw-airflow-credentials"
+      secretKeys:
+        adminPasswordKey: "postgresql-password"
+
+  redis:
+    enabled: false
+
+  webserver:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+  scheduler:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+  workers:
+    replicas: 0
+
+  serviceAccount:
+    create: false
+    name: ""
+
+podDisruptionBudget:
+  scheduler:
+    minAvailable: 1
+  webserver:
+    minAvailable: 1

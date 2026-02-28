@@ -1,0 +1,37 @@
+---
+# PodDisruptionBudget for Kafka broker pods
+# maxUnavailable: 1 ensures quorum is maintained during voluntary disruptions
+# (node drains, upgrades). With 3 replicas, 2 remain available at all times.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-kafka.fullname" . }}-kafka-broker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ .Release.Name }}-kafka
+
+{{- if .Values.kafkaConnect.enabled }}
+---
+# PodDisruptionBudget for Kafka Connect workers
+# maxUnavailable: 1 allows rolling restarts without dropping connector tasks
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "logclaw-kafka.fullname" . }}-connect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-kafka.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ .Release.Name }}-connect
+      strimzi.io/kind: KafkaConnect
+{{- end }}

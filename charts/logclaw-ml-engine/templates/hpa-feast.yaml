@@ -1,0 +1,24 @@
+{{- if gt (int .Values.mlEngine.feast.replicaCount) 1 }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}-feast
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: feast-server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "logclaw-ml-engine.feastServiceName" . }}
+  minReplicas: {{ .Values.mlEngine.feast.replicaCount }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+{{- end }}

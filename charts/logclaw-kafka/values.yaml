@@ -1,0 +1,103 @@
+nameOverride: ""
+fullnameOverride: ""
+
+kafka:
+  version: "3.7.0"
+  replicas: 3
+
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: "500Gi"
+        deleteClaim: false
+
+  listeners:
+    tls:
+      enabled: true
+      authentication:
+        type: scram-sha-512
+
+  config:
+    auto.create.topics.enable: "false"
+    default.replication.factor: "3"
+    min.insync.replicas: "2"
+    log.retention.hours: "24"
+    log.segment.bytes: "1073741824"
+    offsets.topic.replication.factor: "3"
+    transaction.state.log.replication.factor: "3"
+    transaction.state.log.min.isr: "2"
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: "8Gi"
+    limits:
+      cpu: "4"
+      memory: "16Gi"
+
+  jvmOptions:
+    -Xms: "4g"
+    -Xmx: "8g"
+
+topics:
+  rawLogs:
+    partitions: 12
+    replicas: 3
+    retentionMs: "86400000"     # 1 day
+    segmentBytes: "1073741824"
+  enriched:
+    partitions: 6
+    replicas: 3
+    retentionMs: "86400000"
+  anomalies:
+    partitions: 3
+    replicas: 3
+    retentionMs: "604800000"    # 7 days (for replay)
+  dlq:
+    partitions: 3
+    replicas: 3
+    retentionMs: "2592000000"   # 30 days
+
+kafkaConnect:
+  enabled: true
+  replicas: 3
+  image: "ghcr.io/logclaw/kafka-connect:0.1.0"
+  config:
+    group.id: "logclaw-connect"
+    offset.storage.replication.factor: "3"
+    status.storage.replication.factor: "3"
+    config.storage.replication.factor: "3"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+s3Sink:
+  enabled: true
+  topics: "raw-logs,enriched-logs"
+  flushSize: "10000"
+  rotateScheduleIntervalMs: "3600000"
+  format:
+    type: "parquet"
+    schemaRegistryUrl: ""
+
+mirrorMaker2:
+  enabled: false
+  sourceClusterAlias: "source"
+  targetClusterAlias: "target"
+  sourceBootstrapServers: ""
+  replication:
+    factor: 3
+    topics: "raw-logs,enriched-logs"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"

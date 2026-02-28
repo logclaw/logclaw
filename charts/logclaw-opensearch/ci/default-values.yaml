@@ -1,0 +1,61 @@
+# CI test values — minimal footprint for helm lint / helm template validation.
+# DO NOT use these values in production.
+
+global:
+  tenantId: "ci-test"
+  storageClass: "standard"
+  clusterDomain: "cluster.local"
+  topologyKey: "topology.kubernetes.io/zone"
+  secretStore:
+    name: "ci-secret-store"
+  monitoring:
+    enabled: false
+
+opensearch:
+  masters:
+    replicas: 1
+    diskSize: "5Gi"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    jvm:
+      xms: "512m"
+      xmx: "1g"
+
+  data:
+    replicas: 1
+    diskSize: "10Gi"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    jvm:
+      xms: "512m"
+      xmx: "1g"
+
+  coordinators:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+podDisruptionBudget:
+  dataNodes:
+    minAvailable: 1
+  masterNodes:
+    minAvailable: 1
+
+adminCredentialsSecret:
+  createExternalSecret: false
+  name: "opensearch-admin-credentials"

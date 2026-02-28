@@ -1,0 +1,78 @@
+name: Helm Lint & Validate
+
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - "operators/**"
+      - "gitops/**"
+      - "helmfile.yaml"
+      - "helmfile.d/**"
+      - "tests/**"
+  push:
+    branches: [main]
+    paths: ["charts/**"]
+
+jobs:
+  lint:
+    name: Lint All Charts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.3
+
+      - name: Install chart-testing
+        uses: helm/chart-testing-action@v2.6.1
+
+      - name: Update chart dependencies
+        run: |
+          for chart in charts/*/; do
+            helm dependency update "$chart" 2>/dev/null || true
+          done
+
+      - name: Lint all charts
+        run: |
+          for chart in charts/*/; do
+            helm lint "$chart" \
+              --values "$chart/ci/default-values.yaml" \
+              --strict \
+              --set global.tenantId=ci-lint \
+              --set global.objectStorage.bucket=ci-bucket
+          done
+
+      - name: ct lint
+        run: ct lint --config tests/ct.yaml --all --chart-dirs charts
+
+  template:
+    name: Template Render
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.15.3
+      - name: Update deps
+        run: helm dependency update charts/logclaw-tenant/ || true
+      - name: Render standard tier
+        run: |
+          helm template logclaw-ci charts/logclaw-tenant \
+            --namespace logclaw-ci \
+            --values charts/logclaw-tenant/ci/default-values.yaml \
+            --set global.tenantId=ci-test \
+            --set global.objectStorage.bucket=ci-bucket \
+            --dry-run > /dev/null
+      - name: Render HA tier
+        run: |
+          helm template logclaw-ci-ha charts/logclaw-tenant \
+            --namespace logclaw-ci-ha \
+            --values charts/logclaw-tenant/ci/ha-values.yaml \
+            --set global.tenantId=ci-ha-test \
+            --set global.objectStorage.bucket=ci-bucket \
+            --dry-run > /dev/null

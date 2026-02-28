@@ -1,0 +1,91 @@
+{{- if ((.Values.global).monitoring).enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "logclaw-opensearch.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-opensearch.labels" . | nindent 4 }}
+    # Standard label used by Prometheus Operator to discover rule files
+    prometheus: kube-prometheus
+    role: alert-rules
+  annotations:
+    logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
+    logclaw.io/component: "hot-tier-storage"
+spec:
+  groups:
+    - name: logclaw-opensearch.rules
+      interval: 60s
+      rules:
+        # ── Cluster Health ───────────────────────────────────────────────────
+        - alert: LogClawOpenSearchClusterRed
+          expr: |
+            opensearch_cluster_status{job=~".*opensearch.*", cluster="{{ include "logclaw-opensearch.fullname" . }}"} == 2
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw-opensearch.tenantId" . }}
+            component: hot-tier-storage
+          annotations:
+            summary: "OpenSearch cluster {{ `{{ $labels.cluster }}` }} is RED"
+            description: >
+              The OpenSearch cluster {{ `{{ $labels.cluster }}` }} in namespace
+              {{ .Release.Namespace }} has been in RED status for more than 2 minutes.
+              This means one or more primary shards are unassigned.
+            runbook_url: "https://logclaw.io/runbooks/opensearch-cluster-red"
+
+        # ── Disk Usage ───────────────────────────────────────────────────────
+        - alert: LogClawOpenSearchDiskHigh
+          expr: |
+            opensearch_data_nodes_disk_used_percent{job=~".*opensearch.*", cluster="{{ include "logclaw-opensearch.fullname" . }}"} > 80
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw-opensearch.tenantId" . }}
+            component: hot-tier-storage
+          annotations:
+            summary: "OpenSearch data node disk usage above 80% ({{ `{{ $labels.cluster }}` }})"
+            description: >
+              Data node {{ `{{ $labels.node }}` }} in cluster {{ `{{ $labels.cluster }}` }}
+              has disk usage at {{ `{{ $value | humanizePercentage }}` }}.
+              Consider triggering a manual rollover or expanding storage.
+            runbook_url: "https://logclaw.io/runbooks/opensearch-disk-high"
+
+        - alert: LogClawOpenSearchDiskCritical
+          expr: |
+            opensearch_data_nodes_disk_used_percent{job=~".*opensearch.*", cluster="{{ include "logclaw-opensearch.fullname" . }}"} > 90
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+            tenant: {{ include "logclaw-opensearch.tenantId" . }}
+            component: hot-tier-storage
+          annotations:
+            summary: "OpenSearch data node disk usage above 90% ({{ `{{ $labels.cluster }}` }})"
+            description: >
+              Data node {{ `{{ $labels.node }}` }} in cluster {{ `{{ $labels.cluster }}` }}
+              has disk usage at {{ `{{ $value | humanizePercentage }}` }}.
+              OpenSearch will enforce read-only mode above 95%. Immediate action required.
+            runbook_url: "https://logclaw.io/runbooks/opensearch-disk-critical"
+
+        # ── JVM Heap ─────────────────────────────────────────────────────────
+        - alert: LogClawOpenSearchJvmHeapHigh
+          expr: |
+            opensearch_jvm_mem_heap_used_percent{job=~".*opensearch.*", cluster="{{ include "logclaw-opensearch.fullname" . }}"} > 85
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+            tenant: {{ include "logclaw-opensearch.tenantId" . }}
+            component: hot-tier-storage
+          annotations:
+            summary: "OpenSearch JVM heap usage above 85% ({{ `{{ $labels.cluster }}` }})"
+            description: >
+              Node {{ `{{ $labels.node }}` }} in cluster {{ `{{ $labels.cluster }}` }}
+              JVM heap is at {{ `{{ $value | humanizePercentage }}` }}.
+              Sustained high heap usage may trigger GC pressure or OOM.
+              Check index load and JVM settings.
+            runbook_url: "https://logclaw.io/runbooks/opensearch-jvm-heap-high"
+{{- end }}

@@ -1,0 +1,69 @@
+# NetworkPolicy for Zammad ITSM.
+# Security guarantee: NO external HTTPS egress. All ticket data stays in-cluster.
+# Egress is restricted to bundled PostgreSQL, Elasticsearch, and Redis only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-zammad.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-zammad.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: zammad
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Ticketing-agent REST API access
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ticketing-agent
+      ports:
+        - port: 3000
+          protocol: TCP
+    # Prometheus metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ ((.Values.global).monitoring).prometheusNamespace | default "monitoring" }}
+      ports:
+        - port: 9090
+          protocol: TCP
+  egress:
+    # kube-dns — always required
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # PostgreSQL — bundled database
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Elasticsearch — bundled full-text search
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+      ports:
+        - port: 9200
+          protocol: TCP
+    # Redis — bundled ActionCable websocket broker
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+          protocol: TCP

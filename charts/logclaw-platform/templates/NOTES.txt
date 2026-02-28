@@ -1,0 +1,115 @@
+LogClaw Platform Chart — Deployment Summary
+============================================
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart:     {{ .Chart.Name }}-{{ .Chart.Version }}
+Tenant ID: {{ include "logclaw.tenantId" . }}
+
+---
+
+Secret Store
+------------
+Provider:      {{ .Values.global.secretStore.provider | default "NOT SET" | upper }}
+SecretStore:   {{ include "logclaw-platform.fullname" . }}-secretstore
+{{- if eq (.Values.global.secretStore.provider | default "") "aws" }}
+AWS Region:    {{ .Values.global.secretStore.aws.region | default "NOT SET" }}
+IAM Role ARN:  {{ .Values.global.secretStore.aws.iamRoleArn | default "NOT SET" }}
+{{- else if eq (.Values.global.secretStore.provider | default "") "gcp" }}
+GCP Project:   {{ .Values.global.secretStore.gcp.projectId | default "NOT SET" }}
+GCP SA:        {{ .Values.global.secretStore.gcp.serviceAccount | default "NOT SET" }}
+{{- else if eq (.Values.global.secretStore.provider | default "") "vault" }}
+Vault Server:  {{ .Values.global.secretStore.vault.server | default "NOT SET" }}
+Vault Path:    {{ .Values.global.secretStore.vault.path | default "secret" }}
+{{- else if eq (.Values.global.secretStore.provider | default "") "azure" }}
+Azure Vault:   {{ .Values.global.secretStore.azure.vaultUrl | default "NOT SET" }}
+Azure Client:  {{ .Values.global.secretStore.azure.clientId | default "NOT SET" }}
+{{- end }}
+
+ExternalSecret syncing registry pull secret from:
+  logclaw/{{ include "logclaw.tenantId" . }}/global/registry-pull-secret
+Resulting Kubernetes Secret: logclaw-registry-pull-secret
+
+---
+
+TLS / Certificate Issuance
+---------------------------
+Issuer Kind:  {{ .Values.global.tls.issuerKind | default "ClusterIssuer" }}
+Issuer Name:  {{ .Values.global.tls.issuerName | default "NOT SET" }}
+Issuer Type:  {{ .Values.tls.issuerType | upper }}
+
+Certificates provisioned:
+  1. {{ printf "*.%s.logclaw.internal" (include "logclaw.tenantId" .) }}
+     Secret: {{ printf "%s-ingress-tls" (include "logclaw.tenantId" .) }}
+     Purpose: Ingress wildcard TLS
+
+  2. logclaw-internal-tls
+     Secret: logclaw-internal-tls
+     Purpose: Internal mTLS for Kafka clients and OpenSearch
+
+---
+
+Network Policies
+----------------
+Ingress allowed from:
+  - Namespace: {{ .Values.global.monitoring.namespace | default "monitoring" }} (Prometheus scraping on 9090)
+  - Namespace: ingress-nginx (ports 80, 443)
+  - Namespace: {{ .Values.global.argocd.namespace | default "argocd" }} (health checks on 8080)
+  - Same namespace (intra-pod communication)
+
+Egress allowed to:
+  - kube-system/kube-dns (UDP/TCP 53)
+  - Namespace: {{ .Values.global.monitoring.namespace | default "monitoring" }} (port 9090)
+  - Internet (0.0.0.0/0 excluding RFC-1918) on port 443
+  - Same namespace (intra-pod communication)
+  - Namespace: {{ .Values.global.argocd.namespace | default "argocd" }} (ports 8080, 8081)
+
+---
+
+RBAC
+----
+Read-Only Group:  {{ .Values.rbac.readonlyGroupName }}
+  Role:           {{ include "logclaw-platform.fullname" . }}-readonly
+  Permissions:    get, list, watch on pods, services, deployments, statefulsets,
+                  configmaps, events, pvcs, ingresses, networkpolicies, certificates
+
+Admin Group:      {{ .Values.rbac.adminGroupName }}
+  Role:           {{ include "logclaw-platform.fullname" . }}-admin
+  Permissions:    get, list, watch, create, update, patch, delete on most resources
+  NOTE: Secrets access is intentionally EXCLUDED from this role.
+        Use the break-glass approval workflow for Secret access.
+
+---
+
+Service Account
+---------------
+{{- if .Values.serviceAccount.create }}
+Name:    {{ include "logclaw-platform.serviceAccountName" . }}
+Purpose: ESO SecretStore authentication (IRSA / Workload Identity)
+{{- else }}
+Service account creation disabled. Using: {{ .Values.serviceAccount.name | default "default" }}
+{{- end }}
+
+---
+
+Pod Security Standards
+-----------------------
+PSS enforcement is applied at the namespace level via labels set by the umbrella chart.
+In-cluster documentation is available in ConfigMap 'pod-security-info'.
+
+  kubectl get configmap pod-security-info -n {{ .Release.Namespace }} -o yaml
+
+---
+
+Verify deployment:
+
+  kubectl get secretstore -n {{ .Release.Namespace }}
+  kubectl get externalsecret -n {{ .Release.Namespace }}
+  kubectl get certificate -n {{ .Release.Namespace }}
+  kubectl get networkpolicy -n {{ .Release.Namespace }}
+  kubectl get role,rolebinding -n {{ .Release.Namespace }}
+
+Check ESO sync status:
+
+  kubectl get externalsecret {{ include "logclaw-platform.fullname" . }}-registry-pull-secret \
+    -n {{ .Release.Namespace }} -o jsonpath='{.status.conditions}'

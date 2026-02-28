@@ -1,0 +1,116 @@
+nameOverride: ""
+fullnameOverride: ""
+
+# "deployment" = PrivateLink receiver endpoint (recommended)
+# "daemonset" = node log file collection
+mode: "deployment"
+
+replicaCount: 3
+
+image:
+  repository: "timberio/vector"
+  tag: "0.38.0-distroless-libc"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# PrivateLink ingress endpoint
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# Drop-sampling rules (reduces cardinality before Kafka)
+sampling:
+  enabled: true
+  rules:
+    - level: "DEBUG"
+      rate: 0.01
+    - level: "INFO"
+      rate: 0.10
+    - level: "WARN"
+      rate: 1.0
+    - level: "ERROR"
+      rate: 1.0
+
+# Vector source: HTTP receiver
+sources:
+  http:
+    enabled: true
+    port: 8080
+    tls:
+      enabled: true
+      certSecretName: "logclaw-ingestion-tls"
+  syslog:
+    enabled: false
+    port: 514
+
+# Kafka sink config (bootstrapServers and topic come from global.*)
+sink:
+  kafka:
+    compression: "lz4"
+    batchSize: 10000
+    lingerMs: 50
+    encoding: "json"
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "2000m"
+    memory: "2Gi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9598"
+  prometheus.io/path: "/metrics"
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    whenUnsatisfiable: DoNotSchedule
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Fluentd alternative (disabled by default)
+fluentd:
+  enabled: false
+  image:
+    repository: "fluent/fluentd-kubernetes-daemonset"
+    tag: "v1.16-debian-kafka-amd64-1"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

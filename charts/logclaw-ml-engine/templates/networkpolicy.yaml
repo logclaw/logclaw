@@ -1,0 +1,83 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-ml-engine.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-ml-engine.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-ml-engine.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Feast gRPC from Flink enrichment job
+    - from:
+        - podSelector:
+            matchLabels:
+              logclaw.io/tenant: {{ .Values.global.tenantId | quote }}
+      ports:
+        - port: 6566
+          protocol: TCP
+        - port: 6567
+          protocol: TCP
+    # KServe predictor from Flink anomaly job
+    - from:
+        - podSelector:
+            matchLabels:
+              logclaw.io/tenant: {{ .Values.global.tenantId | quote }}
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.monitoring.prometheusNamespace | default "monitoring" }}
+      ports:
+        - port: 8082
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+    {{- if or (eq ((.Values.global).llm).provider "ollama") .Values.mlEngine.ollama.enabled }}
+    # Ticketing-agent → Ollama inference for RCA summary generation
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ticketing-agent
+      ports:
+        - port: 11434
+          protocol: TCP
+    {{- end }}
+  egress:
+    # Redis online store
+    - to:
+        - podSelector:
+            matchLabels:
+              logclaw.io/tenant: {{ .Values.global.tenantId | quote }}
+      ports:
+        - port: 6379
+          protocol: TCP
+    # Object storage for models
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
