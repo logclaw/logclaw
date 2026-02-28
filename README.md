@@ -1,93 +1,188 @@
-# BirrPay
+# LogClaw — Helm Chart Monorepo
 
+<p align="left">
+  <img src="https://img.shields.io/badge/helm-3.x-blue?logo=helm" />
+  <img src="https://img.shields.io/badge/kubernetes-1.27%2B-blue?logo=kubernetes" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-green" />
+</p>
 
+Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log intelligence platform with real-time anomaly detection, multi-platform incident ticketing, and GitOps-native multi-tenancy.
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Architecture
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/xion11/birrpay.git
-git branch -M main
-git push -uf origin main
+LogClaw Stack (per tenant, namespace-isolated)
+│
+├── logclaw-ingestion       Vector.dev DaemonSet + PrivateLink TLS receiver
+├── logclaw-kafka           Strimzi Kafka 3-broker KRaft + MirrorMaker2
+├── logclaw-flink           ETL + enrichment + anomaly scoring (FlinkDeployments)
+├── logclaw-opensearch      OpenSearch 3-node cluster (Opster operator)
+├── logclaw-ml-engine       Feast Feature Store + KServe/TorchServe + Ollama
+├── logclaw-airflow         Apache Airflow (git-sync DAGs)
+├── logclaw-ticketing-agent RCA microservice → PagerDuty / Jira / ServiceNow /
+│                           OpsGenie / Zammad / Slack  (any combination)
+├── logclaw-zammad          In-cluster ITSM (zero-egress ticketing alternative)
+└── logclaw-platform        ESO SecretStore, cert-manager, RBAC baseline
 ```
 
-## Integrate with your tools
+All charts are wired together by the **`logclaw-tenant` umbrella chart** — a single `helm install` deploys the full stack for one tenant.
 
-* [Set up project integrations](https://gitlab.com/xion11/birrpay/-/settings/integrations)
+---
 
-## Collaborate with your team
+## Quick Start
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Prerequisites
 
-## Test and Deploy
+One-time cluster setup (operators, run once per cluster):
 
-Use the built-in continuous integration in GitLab.
+```bash
+helmfile -f helmfile.d/00-operators.yaml apply
+```
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+### Onboard a new tenant
 
-***
+1. Copy the template:
+   ```bash
+   cp gitops/tenants/_template.yaml gitops/tenants/tenant-<id>.yaml
+   ```
 
-# Editing this README
+2. Fill in the required values (`tenantId`, `tier`, `cloudProvider`, secret store config).
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+3. Commit and push — ArgoCD will detect the new file and deploy the full stack in ~30 minutes.
 
-## Suggestions for a good README
+### Manual install (dev/staging)
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+helm install logclaw-acme charts/logclaw-tenant \
+  --namespace logclaw-acme \
+  --create-namespace \
+  -f gitops/tenants/tenant-acme.yaml
+```
 
-## Name
-Choose a self-explaining name for your project.
+---
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Repository Layout
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```
+charts/
+├── logclaw-tenant/           # Umbrella chart — single install entry point
+├── logclaw-platform/         # ESO SecretStore, cert-manager, RBAC
+├── logclaw-kafka/            # Strimzi Kafka + KafkaConnect + MirrorMaker2
+├── logclaw-ingestion/        # Vector.dev DaemonSet + PrivateLink receiver
+├── logclaw-opensearch/       # OpenSearch cluster via Opster operator
+├── logclaw-flink/            # Flink ETL + enrichment + anomaly jobs
+├── logclaw-ml-engine/        # Feast + KServe/TorchServe + Ollama
+├── logclaw-airflow/          # Apache Airflow
+├── logclaw-ticketing-agent/  # Multi-platform incident ticketing
+└── logclaw-zammad/           # In-cluster ITSM (zero-egress option)
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+operators/                    # Cluster-level operator bootstrap (once per cluster)
+├── strimzi/                  # strimzi-kafka-operator 0.41.0
+├── flink-operator/           # flink-kubernetes-operator 1.9.0
+├── opensearch-operator/      # opensearch-operator 2.6.1
+├── eso/                      # external-secrets 0.10.3
+└── cert-manager/             # cert-manager v1.16.1
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+gitops/
+├── argocd/                   # ApplicationSet + AppProject for multi-tenant GitOps
+└── tenants/                  # Per-tenant value files (_template.yaml + examples)
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+helmfile.d/                   # Ordered helmfile releases (00-operators → 80-ticketing)
+tests/                        # Helm chart tests + integration test pods
+docs/                         # Architecture, onboarding, values reference
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+---
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Key Features
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### Multi-Platform Ticketing
+The `logclaw-ticketing-agent` supports **6 independently-toggleable platforms** simultaneously:
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+| Platform | Type | Egress |
+|---|---|---|
+| PagerDuty | SaaS | External HTTPS |
+| Jira | SaaS | External HTTPS |
+| ServiceNow | SaaS | External HTTPS |
+| OpsGenie | SaaS | External HTTPS |
+| Slack | SaaS | External HTTPS |
+| Zammad | In-cluster | Zero external egress |
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Per-severity routing (`critical → PagerDuty`, `medium → Jira`, etc.) is configurable via `config.routing.*`.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+### Air-Gapped Mode
+When only **Zammad + Ollama** are enabled, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped.
+
+### LLM Provider Abstraction
+```yaml
+global:
+  llm:
+    provider: ollama   # claude | openai | ollama | vllm | disabled
+    model: llama3.2:8b
+```
+
+### Multi-Cloud Secret Management
+```yaml
+global:
+  secretStore:
+    provider: aws    # aws | gcp | vault | azure
+```
+
+### Tiered Deployments
+```yaml
+global:
+  tier: ha   # standard | ha | ultra-ha
+```
+
+---
+
+## Component Versions
+
+| Component | Version |
+|---|---|
+| Apache Kafka (Strimzi) | 3.7.0 |
+| Apache Flink | 1.19.0 |
+| OpenSearch | 2.14.0 |
+| External Secrets Operator | 0.10.3 |
+| cert-manager | v1.16.1 |
+| Apache Airflow | 1.14.0 |
+| Zammad | 12.4.1 |
+| Vector.dev | 0.38.0 |
+| KServe | 0.13.0 |
+| Feast | 0.40.0 |
+
+---
+
+## Development
+
+```bash
+# Lint all charts
+make lint
+
+# Render umbrella chart (dry-run)
+make template TENANT_ID=ci-test
+
+# Full local install on kind
+make kind-create
+make install-operators
+make install TENANT_ID=dev-local
+
+# Run Helm tests
+make test TENANT_ID=dev-local
+```
+
+---
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Onboarding a new tenant](docs/onboarding.md)
+- [Values reference](docs/values-reference.md)
+
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Apache 2.0 — see [LICENSE](LICENSE)
