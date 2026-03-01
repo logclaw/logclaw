@@ -35,7 +35,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.monitoring.prometheusNamespace | default "monitoring" }}
+              kubernetes.io/metadata.name: {{ (((.Values.global).monitoring).prometheusNamespace) | default "monitoring" }}
       ports:
         - port: 8082
           protocol: TCP

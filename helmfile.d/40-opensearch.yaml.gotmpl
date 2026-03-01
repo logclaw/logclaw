@@ -1,9 +1,10 @@
 releases:
-  - name: logclaw-kafka-{{ env "TENANT_ID" | default "dev-local" }}
+  - name: logclaw-opensearch-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ./charts/logclaw-kafka
+    chart: ../charts/logclaw-opensearch
+    timeout: 900
     values:
-      - charts/logclaw-kafka/ci/default-values.yaml
+      - ../charts/logclaw-opensearch/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}

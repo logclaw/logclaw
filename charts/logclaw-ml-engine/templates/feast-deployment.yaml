@@ -46,7 +46,7 @@ spec:
         - name: feast-data-dir
           image: "{{ .Values.mlEngine.feast.image.repository }}:{{ .Values.mlEngine.feast.image.tag }}"
           imagePullPolicy: {{ .Values.mlEngine.feast.image.pullPolicy }}
-          command: ["sh", "-c", "mkdir -p /feast/data && chmod 770 /feast/data"]
+          command: ["sh", "-c", "mkdir -p /feast/data"]
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
@@ -65,11 +65,13 @@ spec:
 
           command:
             - feast
+            - -c
+            - /feast/config
             - serve
             - -h
             - "0.0.0.0"
             - -p
-            - "6566"
+            - "{{ .Values.mlEngine.feast.service.httpPort }}"
 
           env:
             - name: REDIS_PASSWORD
@@ -79,8 +81,6 @@ spec:
                   key: {{ .Values.redis.auth.existingSecretPasswordKey }}
             - name: FEAST_USAGE
               value: "False"
-            - name: FEATURE_STORE_YAML_PATH
-              value: /feast/config/feature_store.yaml
             - name: TENANT_ID
               value: {{ include "logclaw-ml-engine.tenantId" . }}
 

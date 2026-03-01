@@ -1,3 +1,36 @@
+# CI test values for logclaw-flink chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  clusterDomain: "cluster.local"
+  topologyKey: "topology.kubernetes.io/zone"
+  imageRegistry: "docker.io"
+  kafkaBrokers: "kafka.default.svc.cluster.local:9092"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomalies"
+    dlq: "dlq"
+  opensearchEndpoint: "https://opensearch.default.svc.cluster.local:9200"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-dev-local"
+    region: "us-east-1"
+    # irsaRoleArn: ""            # AWS IRSA — set if running on EKS
+    # workloadIdentityGSA: ""    # GCP Workload Identity — set if running on GKE
+    # azureClientId: ""          # Azure Workload Identity — set if running on AKS
+  monitoringNamespace: "monitoring"
+  monitoring:
+    enabled: false
+    ruleLabels: {}
+  # highPriorityClassName: ""    # Optional: PriorityClass for anomaly job
+
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
 flink:
   jobManager:
     cpu: 0.5
@@ -15,13 +48,13 @@ flink:
         cpu: "2"
         memory: "2Gi"
   etlJob:
-    enabled: true
+    enabled: false
     parallelism: 1
   enrichmentJob:
-    enabled: true
+    enabled: false
     parallelism: 1
   anomalyJob:
-    enabled: true
+    enabled: false
     parallelism: 2
   sessionCluster:
     enabled: false

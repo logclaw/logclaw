@@ -1,14 +1,20 @@
 # CI test values for logclaw-zammad chart
-# Used by helm chart-testing (ct) and local development
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
 
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: ci-test
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
   secretStore:
     name: "logclaw-secret-store"
     kind: "ClusterSecretStore"
   monitoring:
+    enabled: false
     prometheusNamespace: "monitoring"
 
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
 zammad:
   postgresql:
     enabled: true

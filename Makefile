@@ -73,6 +73,7 @@ template-diff: ## Diff current install vs new templates
 kind-create: ## Create local kind cluster
 	$(KIND) create cluster --name $(KIND_CLUSTER) --wait 60s
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.crds.yaml --server-side || true
+	kubectl label node $(KIND_CLUSTER)-control-plane topology.kubernetes.io/zone=zone-a --overwrite
 	@echo "Kind cluster $(KIND_CLUSTER) ready"
 
 kind-delete: ## Delete local kind cluster
@@ -81,8 +82,32 @@ kind-delete: ## Delete local kind cluster
 install-operators: ## Install cluster-level operators
 	TENANT_ID=$(TENANT_ID) helmfile --file helmfile.d/00-operators.yaml apply
 
-install: deps ## Install full tenant stack
-	TENANT_ID=$(TENANT_ID) STORAGE_CLASS=$(STORAGE_CLASS) helmfile apply
+create-dev-secrets: ## Create dev secrets for local kind cluster
+	@kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic opensearch-admin-credentials \
+		--namespace $(NAMESPACE) --from-literal=username=admin --from-literal=password=admin \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic logclaw-ml-engine-redis-credentials \
+		--namespace $(NAMESPACE) --from-literal=redis-password=dev-redis-password \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic logclaw-airflow-credentials \
+		--namespace $(NAMESPACE) \
+		--from-literal=fernet-key=ZGV2LWZlcm5ldC1rZXktMTIzNDU2Nzg5MGFiY2RlZj0= \
+		--from-literal=webserver-secret-key=dev-webserver-secret \
+		--from-literal=postgresql-password=postgres \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic airflow-git-ssh \
+		--namespace $(NAMESPACE) --from-literal=gitSshKey="" \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic logclaw-ticketing-agent-$(TENANT_ID)-credentials \
+		--namespace $(NAMESPACE) \
+		--from-literal=KAFKA_SASL_PASSWORD=dev-kafka-password \
+		--from-literal=OPENSEARCH_PASSWORD=admin \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Dev secrets created in $(NAMESPACE)"
+
+install: deps create-dev-secrets ## Install full tenant stack
+	TENANT_ID=$(TENANT_ID) STORAGE_CLASS=$(STORAGE_CLASS) helmfile --file helmfile.yaml apply
 
 uninstall: ## Uninstall tenant (WARNING: destructive)
 	$(HELM) uninstall logclaw-$(TENANT_ID) --namespace $(NAMESPACE) || true

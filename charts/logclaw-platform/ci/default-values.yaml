@@ -1,6 +1,6 @@
-# CI default values for logclaw-platform chart
-# Used by helm lint and helm unittest in CI pipelines.
+# CI test values for logclaw-platform chart
 # Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -22,31 +22,33 @@ rbac:
   readonlyGroupName: "logclaw-readonly"
   adminGroupName: "logclaw-admin"
 
-# Global values normally injected by the umbrella chart
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: "ci-tenant"
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
 
   secretStore:
     provider: "aws"
     refreshInterval: "1h"
     aws:
       region: "us-east-1"
-      iamRoleArn: "arn:aws:iam::123456789012:role/logclaw-ci-tenant-eso"
+      iamRoleArn: "arn:aws:iam::123456789012:role/logclaw-dev-local-eso"
     gcp:
-      projectId: "logclaw-ci-project"
-      clusterName: "logclaw-ci-cluster"
+      projectId: "logclaw-dev-project"
+      clusterName: "logclaw-dev-cluster"
       clusterLocation: "us-central1"
-      serviceAccount: "logclaw-eso@logclaw-ci-project.iam.gserviceaccount.com"
+      serviceAccount: "logclaw-eso@logclaw-dev-project.iam.gserviceaccount.com"
     vault:
-      server: "https://vault.logclaw.io"
+      server: "https://vault.logclaw.local"
       path: "secret"
       version: "v2"
       namespace: "logclaw"
       auth:
         mountPath: "kubernetes"
-        role: "logclaw-ci-tenant"
+        role: "logclaw-dev-local"
     azure:
-      vaultUrl: "https://logclaw-ci-kv.vault.azure.net"
+      vaultUrl: "https://logclaw-dev-kv.vault.azure.net"
       clientId: "00000000-0000-0000-0000-000000000000"
       tenantId: "00000000-0000-0000-0000-000000000001"
 
@@ -59,6 +61,7 @@ global:
     internalRenewBefore: "720h"
 
   monitoring:
+    enabled: false
     namespace: "monitoring"
 
   argocd:

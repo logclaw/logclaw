@@ -6,16 +6,16 @@ repositories:
   - name: jetstack
     url: "https://charts.jetstack.io"
   - name: opensearch-operator
-    url: "https://opster.github.io/opensearch-k8s-operator/"
+    url: "https://opensearch-project.github.io/opensearch-k8s-operator/"
 
 releases:
   - name: strimzi-kafka-operator
     namespace: strimzi-system
     chart: strimzi/strimzi-kafka-operator
-    version: "0.41.0"
+    version: "0.50.1"
     createNamespace: true
     values:
-      - operators/strimzi/values.yaml
+      - ../operators/strimzi/values.yaml
     set:
       - name: watchAnyNamespace
         value: true
@@ -26,7 +26,7 @@ releases:
     version: "0.10.3"
     createNamespace: true
     values:
-      - operators/eso/values.yaml
+      - ../operators/eso/values.yaml
 
   - name: cert-manager
     namespace: cert-manager
@@ -34,7 +34,7 @@ releases:
     version: "v1.16.1"
     createNamespace: true
     values:
-      - operators/cert-manager/values.yaml
+      - ../operators/cert-manager/values.yaml
 
   - name: opensearch-operator
     namespace: opensearch-operator-system
@@ -42,4 +42,4 @@ releases:
     version: "2.6.1"
     createNamespace: true
     values:
-      - operators/opensearch-operator/values.yaml
+      - ../operators/opensearch-operator/values.yaml

@@ -42,11 +42,12 @@ spec:
       roles:
         - "cluster_manager"
       persistence:
-        {{- with (include "logclaw-opensearch.storageClass" .) }}
-        storageClass: {{ . | quote }}
-        {{- end }}
-      additionalConfig:
-        node.ml: "false"
+        pvc:
+          accessModes:
+            - ReadWriteOnce
+          {{- with (include "logclaw-opensearch.storageClass" .) }}
+          storageClass: {{ . | quote }}
+          {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
@@ -71,9 +72,12 @@ spec:
         - "data"
         - "ingest"
       persistence:
-        {{- with (include "logclaw-opensearch.storageClass" .) }}
-        storageClass: {{ . | quote }}
-        {{- end }}
+        pvc:
+          accessModes:
+            - ReadWriteOnce
+          {{- with (include "logclaw-opensearch.storageClass" .) }}
+          storageClass: {{ . | quote }}
+          {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}

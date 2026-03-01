@@ -1,21 +1,31 @@
-# CI test values — standard tier, minimal resources
+# CI test values for logclaw-tenant chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: "ci-test"
-  tenantName: "CI Test Tenant"
+  tenantId: "dev-local"
+  tenantName: "Dev Local Tenant"
+  tier: "standard"
   storageClass: "standard"
   storageClassHighThroughput: "standard"
-  tier: "standard"
   objectStorage:
     provider: "s3"
-    bucket: "logclaw-ci-test"
+    bucket: "logclaw-dev-local"
     region: "us-east-1"
   secretStore:
     provider: "aws"
     region: "us-east-1"
-  monitoring:
-    enabled: false
   llm:
     provider: "disabled"
+    model: ""
+  monitoring:
+    enabled: false
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
 
+# Disable all sub-components for standalone tenant chart testing
 zammad:
   enabled: false

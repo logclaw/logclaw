@@ -5,10 +5,10 @@ repositories:
 releases:
   - name: logclaw-zammad-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ./charts/logclaw-zammad
+    chart: ../charts/logclaw-zammad
     installed: {{ env "ZAMMAD_ENABLED" | default "false" }}
     values:
-      - charts/logclaw-zammad/ci/default-values.yaml
+      - ../charts/logclaw-zammad/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}

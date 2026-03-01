@@ -15,10 +15,14 @@ metadata:
 spec:
   kafka:
     version: {{ .Values.kafka.version | quote }}
-    metadataVersion: "3.7-IV4"
+    metadataVersion: "4.0-IV1"
 
     # ── Listeners ──────────────────────────────────────────────────────────
     listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
       - name: tls
         port: 9093
         type: internal

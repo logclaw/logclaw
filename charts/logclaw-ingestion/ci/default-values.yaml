@@ -1,6 +1,6 @@
-# CI test values for logclaw-ingestion
-# These override defaults to produce a minimal, fast-starting deployment
-# suitable for `helm lint` and `helm template` validation in CI pipelines.
+# CI test values for logclaw-ingestion chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
 
 # Use Deployment mode (PrivateLink receiver) — the recommended production mode
 mode: "deployment"
@@ -14,15 +14,20 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 1
 
-# Disable monitoring alerts (PrometheusRule CRD may not exist in CI)
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: "ci-test-tenant"
-  kafkaBrokers: "kafka.ci-infra.svc.cluster.local:9092"
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  kafkaBrokers: "kafka.default.svc.cluster.local:9092"
   kafkaTopics:
-    rawLogs: "logclaw-raw-logs-ci"
+    rawLogs: "raw-logs"
   topologyKey: "kubernetes.io/hostname"
+  ingestionDomain: "ingestion.logclaw.local"
   tls:
     enabled: false
+    clusterIssuer: "logclaw-selfsigned"
+    issuer: ""
   monitoring:
     enabled: false
 
