@@ -1,0 +1,16 @@
+apiVersion: v2
+name: logclaw-bridge
+description: >
+  LogClaw dev-mode bridge service: replaces Apache Flink stream processing
+  for local development. Consumes raw logs from Kafka, enriches them,
+  performs statistical anomaly detection (z-score), and indexes into OpenSearch.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.27.0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io
+annotations:
+  logclaw.io/platform-tier: "dev"
+  logclaw.io/replaces: "flink-jobs"

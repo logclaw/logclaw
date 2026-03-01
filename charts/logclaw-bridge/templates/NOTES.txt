@@ -1,0 +1,8 @@
+LogClaw Bridge Service deployed for tenant {{ include "logclaw-bridge.tenantId" . }}.
+
+The bridge replaces Apache Flink stream processing for local development.
+It consumes from Kafka, enriches logs, detects anomalies, and indexes to OpenSearch.
+
+== Verify ==
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name=logclaw-bridge
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name=logclaw-bridge -f

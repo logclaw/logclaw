@@ -1,0 +1,65 @@
+# CI test values for logclaw-bridge chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+replicaCount: 1
+
+image:
+  repository: "python"
+  tag: "3.12-slim"
+
+# Dev mode: disable security restrictions for pip install
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+command:
+  - /bin/sh
+  - -c
+  - |
+    pip install --quiet kafka-python-ng opensearch-py numpy lz4 python-snappy 2>/dev/null &&
+    exec python -u /app/main.py
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  kafkaBrokers: "logclaw-kafka-dev-local-kafka-bootstrap.logclaw-dev-local.svc:9092"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
+  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
+  topologyKey: "topology.kubernetes.io/zone"
+  imagePullSecrets: []
+  secretStore:
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+  monitoring:
+    enabled: false
+    prometheusNamespace: "monitoring"
+
+config:
+  anomaly:
+    zscoreThreshold: 2.0
+    windowSeconds: 300
+  opensearch:
+    bulkSize: 200
+    bulkIntervalSeconds: 3

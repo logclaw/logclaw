@@ -1,0 +1,12 @@
+LogClaw Dashboard deployed for tenant {{ include "logclaw-dashboard.tenantId" . }}.
+
+== Access ==
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "logclaw-dashboard.fullname" . }} 3333:3333
+  open http://localhost:3333
+
+== Features ==
+  - Drag & drop log file upload
+  - Real-time pipeline flow visualization
+  - Log search and filtering
+  - Anomaly detection monitoring
+  - Ticket management (via Zammad)

@@ -1,0 +1,86 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-dashboard.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-dashboard.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-dashboard.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Dashboard needs to be accessible from any source (port-forward, ingress, etc.)
+    - ports:
+        - port: 3333
+          protocol: TCP
+  egress:
+    # kube-dns — always required
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # OpenSearch — log queries and aggregations
+    - to:
+        - podSelector:
+            matchLabels:
+              logclaw.io/tenant: {{ include "logclaw-dashboard.tenantId" . | quote }}
+      ports:
+        - port: 9200
+          protocol: TCP
+    # Vector — log ingestion (file upload proxy)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ingestion
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Ticketing Agent — ticket API
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ticketing-agent
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Bridge — pipeline bridge service
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bridge
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Feast — ML feature server
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: feast
+      ports:
+        - port: 6567
+          protocol: TCP
+    # Airflow — DAG management webserver
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: webserver
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Zammad — ITSM ticket UI
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: zammad
+      ports:
+        - port: 3000
+          protocol: TCP

@@ -103,8 +103,23 @@ create-dev-secrets: ## Create dev secrets for local kind cluster
 		--namespace $(NAMESPACE) \
 		--from-literal=KAFKA_SASL_PASSWORD=dev-kafka-password \
 		--from-literal=OPENSEARCH_PASSWORD=admin \
+		--from-literal=ZAMMAD_API_TOKEN=dev-zammad-token \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret generic logclaw-zammad-$(TENANT_ID)-credentials \
+		--namespace $(NAMESPACE) \
+		--from-literal=admin-email=admin@logclaw.local \
+		--from-literal=admin-password=admin \
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "Dev secrets created in $(NAMESPACE)"
+
+dashboard: ## Open LogClaw dashboard (port-forward + browser)
+	@echo "Starting port-forwards..."
+	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-dashboard-$(TENANT_ID) 3333:3333 &
+	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-zammad-$(TENANT_ID)-zammad 3000:3000 &
+	@sleep 2
+	@echo "Dashboard: http://localhost:3333"
+	@echo "Zammad:    http://localhost:3000"
+	@open http://localhost:3333 2>/dev/null || echo "Open http://localhost:3333 in your browser"
 
 install: deps create-dev-secrets ## Install full tenant stack
 	TENANT_ID=$(TENANT_ID) STORAGE_CLASS=$(STORAGE_CLASS) helmfile --file helmfile.yaml apply

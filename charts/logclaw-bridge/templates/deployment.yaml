@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-bridge.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-bridge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-bridge.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-bridge.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with ((.Values.global).imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logclaw-bridge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bridge
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # ── Core identifiers ────────────────────────────────────────────
+            - name: TENANT_ID
+              value: {{ include "logclaw-bridge.tenantId" . | quote }}
+            # ── Kafka ───────────────────────────────────────────────────────
+            - name: KAFKA_BROKERS
+              value: {{ include "logclaw-bridge.kafkaBrokers" . | quote }}
+            - name: KAFKA_TOPIC_RAW
+              value: {{ include "logclaw-bridge.kafkaTopicRaw" . | quote }}
+            - name: KAFKA_TOPIC_ENRICHED
+              value: {{ include "logclaw-bridge.kafkaTopicEnriched" . | quote }}
+            - name: KAFKA_TOPIC_ANOMALIES
+              value: {{ include "logclaw-bridge.kafkaTopicAnomalies" . | quote }}
+            # ── OpenSearch ──────────────────────────────────────────────────
+            - name: OPENSEARCH_ENDPOINT
+              value: {{ include "logclaw-bridge.opensearchEndpoint" . | quote }}
+            - name: OPENSEARCH_BULK_SIZE
+              value: {{ .Values.config.opensearch.bulkSize | quote }}
+            - name: OPENSEARCH_BULK_INTERVAL_SECONDS
+              value: {{ .Values.config.opensearch.bulkIntervalSeconds | quote }}
+            # ── Anomaly detection ───────────────────────────────────────────
+            - name: ANOMALY_ZSCORE_THRESHOLD
+              value: {{ .Values.config.anomaly.zscoreThreshold | quote }}
+            - name: ANOMALY_WINDOW_SECONDS
+              value: {{ .Values.config.anomaly.windowSeconds | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /app
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "logclaw-bridge.configMapName" . }}
+        - name: tmp
+          emptyDir: {}

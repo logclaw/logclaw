@@ -1,0 +1,232 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-dashboard.fullname" . }}-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-dashboard.labels" . | nindent 4 }}
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """LogClaw Dashboard — lightweight Python HTTP server.
+
+    Serves static files from /app/static/ and proxies API requests
+    to upstream LogClaw microservices.
+    """
+
+    import http.server
+    import json
+    import os
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+    import sys
+    import time
+    from pathlib import Path
+
+    PORT = 3333
+    STATIC_DIR = "/app/static"
+
+    # Upstream endpoints from environment variables
+    ENDPOINTS = {
+        "opensearch": os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200"),
+        "vector": os.environ.get("VECTOR_ENDPOINT", "http://localhost:8080"),
+        "ticketing": os.environ.get("TICKETING_ENDPOINT", "http://localhost:8081"),
+        "zammad": os.environ.get("ZAMMAD_ENDPOINT", "http://localhost:3000"),
+        "feast": os.environ.get("FEAST_ENDPOINT", "http://localhost:6567"),
+        "airflow": os.environ.get("AIRFLOW_ENDPOINT", "http://localhost:8082"),
+        "bridge": os.environ.get("BRIDGE_ENDPOINT", "http://localhost:8083"),
+    }
+
+    START_TIME = time.time()
+
+
+    class DashboardHandler(http.server.SimpleHTTPRequestHandler):
+        """Handler that serves static files and proxies API calls."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=STATIC_DIR, **kwargs)
+
+        def log_message(self, format, *args):
+            """Structured log output."""
+            sys.stdout.write("[dashboard] %s - %s\n" % (self.client_address[0], format % args))
+            sys.stdout.flush()
+
+        def do_GET(self):
+            """Handle GET requests."""
+            if self.path == "/health":
+                self._health()
+            elif self.path.startswith("/api/"):
+                self._proxy("GET")
+            else:
+                super().do_GET()
+
+        def do_POST(self):
+            """Handle POST requests."""
+            if self.path == "/api/upload":
+                self._handle_upload()
+            elif self.path.startswith("/api/"):
+                self._proxy("POST")
+            else:
+                self.send_error(405, "Method Not Allowed")
+
+        def do_PUT(self):
+            """Handle PUT requests."""
+            if self.path.startswith("/api/"):
+                self._proxy("PUT")
+            else:
+                self.send_error(405, "Method Not Allowed")
+
+        def do_PATCH(self):
+            """Handle PATCH requests (for incident state updates)."""
+            if self.path.startswith("/api/"):
+                self._proxy("PATCH")
+            else:
+                self.send_error(405, "Method Not Allowed")
+
+        def do_DELETE(self):
+            """Handle DELETE requests."""
+            if self.path.startswith("/api/"):
+                self._proxy("DELETE")
+            else:
+                self.send_error(405, "Method Not Allowed")
+
+        def _health(self):
+            """Return health check response."""
+            uptime = int(time.time() - START_TIME)
+            body = json.dumps({
+                "status": "healthy",
+                "service": "logclaw-dashboard",
+                "tenant": os.environ.get("TENANT_ID", "unknown"),
+                "uptime_seconds": uptime,
+                "endpoints": {k: v for k, v in ENDPOINTS.items()},
+            })
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+        def _resolve_upstream(self, path):
+            """Parse /api/<service>/... and return (upstream_url, remaining_path)."""
+            # Strip /api/ prefix
+            rest = path[5:]  # remove "/api/"
+            parts = rest.split("/", 1)
+            service = parts[0]
+            remainder = "/" + parts[1] if len(parts) > 1 else "/"
+            base = ENDPOINTS.get(service)
+            if not base:
+                return None, None
+            return base.rstrip("/") + remainder, service
+
+        def _proxy(self, method):
+            """Forward request to upstream service."""
+            upstream_url, service = self._resolve_upstream(self.path)
+            if not upstream_url:
+                self.send_error(404, "Unknown API service")
+                return
+
+            try:
+                # Read request body if present
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length) if content_length > 0 else None
+
+                req = urllib.request.Request(upstream_url, data=body, method=method)
+                req.add_header("Content-Type", self.headers.get("Content-Type", "application/json"))
+                req.add_header("Accept", "application/json")
+
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_body = resp.read()
+                    self.send_response(resp.status)
+                    for header in ["Content-Type", "X-Request-Id"]:
+                        val = resp.getheader(header)
+                        if val:
+                            self.send_header(header, val)
+                    self.send_header("Content-Length", str(len(resp_body)))
+                    self.end_headers()
+                    self.wfile.write(resp_body)
+
+            except urllib.error.HTTPError as e:
+                resp_body = e.read()
+                self.send_response(e.code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp_body)))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                error_body = json.dumps({"error": str(e), "service": service}).encode()
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(error_body)))
+                self.end_headers()
+                self.wfile.write(error_body)
+
+        def _handle_upload(self):
+            """Accept JSON log array and POST to Vector endpoint."""
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length == 0:
+                    self.send_error(400, "Empty request body")
+                    return
+
+                raw = self.rfile.read(content_length)
+                logs = json.loads(raw)
+
+                if not isinstance(logs, list):
+                    logs = [logs]
+
+                vector_url = ENDPOINTS["vector"].rstrip("/")
+                total = len(logs)
+                sent = 0
+                errors = []
+
+                # Send in batches of 50
+                batch_size = 50
+                for i in range(0, total, batch_size):
+                    batch = logs[i : i + batch_size]
+                    payload = json.dumps(batch).encode()
+                    req = urllib.request.Request(vector_url, data=payload, method="POST")
+                    req.add_header("Content-Type", "application/json")
+                    try:
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            resp.read()
+                            sent += len(batch)
+                    except Exception as e:
+                        errors.append({"batch": i // batch_size, "error": str(e)})
+
+                result = json.dumps({
+                    "status": "ok" if not errors else "partial",
+                    "total": total,
+                    "sent": sent,
+                    "errors": errors,
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(result)))
+                self.end_headers()
+                self.wfile.write(result)
+
+            except json.JSONDecodeError:
+                self.send_error(400, "Invalid JSON")
+            except Exception as e:
+                error_body = json.dumps({"error": str(e)}).encode()
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(error_body)))
+                self.end_headers()
+                self.wfile.write(error_body)
+
+
+    if __name__ == "__main__":
+        print(f"[dashboard] Starting LogClaw Dashboard on port {PORT}")
+        print(f"[dashboard] Static dir: {STATIC_DIR}")
+        for name, url in ENDPOINTS.items():
+            print(f"[dashboard]   {name}: {url}")
+        sys.stdout.flush()
+
+        server = http.server.HTTPServer(("0.0.0.0", PORT), DashboardHandler)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\n[dashboard] Shutting down.")
+            server.shutdown()
