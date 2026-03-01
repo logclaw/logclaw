@@ -313,7 +313,19 @@ helm list -n logclaw-dev-local
 # → All 8 releases should be "deployed"
 ```
 
-### 6 — Open all services (port-forwarding)
+### 6 — Create the Airflow admin user
+
+The Airflow chart does **not** auto-create a login user. Run this once after the first install:
+
+```bash
+kubectl -n logclaw-dev-local exec deploy/logclaw-airflow-dev-local-webserver -- \
+  airflow users create \
+    --username admin --password admin \
+    --firstname LogClaw --lastname Admin \
+    --role Admin --email admin@logclaw.local
+```
+
+### 7 — Open all services (port-forwarding)
 
 All services run inside the kind cluster. Run this **one block** to expose everything to your machine:
 
@@ -341,6 +353,22 @@ Once running, your services are at:
 | **Feast** | [http://localhost:6567](http://localhost:6567) | ML feature server |
 | **Ticketing Agent** | [http://localhost:18081](http://localhost:18081) | Incident management health |
 
+#### Default credentials
+
+| Service | Username | Password | Notes |
+|---|---|---|---|
+| **Airflow** | `admin` | `admin` | Created in Step 6 above |
+| **OpenSearch** | — | — | Security plugin disabled in dev; no auth needed |
+| **Kafka (PLAIN)** | — | — | Port 9092, anonymous access |
+| **Kafka (TLS)** | `admin` | `dev-kafka-password` | Port 9093, SCRAM-SHA-512 |
+| **Airflow PostgreSQL** | `postgres` | `postgres` | Internal DB, port 5432 |
+| **OpenSearch (secret)** | `admin` | `admin` | Stored in `opensearch-admin-credentials` secret |
+| **Ticketing Agent** | — | — | Reads creds from `logclaw-ticketing-agent-dev-local-credentials` |
+| **Redis (ML Engine)** | — | `dev-redis-password` | Internal, no external port |
+
+> All credentials are dev-only placeholders created by `make create-dev-secrets`.
+> Production uses External Secrets Operator to pull from AWS Secrets Manager / GCP Secret Manager / Vault.
+
 Quick smoke test after port-forwarding:
 
 ```bash
@@ -363,7 +391,7 @@ curl -X POST http://localhost:18080 \
   -d '{"message":"hello from logclaw","level":"INFO","service":"test"}'
 ```
 
-### 7 — End-to-end pipeline test
+### 8 — End-to-end pipeline test
 
 Send test logs through the full pipeline and verify each step.
 
@@ -400,7 +428,7 @@ kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
 > Logs flow from HTTP → Vector → Kafka automatically. To test OpenSearch indexing, use the
 > bulk API directly or wait for the Flink operator to be installed.
 
-### 8 — Tear down
+### 9 — Tear down
 
 ```bash
 # Remove just the tenant stack
