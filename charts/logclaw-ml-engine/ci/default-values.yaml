@@ -1,7 +1,42 @@
+# CI test values for logclaw-ml-engine chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  clusterDomain: "cluster.local"
+  topologyKey: "topology.kubernetes.io/zone"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-dev-local"
+    region: "us-east-1"
+  externalRedis:
+    host: "redis.default.svc.cluster.local"
+    port: 6379
+  llm:
+    provider: "disabled"
+    model: ""
+    endpoint: ""
+  monitoring:
+    enabled: false
+    prometheusNamespace: "monitoring"
+
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
+externalSecret:
+  secretStoreName: "logclaw-secret-store"
+  secretStoreKind: "ClusterSecretStore"
+
 mlEngine:
   redis:
-    bundled: true
+    bundled: false
   feast:
+    image:
+      repository: "feastdev/feature-server"
+      tag: "0.40.1"
+      pullPolicy: IfNotPresent
     replicaCount: 1
     resources:
       requests:

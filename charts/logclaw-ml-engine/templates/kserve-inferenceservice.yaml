@@ -1,3 +1,4 @@
+{{- if .Capabilities.APIVersions.Has "serving.kserve.io/v1beta1" }}
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -69,3 +70,4 @@ spec:
         labelSelector:
           matchLabels:
             serving.kserve.io/inferenceservice: {{ include "logclaw-ml-engine.inferenceServiceName" . }}
+{{- end }}

@@ -21,37 +21,37 @@ maintainers:
 dependencies:
   - name: logclaw-platform
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: platform.enabled
   - name: logclaw-ingestion
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: ingestion.enabled
   - name: logclaw-kafka
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: kafka.enabled
   - name: logclaw-flink
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: flink.enabled
   - name: logclaw-opensearch
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: opensearch.enabled
   - name: logclaw-ml-engine
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: mlEngine.enabled
   - name: logclaw-airflow
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: airflow.enabled
   - name: logclaw-ticketing-agent
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: ticketingAgent.enabled
   - name: logclaw-zammad
     version: "0.1.0"
-    repository: "oci://ghcr.io/logclaw/charts"
+    repository: "file://.."
     condition: zammad.enabled

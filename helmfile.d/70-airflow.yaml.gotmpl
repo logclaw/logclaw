@@ -5,9 +5,9 @@ repositories:
 releases:
   - name: logclaw-airflow-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ./charts/logclaw-airflow
+    chart: ../charts/logclaw-airflow
     values:
-      - charts/logclaw-airflow/ci/default-values.yaml
+      - ../charts/logclaw-airflow/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}

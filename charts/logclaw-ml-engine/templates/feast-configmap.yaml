@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: feast-server
 data:
   feature_store.yaml: |
-    project: {{ include "logclaw-ml-engine.tenantId" . }}
+    project: {{ include "logclaw-ml-engine.tenantId" . | replace "-" "_" }}
     provider: local
     registry:
       registry_type: file

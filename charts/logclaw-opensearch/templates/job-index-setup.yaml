@@ -10,7 +10,7 @@ metadata:
     logclaw.io/component: "hot-tier-storage"
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": hook-succeeded
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
   backoffLimit: 6
   activeDeadlineSeconds: 600

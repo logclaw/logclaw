@@ -1,9 +1,9 @@
 releases:
   - name: logclaw-ml-engine-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ./charts/logclaw-ml-engine
+    chart: ../charts/logclaw-ml-engine
     values:
-      - charts/logclaw-ml-engine/ci/default-values.yaml
+      - ../charts/logclaw-ml-engine/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}

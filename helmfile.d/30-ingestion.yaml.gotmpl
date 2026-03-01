@@ -1,11 +1,11 @@
 releases:
   - name: logclaw-ingestion-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ./charts/logclaw-ingestion
+    chart: ../charts/logclaw-ingestion
     values:
-      - charts/logclaw-ingestion/ci/default-values.yaml
+      - ../charts/logclaw-ingestion/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}
       - name: global.kafkaBrokers
-        value: {{ env "KAFKA_BROKERS" | default "logclaw-kafka-kafka-bootstrap:9093" }}
+        value: {{ env "KAFKA_BROKERS" | default (printf "logclaw-kafka-%s-kafka-bootstrap.logclaw-%s.svc:9092" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}

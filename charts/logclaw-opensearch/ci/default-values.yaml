@@ -1,16 +1,20 @@
-# CI test values — minimal footprint for helm lint / helm template validation.
-# DO NOT use these values in production.
+# CI test values for logclaw-opensearch chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
 
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: "ci-test"
+  tenantId: "dev-local"
+  tier: "standard"
   storageClass: "standard"
   clusterDomain: "cluster.local"
   topologyKey: "topology.kubernetes.io/zone"
   secretStore:
-    name: "ci-secret-store"
+    name: "logclaw-secret-store"
   monitoring:
     enabled: false
 
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
 opensearch:
   masters:
     replicas: 1
@@ -24,7 +28,7 @@ opensearch:
         memory: "2Gi"
     jvm:
       xms: "512m"
-      xmx: "1g"
+      xmx: "512m"
 
   data:
     replicas: 1
@@ -38,7 +42,7 @@ opensearch:
         memory: "2Gi"
     jvm:
       xms: "512m"
-      xmx: "1g"
+      xmx: "512m"
 
   coordinators:
     replicas: 1

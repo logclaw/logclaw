@@ -13,11 +13,16 @@ airflow:
   webserverSecretKeySecretName: "logclaw-airflow-credentials"
 
   config:
-    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
-    AIRFLOW__CORE__PARALLELISM: "32"
-    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "16"
+    AIRFLOW__CORE__LOAD_EXAMPLES:
+      value: "False"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL:
+      value: "30"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG:
+      value: "False"
+    AIRFLOW__CORE__PARALLELISM:
+      value: "32"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG:
+      value: "16"
 
   dags:
     gitSync:

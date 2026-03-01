@@ -1,5 +1,25 @@
-# CI test values — minimal config suitable for helm lint / helm template
+# CI test values for logclaw-ticketing-agent chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
 replicaCount: 1
+
+image:
+  repository: "python"
+  tag: "3.12-alpine"
+
+command:
+  - python
+  - -c
+  - |
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'ok')
+        def log_message(self, *a): pass
+    HTTPServer(('0.0.0.0', 8080), H).serve_forever()
 
 autoscaling:
   enabled: false
@@ -24,18 +44,24 @@ resources:
     cpu: "500m"
     memory: "256Mi"
 
-# Minimal globals required to pass the helper guards
+# ── Global values (normally injected by umbrella chart) ────────────────────────
 global:
-  tenantId: "ci-test"
-  kafkaBrokers: "kafka-broker:9092"
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  kafkaBrokers: "kafka.default.svc.cluster.local:9092"
   kafkaTopics:
-    anomalies: "logclaw.anomalies"
-  opensearchEndpoint: "https://opensearch:9200"
+    anomalies: "anomalies"
+  opensearchEndpoint: "https://opensearch.default.svc.cluster.local:9200"
   topologyKey: "topology.kubernetes.io/zone"
   imagePullSecrets: []
   secretStore:
     name: "logclaw-secret-store"
     kind: "ClusterSecretStore"
+  llm:
+    provider: "disabled"
+    model: ""
+    endpoint: ""
   monitoring:
     enabled: false
     prometheusNamespace: "monitoring"
