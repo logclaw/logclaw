@@ -9,3 +9,10 @@ releases:
         value: {{ env "TENANT_ID" | default "dev-local" }}
       - name: global.objectStorage.bucket
         value: {{ env "OBJECT_STORAGE_BUCKET" | default "logclaw-dev-local" }}
+{{- if eq (env "REDIS_EXTERNAL" | default "false") "true" }}
+      # External Redis — disable bundled sub-chart, use external URL
+      - name: redis.enabled
+        value: "false"
+      - name: global.redisUrl
+        value: {{ requiredEnv "REDIS_URL" }}
+{{- end }}
