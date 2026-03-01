@@ -34,7 +34,8 @@ spec:
     authorization:
       type: simple
       superUsers:
-        - User:admin
+        - admin
+        - ANONYMOUS
 
     # ── Rack awareness ─────────────────────────────────────────────────────
     rack:

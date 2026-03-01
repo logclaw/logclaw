@@ -49,10 +49,10 @@ global:
   tenantId: "dev-local"
   tier: "standard"
   storageClass: "standard"
-  kafkaBrokers: "kafka.default.svc.cluster.local:9092"
+  kafkaBrokers: "logclaw-kafka-dev-local-kafka-bootstrap.logclaw-dev-local.svc:9092"
   kafkaTopics:
-    anomalies: "anomalies"
-  opensearchEndpoint: "https://opensearch.default.svc.cluster.local:9200"
+    anomalies: "anomaly-events"
+  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
   topologyKey: "topology.kubernetes.io/zone"
   imagePullSecrets: []
   secretStore:
