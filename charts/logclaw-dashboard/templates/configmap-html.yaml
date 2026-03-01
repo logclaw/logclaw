@@ -13,1789 +13,927 @@ data:
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>LogClaw Dashboard</title>
+      <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
       <style>
-        /* -- CSS Variables ------------------------------------------------- */
+        /* ── Design Tokens ──────────────────────────────────────────────── */
         :root {
-          --bg-primary: #0f1117;
-          --bg-surface: #1a1d27;
-          --bg-surface-hover: #222636;
-          --border: #2d3348;
-          --border-light: #3d4560;
-          --text: #e4e7ef;
-          --text-muted: #8b92a8;
-          --text-dim: #5a6178;
-          --accent: #6c5ce7;
-          --accent-light: #8577ed;
-          --green: #00cec9;
-          --green-dim: rgba(0,206,201,0.15);
-          --red: #ff6b6b;
-          --red-dim: rgba(255,107,107,0.15);
-          --orange: #fdcb6e;
-          --orange-dim: rgba(253,203,110,0.15);
-          --blue: #74b9ff;
-          --blue-dim: rgba(116,185,255,0.15);
-          --purple-dim: rgba(108,92,231,0.15);
-          --radius: 8px;
-          --radius-lg: 12px;
+          --bg-0: #0f1117; --bg-1: #1a1d27; --bg-2: #222636; --bg-3: #2d3348;
+          --border: #2d3348; --border-light: #3d4560;
+          --text: #e4e7ef; --text-muted: #8b92a8; --text-dim: #5a6178;
+          --accent: #6c5ce7; --accent-light: #8577ed;
+          --green: #00cec9; --red: #ff6b6b; --orange: #fdcb6e; --blue: #74b9ff;
+          --green-bg: rgba(0,206,201,0.12); --red-bg: rgba(255,107,107,0.12);
+          --orange-bg: rgba(253,203,110,0.12); --blue-bg: rgba(116,185,255,0.12);
+          --accent-bg: rgba(108,92,231,0.12);
+          --radius: 8px; --radius-lg: 12px;
           --shadow: 0 2px 8px rgba(0,0,0,0.3);
           --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+          --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
         }
-
-        /* -- Reset & Base -------------------------------------------------- */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html { font-size: 14px; }
-        body {
-          font-family: var(--font);
-          background: var(--bg-primary);
-          color: var(--text);
-          line-height: 1.5;
-          min-height: 100vh;
-        }
+        body { font-family: var(--font); background: var(--bg-0); color: var(--text); line-height: 1.5; min-height: 100vh; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-track { background: var(--bg-0); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        a { color: var(--accent-light); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code, pre { font-family: var(--mono); }
 
-        /* -- Layout -------------------------------------------------------- */
+        /* ── Layout ─────────────────────────────────────────────────────── */
         .container { max-width: 1440px; margin: 0 auto; padding: 0 24px 48px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+        @media (max-width: 1200px) { .grid-5 { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+        .flex { display: flex; } .flex-col { flex-direction: column; }
+        .items-center { align-items: center; } .justify-between { justify-content: space-between; }
+        .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; } .gap-5 { gap: 20px; }
+        .mt-4 { margin-top: 16px; } .mt-5 { margin-top: 20px; } .mb-3 { margin-bottom: 12px; }
 
-        /* -- Header -------------------------------------------------------- */
-        .header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 16px 24px; border-bottom: 1px solid var(--border);
-          background: var(--bg-surface); position: sticky; top: 0; z-index: 100;
-        }
-        .header-left { display: flex; align-items: center; gap: 16px; }
-        .logo {
-          font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px;
-          background: linear-gradient(135deg, var(--accent), var(--green));
-          -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .cluster-badge {
-          background: var(--purple-dim); color: var(--accent-light);
-          padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
-          font-weight: 600; border: 1px solid rgba(108,92,231,0.3);
-        }
-        .header-right { display: flex; align-items: center; gap: 12px; }
-        .live-dot {
-          width: 8px; height: 8px; border-radius: 50%; background: var(--green);
-          animation: pulse 2s ease-in-out infinite; display: inline-block;
-        }
+        /* ── Header ─────────────────────────────────────────────────────── */
+        .header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-1); position: sticky; top: 0; z-index: 100; }
+        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(135deg, var(--accent), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; border: 1px solid; display: inline-flex; align-items: center; gap: 4px; }
+        .badge-purple { background: var(--accent-bg); color: var(--accent-light); border-color: rgba(108,92,231,0.3); }
+        .badge-green { background: var(--green-bg); color: var(--green); border-color: rgba(0,206,201,0.3); }
+        .badge-red { background: var(--red-bg); color: var(--red); border-color: rgba(255,107,107,0.3); }
+        .badge-orange { background: var(--orange-bg); color: var(--orange); border-color: rgba(253,203,110,0.3); }
+        .badge-blue { background: var(--blue-bg); color: var(--blue); border-color: rgba(116,185,255,0.3); }
+        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .live-label { font-size: 0.8rem; color: var(--green); font-weight: 600; }
 
-        /* -- Buttons ------------------------------------------------------- */
-        .btn {
-          padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
-          background: var(--bg-surface); color: var(--text); cursor: pointer;
-          font-size: 0.8rem; font-weight: 500; transition: all 0.15s;
-        }
-        .btn:hover { border-color: var(--accent); background: var(--bg-surface-hover); }
+        /* ── Navigation ─────────────────────────────────────────────────── */
+        .nav { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--bg-1); padding: 0 24px; }
+        .nav-item { padding: 10px 20px; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+        .nav-item:hover { color: var(--text); background: var(--bg-2); }
+        .nav-item.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+
+        /* ── Cards & Panels ─────────────────────────────────────────────── */
+        .card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+        .card-header { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+        .stat-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+        /* ── Buttons ────────────────────────────────────────────────────── */
+        .btn { padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-1); color: var(--text); cursor: pointer; font-size: 0.8rem; font-weight: 500; transition: all 0.15s; }
+        .btn:hover { border-color: var(--accent); background: var(--bg-2); }
         .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
         .btn-accent:hover { background: var(--accent-light); }
         .btn-sm { padding: 3px 10px; font-size: 0.7rem; }
-        .btn-green { background: rgba(0,206,201,0.15); border-color: var(--green); color: var(--green); }
-        .btn-green:hover { background: rgba(0,206,201,0.25); }
-        .btn-orange { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
-        .btn-orange:hover { background: rgba(253,203,110,0.25); }
-        .btn-blue { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
-        .btn-blue:hover { background: rgba(116,185,255,0.25); }
-        .btn-red { background: var(--red-dim); border-color: var(--red); color: var(--red); }
-        .btn-red:hover { background: rgba(255,107,107,0.25); }
-        .btn-toggle { position: relative; }
-        .btn-toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn-green { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+        .btn-red { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+        .btn-orange { background: var(--orange-bg); border-color: var(--orange); color: var(--orange); }
 
-        /* -- Tab Navigation ------------------------------------------------ */
-        .tab-nav {
-          display: flex; gap: 0; border-bottom: 1px solid var(--border);
-          background: var(--bg-surface); padding: 0 24px;
-        }
-        .tab-btn {
-          padding: 12px 20px; border: none; background: none; color: var(--text-muted);
-          font-size: 0.85rem; font-weight: 600; cursor: pointer; position: relative;
-          transition: color 0.15s; border-bottom: 2px solid transparent; margin-bottom: -1px;
-        }
-        .tab-btn:hover { color: var(--text); }
-        .tab-btn.active { color: var(--accent-light); border-bottom-color: var(--accent); }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        /* ── Tables ─────────────────────────────────────────────────────── */
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th { text-align: left; padding: 8px 12px; color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--bg-3); vertical-align: top; }
+        tr:hover td { background: var(--bg-2); }
 
-        /* -- Section titles ------------------------------------------------ */
-        .section-title {
-          font-size: 1rem; font-weight: 600; margin: 28px 0 14px;
-          display: flex; align-items: center; gap: 8px;
-        }
-        .section-title .icon { font-size: 1.1rem; }
+        /* ── Forms ──────────────────────────────────────────────────────── */
+        .input { padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-2); color: var(--text); font-size: 0.8rem; outline: none; }
+        .input:focus { border-color: var(--accent); }
+        select.input { cursor: pointer; }
 
-        /* -- Card ---------------------------------------------------------- */
-        .card {
-          background: var(--bg-surface); border: 1px solid var(--border);
-          border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow);
-        }
-        .card-header {
-          display: flex; align-items: center; justify-content: space-between;
-          margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
-        }
-        .card-title {
-          font-size: 0.85rem; font-weight: 600; color: var(--text-muted);
-          text-transform: uppercase; letter-spacing: 0.5px;
-        }
+        /* ── Code Block ─────────────────────────────────────────────────── */
+        .code-block { background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.6; overflow-x: auto; color: var(--green); position: relative; white-space: pre; }
+        .code-block .copy-btn { position: absolute; top: 8px; right: 8px; padding: 2px 8px; font-size: 0.65rem; }
 
-        /* -- Drag & Drop Zone ---------------------------------------------- */
-        .drop-zone {
-          border: 2px dashed var(--border-light); border-radius: var(--radius-lg);
-          padding: 32px; text-align: center; cursor: pointer; transition: all 0.2s;
-          background: var(--bg-surface); margin-top: 20px;
-        }
-        .drop-zone:hover, .drop-zone.drag-over {
-          border-color: var(--accent); background: var(--purple-dim);
-        }
-        .drop-zone-icon { font-size: 2.5rem; margin-bottom: 8px; opacity: 0.6; }
-        .drop-zone-text { color: var(--text-muted); font-size: 0.9rem; }
-        .drop-zone-text strong { color: var(--accent-light); }
-        .drop-zone-hint { color: var(--text-dim); font-size: 0.75rem; margin-top: 6px; }
-        .progress-bar-container {
-          width: 100%; background: var(--bg-primary); border-radius: 4px;
-          height: 6px; margin-top: 12px; overflow: hidden; display: none;
-        }
-        .progress-bar {
-          height: 100%; background: linear-gradient(90deg, var(--accent), var(--green));
-          border-radius: 4px; width: 0%; transition: width 0.3s;
-        }
-        .upload-status { color: var(--text-muted); font-size: 0.8rem; margin-top: 8px; display: none; }
+        /* ── Upload Zone ────────────────────────────────────────────────── */
+        .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 32px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: var(--accent-bg); }
+        .upload-icon { font-size: 2rem; margin-bottom: 8px; }
+        .progress-bar { height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin-top: 12px; }
+        .progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; border-radius: 2px; }
 
-        /* -- Stats Cards --------------------------------------------------- */
-        .stats-row {
-          display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 14px; margin-top: 20px;
-        }
-        .stat-card {
-          background: var(--bg-surface); border: 1px solid var(--border);
-          border-radius: var(--radius-lg); padding: 18px 20px; cursor: default;
-          transition: border-color 0.15s;
-        }
-        .stat-card:hover { border-color: var(--border-light); }
-        .stat-card.clickable { cursor: pointer; }
-        .stat-card.clickable:hover { border-color: var(--accent); }
-        .stat-card.clickable.selected { border-color: var(--accent); background: var(--purple-dim); }
-        .stat-label {
-          font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;
-          letter-spacing: 0.5px; font-weight: 600;
-        }
-        .stat-value {
-          font-size: 1.8rem; font-weight: 700; margin-top: 4px;
-          font-variant-numeric: tabular-nums;
-        }
-        .stat-sub { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; }
-        .stat-green { color: var(--green); }
-        .stat-red { color: var(--red); }
-        .stat-blue { color: var(--blue); }
-        .stat-orange { color: var(--orange); }
-        .stat-accent { color: var(--accent-light); }
+        /* ── Incident Cards ─────────────────────────────────────────────── */
+        .inc-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; cursor: pointer; transition: all 0.15s; }
+        .inc-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .inc-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; }
+        .inc-meta { font-size: 0.7rem; color: var(--text-muted); }
+        .sev-critical { color: #ff4757; } .sev-high { color: var(--red); } .sev-medium { color: var(--orange); } .sev-low { color: var(--blue); }
+        .state-pill { padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; }
+        .state-identified { background: var(--red-bg); color: var(--red); }
+        .state-acknowledged { background: var(--orange-bg); color: var(--orange); }
+        .state-investigating { background: var(--blue-bg); color: var(--blue); }
+        .state-mitigated { background: var(--accent-bg); color: var(--accent-light); }
+        .state-resolved { background: var(--green-bg); color: var(--green); }
 
-        /* -- Pipeline Flow ------------------------------------------------- */
-        .pipeline-flow {
-          display: flex; align-items: center; justify-content: center;
-          gap: 0; padding: 24px 12px; overflow-x: auto; flex-wrap: nowrap;
-        }
-        .pipeline-node {
-          display: flex; flex-direction: column; align-items: center;
-          min-width: 100px; flex-shrink: 0;
-        }
-        .pipeline-node-box {
-          background: var(--bg-surface-hover); border: 1px solid var(--border);
-          border-radius: var(--radius); padding: 12px 16px; text-align: center;
-          min-width: 90px; transition: all 0.2s; position: relative;
-        }
-        .pipeline-node-box.healthy { border-color: rgba(0,206,201,0.4); }
-        .pipeline-node-box.warning { border-color: rgba(253,203,110,0.4); }
-        .pipeline-node-box.error { border-color: rgba(255,107,107,0.4); }
-        .pipeline-node-box.inactive { border-color: var(--border); opacity: 0.5; }
-        .pipeline-node-name { font-size: 0.75rem; font-weight: 600; margin-bottom: 4px; }
-        .pipeline-node-count { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .pipeline-node-icon { font-size: 1.2rem; margin-bottom: 4px; }
-        .pipeline-node-status {
-          position: absolute; top: -4px; right: -4px; width: 10px; height: 10px;
-          border-radius: 50%; border: 2px solid var(--bg-surface);
-        }
-        .pipeline-node-status.green { background: var(--green); }
-        .pipeline-node-status.yellow { background: var(--orange); }
-        .pipeline-node-status.red { background: var(--red); }
-        .pipeline-node-status.gray { background: var(--text-dim); }
-        .pipeline-arrow {
-          color: var(--text-dim); font-size: 1.2rem; margin: 0 4px; flex-shrink: 0;
-          display: flex; align-items: center; position: relative;
-        }
-        .pipeline-arrow .arrow-line {
-          width: 32px; height: 2px; background: var(--border-light); position: relative;
-        }
-        .pipeline-arrow .arrow-line::after {
-          content: ''; position: absolute; right: -1px; top: -4px;
-          border: 5px solid transparent; border-left-color: var(--border-light);
-        }
-        @keyframes flowPulse {
-          0% { background-position: 0% 50%; }
-          100% { background-position: 200% 50%; }
-        }
-        .pipeline-arrow.animated .arrow-line {
-          background: linear-gradient(90deg, var(--border-light), var(--green), var(--border-light));
-          background-size: 200% 100%;
-          animation: flowPulse 2s linear infinite;
-        }
-        .pipeline-arrow.animated .arrow-line::after {
-          border-left-color: var(--green);
-        }
+        /* ── Modal ──────────────────────────────────────────────────────── */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; }
+        .modal { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 700px; max-width: 95vw; max-height: 85vh; overflow-y: auto; padding: 24px; }
+        .modal h2 { font-size: 1.1rem; margin-bottom: 16px; }
 
-        /* -- Bar Charts ---------------------------------------------------- */
+        /* ── Pipeline Flow ──────────────────────────────────────────────── */
+        .flow { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 12px 0; }
+        .flow-node { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; text-align: center; min-width: 90px; font-size: 0.75rem; flex-shrink: 0; }
+        .flow-node.active { border-color: var(--green); }
+        .flow-arrow { color: var(--text-dim); font-size: 1.2rem; flex-shrink: 0; }
+        .flow-count { font-size: 1.1rem; font-weight: 700; display: block; }
+
+        /* ── Severity bar (for scores) ──────────────────────────────────── */
+        .score-bar { height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; width: 80px; }
+        .score-fill { height: 100%; border-radius: 3px; }
+
+        /* ── Chart bars ─────────────────────────────────────────────────── */
         .bar-chart { display: flex; flex-direction: column; gap: 8px; }
-        .bar-row { display: flex; align-items: center; gap: 10px; }
-        .bar-label { width: 80px; font-size: 0.8rem; color: var(--text-muted); text-align: right; flex-shrink: 0; }
-        .bar-track { flex: 1; height: 22px; background: var(--bg-primary); border-radius: 4px; overflow: hidden; position: relative; }
-        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; display: flex; align-items: center; padding-left: 8px; }
-        .bar-fill-text { font-size: 0.7rem; font-weight: 600; color: #fff; white-space: nowrap; }
-        .bar-count { width: 60px; font-size: 0.8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+        .bar-row { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; }
+        .bar-label { width: 80px; text-align: right; color: var(--text-muted); flex-shrink: 0; }
+        .bar-track { flex: 1; height: 20px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; display: flex; align-items: center; padding-left: 8px; font-size: 0.7rem; font-weight: 600; color: #fff; }
+        .bar-value { width: 50px; text-align: right; font-weight: 600; flex-shrink: 0; }
 
-        /* -- Badges -------------------------------------------------------- */
-        .badge {
-          display: inline-block; padding: 2px 8px; border-radius: 4px;
-          font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
-        }
-        .badge-error { background: var(--red-dim); color: var(--red); }
-        .badge-warn { background: var(--orange-dim); color: var(--orange); }
-        .badge-info { background: var(--green-dim); color: var(--green); }
-        .badge-debug { background: var(--blue-dim); color: var(--blue); }
-        .badge-fatal { background: var(--red); color: #fff; }
-        .badge-critical { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
-        .badge-high { background: rgba(225,112,85,0.15); color: #e17055; border: 1px solid #e17055; }
-        .badge-medium { background: var(--orange-dim); color: var(--orange); border: 1px solid var(--orange); }
-        .badge-low { background: var(--blue-dim); color: var(--blue); border: 1px solid var(--blue); }
-        .badge-sev-critical { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
-        .badge-sev-high { background: rgba(225,112,85,0.15); color: #e17055; border: 1px solid #e17055; }
-        .badge-sev-medium { background: var(--orange-dim); color: var(--orange); border: 1px solid var(--orange); }
-        .badge-sev-low { background: var(--blue-dim); color: var(--blue); border: 1px solid var(--blue); }
-
-        /* -- Incident state badges ----------------------------------------- */
-        .state-badge { padding: 3px 10px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
-        .state-identified { background: var(--red-dim); color: var(--red); }
-        .state-acknowledged { background: var(--orange-dim); color: var(--orange); }
-        .state-investigating { background: var(--blue-dim); color: var(--blue); }
-        .state-mitigated { background: rgba(0,206,201,0.1); color: rgba(0,206,201,0.7); }
-        .state-resolved { background: var(--green-dim); color: var(--green); }
-
-        /* -- Incident Cards ------------------------------------------------ */
-        .incident-list { display: flex; flex-direction: column; gap: 12px; }
-        .incident-card {
-          background: var(--bg-surface); border: 1px solid var(--border);
-          border-radius: var(--radius); padding: 16px 20px; cursor: pointer;
-          transition: all 0.15s;
-        }
-        .incident-card:hover { border-color: var(--accent); background: var(--bg-surface-hover); }
-        .incident-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-        .incident-card-title { font-size: 0.9rem; font-weight: 600; flex: 1; min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .incident-card-meta { display: flex; align-items: center; gap: 16px; font-size: 0.8rem; color: var(--text-muted); flex-wrap: wrap; }
-        .incident-card-meta span { display: flex; align-items: center; gap: 4px; }
-        .incident-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; gap: 8px; }
-        .incident-card-actions { display: flex; gap: 6px; }
-        .anomaly-score-bar {
-          width: 120px; height: 6px; background: var(--bg-primary); border-radius: 3px;
-          overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px;
-        }
-        .anomaly-score-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-
-        /* -- Filter Bar ---------------------------------------------------- */
-        .filter-bar {
-          display: flex; align-items: center; gap: 12px; margin: 16px 0;
-          flex-wrap: wrap;
-        }
-        .filter-select {
-          padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border);
-          background: var(--bg-surface); color: var(--text); font-size: 0.8rem;
-          cursor: pointer; min-width: 140px;
-        }
-        .filter-select:focus { border-color: var(--accent); outline: none; }
-        .filter-input {
-          padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border);
-          background: var(--bg-surface); color: var(--text); font-size: 0.8rem;
-          flex: 1; min-width: 180px;
-        }
-        .filter-input:focus { border-color: var(--accent); outline: none; }
-        .filter-input::placeholder { color: var(--text-dim); }
-
-        /* -- Modal --------------------------------------------------------- */
-        .modal-overlay {
-          display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.6); z-index: 1000; align-items: center;
-          justify-content: center; padding: 24px;
-        }
-        .modal-overlay.open { display: flex; }
-        .modal {
-          background: var(--bg-surface); border: 1px solid var(--border);
-          border-radius: var(--radius-lg); width: 100%; max-width: 800px;
-          max-height: 85vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        }
-        .modal-header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 20px 24px; border-bottom: 1px solid var(--border);
-          position: sticky; top: 0; background: var(--bg-surface); z-index: 10;
-        }
-        .modal-header h2 { font-size: 1.1rem; font-weight: 700; }
-        .modal-close {
-          background: none; border: none; color: var(--text-muted); cursor: pointer;
-          font-size: 1.5rem; line-height: 1; padding: 4px 8px;
-        }
-        .modal-close:hover { color: var(--text); }
-        .modal-body { padding: 24px; }
-        .modal-footer {
-          padding: 16px 24px; border-top: 1px solid var(--border);
-          display: flex; gap: 8px; justify-content: flex-end;
-        }
-
-        /* -- Detail fields ------------------------------------------------- */
-        .detail-grid {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;
-        }
-        @media (max-width: 600px) { .detail-grid { grid-template-columns: 1fr; } }
-        .detail-field label {
-          display: block; font-size: 0.7rem; color: var(--text-muted);
-          text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 4px;
-        }
-        .detail-field .detail-value { font-size: 0.85rem; color: var(--text); }
-
-        /* -- Timeline ------------------------------------------------------ */
-        .timeline { position: relative; padding-left: 24px; margin: 16px 0; }
-        .timeline::before {
-          content: ''; position: absolute; left: 8px; top: 0; bottom: 0;
-          width: 2px; background: var(--border);
-        }
-        .timeline-item { position: relative; margin-bottom: 16px; }
-        .timeline-item::before {
-          content: ''; position: absolute; left: -20px; top: 6px;
-          width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
-          border: 2px solid var(--bg-surface);
-        }
-        .timeline-item .tl-time { font-size: 0.7rem; color: var(--text-dim); }
-        .timeline-item .tl-text { font-size: 0.8rem; color: var(--text); margin-top: 2px; }
-        .timeline-item .tl-actor { font-size: 0.7rem; color: var(--text-muted); margin-top: 1px; }
-
-        /* -- Evidence table ------------------------------------------------ */
-        .evidence-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        .evidence-table th {
-          text-align: left; padding: 8px 10px; font-size: 0.7rem; color: var(--text-muted);
-          text-transform: uppercase; border-bottom: 1px solid var(--border); font-weight: 600;
-        }
-        .evidence-table td {
-          padding: 6px 10px; font-size: 0.8rem; border-bottom: 1px solid rgba(45,51,72,0.4);
-        }
-        .evidence-table tr:hover { background: var(--bg-surface-hover); }
-
-        /* -- External references ------------------------------------------- */
-        .ext-refs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-        .ext-ref-link {
-          display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px;
-          border-radius: var(--radius); border: 1px solid var(--border);
-          background: var(--bg-surface-hover); color: var(--accent-light);
-          text-decoration: none; font-size: 0.75rem; font-weight: 600;
-          transition: border-color 0.15s;
-        }
-        .ext-ref-link:hover { border-color: var(--accent); }
-
-        /* -- Integration cards --------------------------------------------- */
-        .integration-grid {
-          display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px;
-        }
-        .integration-card {
-          background: var(--bg-surface); border: 1px solid var(--border);
-          border-radius: var(--radius); padding: 20px; display: flex;
-          align-items: center; gap: 16px;
-        }
-        .integration-icon { font-size: 2rem; flex-shrink: 0; }
-        .integration-info { flex: 1; }
-        .integration-name { font-size: 0.9rem; font-weight: 600; }
-        .integration-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
-        .integration-status {
-          padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700;
-          text-transform: uppercase;
-        }
-        .integration-status.connected { background: var(--green-dim); color: var(--green); }
-        .integration-status.disconnected { background: rgba(139,146,168,0.15); color: var(--text-muted); }
-
-        /* -- Tables -------------------------------------------------------- */
-        .table-wrapper { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; }
-        thead th {
-          text-align: left; padding: 10px 12px; font-size: 0.75rem;
-          color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
-          border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap;
-        }
-        tbody td {
-          padding: 8px 12px; border-bottom: 1px solid rgba(45,51,72,0.5);
-          font-size: 0.8rem; vertical-align: top;
-        }
-        tbody tr:hover { background: var(--bg-surface-hover); }
-        .mono { font-family: var(--font-mono); font-size: 0.75rem; }
-        .truncate { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .table-empty { padding: 32px; text-align: center; color: var(--text-dim); font-size: 0.85rem; }
-        .loading { color: var(--text-dim); font-size: 0.85rem; padding: 24px; text-align: center; }
-        .error-msg { color: var(--red); font-size: 0.8rem; padding: 12px; text-align: center; }
-
-        /* -- Log search bar ------------------------------------------------ */
-        .log-search-bar {
-          display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
-        }
-        .log-search-input {
-          flex: 1; padding: 8px 14px; border-radius: var(--radius);
-          border: 1px solid var(--border); background: var(--bg-primary);
-          color: var(--text); font-size: 0.85rem;
-        }
-        .log-search-input:focus { border-color: var(--accent); outline: none; }
-        .log-search-input::placeholder { color: var(--text-dim); }
-
-        /* -- Settings section ---------------------------------------------- */
-        .settings-section { margin-bottom: 28px; }
-        .settings-section-title {
-          font-size: 0.9rem; font-weight: 600; margin-bottom: 14px;
-          padding-bottom: 8px; border-bottom: 1px solid var(--border);
-        }
+        /* ── Utility ────────────────────────────────────────────────────── */
+        .hidden { display: none !important; }
+        .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .text-center { text-align: center; }
       </style>
     </head>
-    <body>
-
-    <!-- Header -->
-    <header class="header">
-      <div class="header-left">
-        <span class="logo">LogClaw</span>
-        <span class="cluster-badge" id="clusterBadge">--</span>
-      </div>
-      <div class="header-right">
-        <span class="live-dot" id="liveDot"></span>
-        <span class="live-label">LIVE</span>
-        <button class="btn btn-toggle active" id="autoRefreshBtn" title="Toggle auto-refresh">Auto-Refresh</button>
-        <button class="btn" id="manualRefreshBtn">Refresh</button>
-      </div>
-    </header>
-
-    <!-- Tab Navigation -->
-    <nav class="tab-nav">
-      <button class="tab-btn active" data-tab="pipeline">Pipeline</button>
-      <button class="tab-btn" data-tab="incidents">Incidents</button>
-      <button class="tab-btn" data-tab="logs">Logs</button>
-      <button class="tab-btn" data-tab="settings">Settings</button>
-    </nav>
-
-    <div class="container">
-
-      <!-- ============================================================= -->
-      <!-- TAB 1: PIPELINE                                               -->
-      <!-- ============================================================= -->
-      <div class="tab-content active" id="tab-pipeline">
-
-        <!-- Drag & Drop Upload -->
-        <div class="section-title"><span class="icon">&#128229;</span> Log File Upload</div>
-        <div class="drop-zone" id="dropZone">
-          <div class="drop-zone-icon">&#128195;</div>
-          <div class="drop-zone-text">Drag &amp; drop log files here or <strong>click to browse</strong></div>
-          <div class="drop-zone-hint">.log, .json, .ndjson, .csv, .txt supported</div>
-          <div class="progress-bar-container" id="uploadProgress">
-            <div class="progress-bar" id="uploadProgressBar"></div>
-          </div>
-          <div class="upload-status" id="uploadStatus"></div>
+    <body x-data="dashboard()" x-init="init()">
+      <!-- ─── Header ───────────────────────────────────────────────────── -->
+      <header class="header">
+        <div class="flex items-center gap-4">
+          <span class="logo">LogClaw</span>
+          <span class="badge badge-purple">dev-local</span>
+          <span class="badge badge-green"><span class="live-dot"></span> Live</span>
         </div>
-        <input type="file" id="fileInput" multiple accept=".log,.json,.ndjson,.csv,.txt" style="display:none">
-
-        <!-- Pipeline Flow -->
-        <div class="section-title"><span class="icon">&#9881;</span> Pipeline Flow</div>
-        <div class="card">
-          <div class="pipeline-flow" id="pipelineFlow"></div>
+        <div class="flex items-center gap-3">
+          <span style="font-size:0.75rem;color:var(--text-muted)" x-text="'v' + apiVersion"></span>
+          <button class="btn btn-sm" x-on:click="refreshAll()">Refresh</button>
+          <button class="btn btn-sm" x-bind:class="autoRefresh ? 'btn-green' : ''" x-on:click="autoRefresh = !autoRefresh">
+            <span x-text="autoRefresh ? 'Auto: ON' : 'Auto: OFF'"></span>
+          </button>
         </div>
+      </header>
 
-        <!-- Stats Cards -->
-        <div class="section-title"><span class="icon">&#128200;</span> Pipeline Overview</div>
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-label">Total Logs</div>
-            <div class="stat-value stat-accent" id="statTotal">--</div>
-            <div class="stat-sub">all indices</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Services</div>
-            <div class="stat-value stat-blue" id="statServices">--</div>
-            <div class="stat-sub">unique</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Error Rate</div>
-            <div class="stat-value stat-red" id="statErrorRate">--</div>
-            <div class="stat-sub">ERROR + FATAL</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Anomalies</div>
-            <div class="stat-value stat-orange" id="statAnomalies">--</div>
-            <div class="stat-sub">detected</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Active Incidents</div>
-            <div class="stat-value stat-green" id="statIncidents">--</div>
-            <div class="stat-sub">open</div>
-          </div>
-        </div>
+      <!-- ─── Navigation ───────────────────────────────────────────────── -->
+      <nav class="nav" role="tablist">
+        <template x-for="t in tabs" :key="t.id">
+          <div class="nav-item" role="tab"
+               x-bind:class="tab === t.id ? 'active' : ''"
+               x-bind:aria-selected="tab === t.id"
+               x-on:click="switchTab(t.id)"
+               x-text="t.label"></div>
+        </template>
+      </nav>
 
-        <!-- Charts Row -->
-        <div class="grid-2">
-          <div>
-            <div class="section-title"><span class="icon">&#128202;</span> Log Level Distribution</div>
-            <div class="card">
-              <div class="bar-chart" id="levelChart"><div class="loading">Loading...</div></div>
+      <div class="container mt-4">
+
+        <!-- ═══ TAB: Overview ═══════════════════════════════════════════ -->
+        <div x-show="tab === 'overview'" role="tabpanel">
+          <!-- Stats Row -->
+          <div class="grid-5 mb-3">
+            <div class="card text-center">
+              <div class="stat-value" x-text="fmt(overview.totalLogs)">-</div>
+              <div class="stat-label">Total Logs</div>
+            </div>
+            <div class="card text-center">
+              <div class="stat-value" style="color:var(--blue)" x-text="overview.services">-</div>
+              <div class="stat-label">Services</div>
+            </div>
+            <div class="card text-center">
+              <div class="stat-value" style="color:var(--red)" x-text="overview.errorRate + '%'">-</div>
+              <div class="stat-label">Error Rate</div>
+            </div>
+            <div class="card text-center">
+              <div class="stat-value" style="color:var(--orange)" x-text="fmt(overview.anomalies)">-</div>
+              <div class="stat-label">Anomalies</div>
+            </div>
+            <div class="card text-center">
+              <div class="stat-value" style="color:var(--accent-light)" x-text="overview.activeIncidents">-</div>
+              <div class="stat-label">Active Incidents</div>
             </div>
           </div>
-          <div>
-            <div class="section-title"><span class="icon">&#128187;</span> Top Services by Volume</div>
+
+          <!-- Pipeline Flow -->
+          <div class="card mb-3">
+            <div class="card-header">Pipeline Flow</div>
+            <div class="flow">
+              <template x-for="(node, i) in pipeline" :key="node.name">
+                <template x-if="true">
+                  <div class="flex items-center gap-2" style="display:contents">
+                    <div class="flow-node" x-bind:class="node.healthy ? 'active' : ''">
+                      <span class="flow-count" x-text="fmt(node.count)"></span>
+                      <span x-text="node.name"></span>
+                    </div>
+                    <div class="flow-arrow" x-show="i < pipeline.length - 1">&rarr;</div>
+                  </div>
+                </template>
+              </template>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="grid-2">
             <div class="card">
-              <div class="bar-chart" id="serviceChart"><div class="loading">Loading...</div></div>
+              <div class="card-header">Log Level Distribution</div>
+              <div class="bar-chart" id="level-chart"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">Top Services</div>
+              <div class="bar-chart" id="service-chart"></div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- ============================================================= -->
-      <!-- TAB 2: INCIDENTS                                              -->
-      <!-- ============================================================= -->
-      <div class="tab-content" id="tab-incidents">
+        <!-- ═══ TAB: Incidents ═════════════════════════════════════════ -->
+        <div x-show="tab === 'incidents'" role="tabpanel">
+          <!-- Summary Bar -->
+          <div class="grid-5 mb-3" style="grid-template-columns: repeat(6, 1fr);">
+            <template x-for="s in incStates" :key="s.key">
+              <div class="card text-center" style="padding:12px;cursor:pointer"
+                   x-bind:style="incFilter.state === s.key ? 'border-color:var(--accent)' : ''"
+                   x-on:click="incFilter.state = incFilter.state === s.key ? '' : s.key; loadIncidents()">
+                <div class="stat-value" style="font-size:1.5rem" x-text="incSummary[s.key] || 0"></div>
+                <div class="stat-label" x-text="s.label"></div>
+              </div>
+            </template>
+          </div>
 
-        <!-- Incident Summary Bar -->
-        <div class="section-title"><span class="icon">&#128680;</span> Incident Overview</div>
-        <div class="stats-row" id="incidentSummaryBar">
-          <div class="stat-card clickable" data-state-filter="all">
-            <div class="stat-label">Total</div>
-            <div class="stat-value stat-accent" id="incTotal">--</div>
+          <!-- MTTR Metrics -->
+          <div class="card mb-3" x-show="mttr.mttr">
+            <div class="card-header">Resolution Metrics (Last 30 Days)</div>
+            <div class="grid-3">
+              <div class="text-center">
+                <div class="stat-value" style="font-size:1.3rem;color:var(--green)" x-text="mttr.mttr ? mttr.mttr.avg_minutes + 'm' : '-'"></div>
+                <div class="stat-label">MTTR (Avg)</div>
+              </div>
+              <div class="text-center">
+                <div class="stat-value" style="font-size:1.3rem;color:var(--orange)" x-text="mttr.mtta ? mttr.mtta.avg_minutes + 'm' : '-'"></div>
+                <div class="stat-label">MTTA (Avg)</div>
+              </div>
+              <div class="text-center">
+                <div class="stat-value" style="font-size:1.3rem;color:var(--blue)" x-text="mttr.mttm ? mttr.mttm.avg_minutes + 'm' : '-'"></div>
+                <div class="stat-label">MTTM (Avg)</div>
+              </div>
+            </div>
           </div>
-          <div class="stat-card clickable" data-state-filter="identified">
-            <div class="stat-label">Identified</div>
-            <div class="stat-value stat-red" id="incIdentified">--</div>
+
+          <!-- Filters -->
+          <div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap">
+            <select class="input" x-model="incFilter.severity" x-on:change="loadIncidents()">
+              <option value="">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select class="input" x-model="incFilter.service" x-on:change="loadIncidents()">
+              <option value="">All Services</option>
+              <template x-for="s in incServices" :key="s">
+                <option x-bind:value="s" x-text="s"></option>
+              </template>
+            </select>
+            <input class="input" style="width:200px" placeholder="Search incidents..." x-model="incFilter.q" x-on:input.debounce.300ms="loadIncidents()">
+            <button class="btn btn-accent btn-sm" x-on:click="showCreateModal = true">+ Create Incident</button>
           </div>
-          <div class="stat-card clickable" data-state-filter="acknowledged">
-            <div class="stat-label">Acknowledged</div>
-            <div class="stat-value stat-orange" id="incAcknowledged">--</div>
+
+          <!-- Incident List -->
+          <div class="flex flex-col gap-3">
+            <template x-for="inc in incidents" :key="inc.id">
+              <div class="inc-card" x-on:click="openIncident(inc.id)">
+                <div class="flex justify-between items-center mb-3">
+                  <div class="flex items-center gap-2">
+                    <span class="badge" x-bind:class="'badge-' + sevColor(inc.severity)" x-text="inc.severity" style="text-transform:uppercase;font-size:0.6rem"></span>
+                    <span class="state-pill" x-bind:class="'state-' + inc.state" x-text="inc.state"></span>
+                    <span style="font-size:0.7rem;color:var(--text-dim)" x-text="inc.priority || ''"></span>
+                  </div>
+                  <span class="inc-meta" x-text="inc.id"></span>
+                </div>
+                <div class="inc-title truncate" x-text="inc.title"></div>
+                <div class="flex justify-between items-center mt-4" style="margin-top:8px">
+                  <span class="inc-meta" x-text="'Service: ' + inc.service"></span>
+                  <span class="inc-meta" x-text="timeAgo(inc.created_at)"></span>
+                </div>
+                <div class="flex gap-2 mt-4" style="margin-top:8px" x-on:click.stop>
+                  <template x-for="action in getActions(inc)" :key="action.state">
+                    <button class="btn btn-sm" x-bind:class="action.cls" x-text="action.label"
+                            x-on:click="patchState(inc.id, action.state)"></button>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div x-show="incidents.length === 0" class="card text-center" style="padding:40px;color:var(--text-muted)">
+              No incidents found
+            </div>
           </div>
-          <div class="stat-card clickable" data-state-filter="investigating">
-            <div class="stat-label">Investigating</div>
-            <div class="stat-value stat-blue" id="incInvestigating">--</div>
-          </div>
-          <div class="stat-card clickable" data-state-filter="mitigated">
-            <div class="stat-label">Mitigated</div>
-            <div class="stat-value" style="color:rgba(0,206,201,0.7)" id="incMitigated">--</div>
-          </div>
-          <div class="stat-card clickable" data-state-filter="resolved">
-            <div class="stat-label">Resolved</div>
-            <div class="stat-value stat-green" id="incResolved">--</div>
+          <div class="flex justify-between items-center mt-5" x-show="incPagination.total > 0">
+            <span style="font-size:0.75rem;color:var(--text-muted)" x-text="'Showing ' + incidents.length + ' of ' + incPagination.total"></span>
+            <div class="flex gap-2">
+              <button class="btn btn-sm" x-bind:disabled="incPagination.offset === 0" x-on:click="incPagination.offset -= incPagination.limit; loadIncidents()">Prev</button>
+              <button class="btn btn-sm" x-bind:disabled="!incPagination.has_more" x-on:click="incPagination.offset += incPagination.limit; loadIncidents()">Next</button>
+            </div>
           </div>
         </div>
 
-        <!-- Filter Bar -->
-        <div class="filter-bar">
-          <select class="filter-select" id="filterState">
-            <option value="">All States</option>
-            <option value="identified">Identified</option>
-            <option value="acknowledged">Acknowledged</option>
-            <option value="investigating">Investigating</option>
-            <option value="mitigated">Mitigated</option>
-            <option value="resolved">Resolved</option>
-          </select>
-          <select class="filter-select" id="filterSeverity">
-            <option value="">All Severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-          <select class="filter-select" id="filterService">
-            <option value="">All Services</option>
-          </select>
-          <input type="text" class="filter-input" id="filterSearch" placeholder="Search incidents...">
-        </div>
-
-        <!-- Incident List -->
-        <div class="incident-list" id="incidentList">
-          <div class="loading">Loading incidents...</div>
-        </div>
-      </div>
-
-      <!-- ============================================================= -->
-      <!-- TAB 3: LOGS                                                   -->
-      <!-- ============================================================= -->
-      <div class="tab-content" id="tab-logs">
-
-        <!-- Error Logs -->
-        <div class="section-title"><span class="icon">&#128308;</span> Error Logs (Recent 50)</div>
-        <div class="card">
-          <div class="table-wrapper">
+        <!-- ═══ TAB: Logs ══════════════════════════════════════════════ -->
+        <div x-show="tab === 'logs'" role="tabpanel">
+          <div class="flex items-center gap-3 mb-3">
+            <select class="input" x-model="logFilter.level" x-on:change="loadLogs()">
+              <option value="">All Levels</option>
+              <option value="FATAL">FATAL</option>
+              <option value="ERROR">ERROR</option>
+              <option value="WARN">WARN</option>
+              <option value="INFO">INFO</option>
+              <option value="DEBUG">DEBUG</option>
+            </select>
+            <input class="input" style="width:200px" placeholder="Filter logs..." x-model="logFilter.q" x-on:input.debounce.300ms="loadLogs()">
+            <span style="font-size:0.75rem;color:var(--text-muted)" x-text="'Total: ' + fmt(logTotal)"></span>
+          </div>
+          <div class="card" style="overflow-x:auto;padding:0">
             <table>
-              <thead><tr>
-                <th>Time</th><th>Level</th><th>Service</th><th>Message</th><th>Trace ID</th>
-              </tr></thead>
-              <tbody id="errorBody"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
+              <thead><tr><th style="width:130px">Time</th><th style="width:60px">Level</th><th style="width:120px">Service</th><th style="width:100px">Host</th><th>Message</th></tr></thead>
+              <tbody>
+                <template x-for="log in logs" :key="log._id || Math.random()">
+                  <tr>
+                    <td style="font-family:var(--mono);font-size:0.7rem;color:var(--text-dim)" x-text="fmtTime(log.timestamp)"></td>
+                    <td><span class="badge" x-bind:class="levelClass(log.level)" x-text="log.level" style="font-size:0.6rem"></span></td>
+                    <td class="truncate" style="max-width:120px" x-text="log.service"></td>
+                    <td class="truncate" style="max-width:100px;color:var(--text-muted)" x-text="log.host || '-'"></td>
+                    <td style="font-family:var(--mono);font-size:0.75rem" x-text="log.message"></td>
+                  </tr>
+                </template>
+              </tbody>
             </table>
           </div>
         </div>
 
-        <!-- Log Stream -->
-        <div class="section-title"><span class="icon">&#128220;</span> Log Stream (Latest 100)</div>
-        <div class="card">
-          <div class="log-search-bar">
-            <input type="text" class="log-search-input" id="logSearchInput" placeholder="Filter logs by keyword...">
+        <!-- ═══ TAB: Ingestion ═════════════════════════════════════════ -->
+        <div x-show="tab === 'ingestion'" role="tabpanel">
+          <div class="grid-2">
+            <!-- Left: Upload Zone -->
+            <div>
+              <div class="card mb-3">
+                <div class="card-header">Drag &amp; Drop Upload</div>
+                <div class="upload-zone" id="upload-zone"
+                     x-on:dragover.prevent="$el.classList.add('dragover')"
+                     x-on:dragleave="$el.classList.remove('dragover')"
+                     x-on:drop.prevent="handleDrop($event)"
+                     x-on:click="$refs.fileInput.click()">
+                  <div class="upload-icon">&#128230;</div>
+                  <div style="font-weight:600">Drop log files here or click to browse</div>
+                  <div style="color:var(--text-muted);font-size:0.75rem;margin-top:4px">.json, .ndjson, .log, .csv, .txt</div>
+                  <input type="file" x-ref="fileInput" style="display:none" multiple accept=".json,.ndjson,.log,.csv,.txt" x-on:change="handleFiles($event.target.files)">
+                </div>
+                <div class="progress-bar mt-4" x-show="uploadProgress > 0">
+                  <div class="progress-fill" x-bind:style="'width:' + uploadProgress + '%'"></div>
+                </div>
+                <div style="font-size:0.75rem;margin-top:8px;color:var(--text-muted)" x-text="uploadStatus"></div>
+              </div>
+
+              <!-- Quick Send -->
+              <div class="card">
+                <div class="card-header">Quick JSON Upload</div>
+                <textarea class="input" style="width:100%;height:120px;font-family:var(--mono);font-size:0.75rem;resize:vertical" x-model="quickJson" placeholder='[{"level": "ERROR", "service": "api-gw", "message": "Connection refused"}]'></textarea>
+                <button class="btn btn-accent mt-4" style="margin-top:10px" x-on:click="sendQuickJson()">Send Logs</button>
+              </div>
+            </div>
+
+            <!-- Right: API Documentation -->
+            <div>
+              <div class="card mb-3">
+                <div class="card-header">Log Ingestion API</div>
+                <p style="color:var(--text-muted);font-size:0.8rem;margin-bottom:12px">Send logs via HTTP POST. Logs flow through the full pipeline: Vector &rarr; Kafka &rarr; Bridge &rarr; OpenSearch.</p>
+
+                <div style="font-weight:600;font-size:0.8rem;margin-bottom:6px">Endpoint</div>
+                <div class="code-block" style="margin-bottom:16px" x-text="'POST /api/upload\nContent-Type: application/json'"></div>
+
+                <div style="font-weight:600;font-size:0.8rem;margin-bottom:6px">cURL Example</div>
+                <div class="code-block" style="margin-bottom:16px" x-text="curlExample"></div>
+
+                <div style="font-weight:600;font-size:0.8rem;margin-bottom:6px">Log Schema</div>
+                <div class="code-block" x-text="logSchema"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-header">Pipeline Endpoints</div>
+                <table style="font-size:0.75rem">
+                  <tbody>
+                    <tr><td style="font-weight:600">Upload (proxy)</td><td><code>POST /api/upload</code></td></tr>
+                    <tr><td style="font-weight:600">Vector (direct)</td><td><code>POST /api/vector/</code></td></tr>
+                    <tr><td style="font-weight:600">OpenSearch</td><td><code>GET /api/opensearch/logclaw-logs-*/_search</code></td></tr>
+                    <tr><td style="font-weight:600">Bridge Health</td><td><code>GET /api/bridge/health</code></td></tr>
+                    <tr><td style="font-weight:600">Bridge Metrics</td><td><code>GET /api/bridge/metrics</code></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-          <div class="table-wrapper">
-            <table>
-              <thead><tr>
-                <th>Time</th><th>Level</th><th>Service</th><th>Host</th><th>Message</th>
-              </tr></thead>
-              <tbody id="logBody"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
-            </table>
+        </div>
+
+        <!-- ═══ TAB: Settings ═════════════════════════════════════════ -->
+        <div x-show="tab === 'settings'" role="tabpanel">
+          <div class="grid-2">
+            <!-- Integrations -->
+            <div class="card">
+              <div class="card-header">Integrations</div>
+              <template x-for="(cfg, name) in integrations" :key="name">
+                <div class="flex justify-between items-center" style="padding:10px 0;border-bottom:1px solid var(--bg-3)">
+                  <div>
+                    <span style="font-weight:600;text-transform:capitalize" x-text="name"></span>
+                    <span style="font-size:0.7rem;color:var(--text-muted);margin-left:8px" x-text="cfg.url || cfg.channel || cfg.api_url || ''"></span>
+                  </div>
+                  <span class="badge" x-bind:class="cfg.enabled ? 'badge-green' : 'badge-red'" x-text="cfg.enabled ? 'Connected' : 'Disabled'"></span>
+                </div>
+              </template>
+            </div>
+
+            <!-- API Schema -->
+            <div class="card">
+              <div class="card-header">Incident API (v1)</div>
+              <div style="max-height:400px;overflow-y:auto">
+                <template x-for="ep in apiEndpoints" :key="ep.path">
+                  <div style="padding:6px 0;border-bottom:1px solid var(--bg-3);font-size:0.75rem">
+                    <span class="badge" x-bind:class="ep.method === 'GET' ? 'badge-green' : ep.method === 'POST' ? 'badge-blue' : ep.method === 'PATCH' ? 'badge-orange' : 'badge-red'" x-text="ep.method" style="font-size:0.6rem;min-width:50px;justify-content:center"></span>
+                    <code style="margin-left:8px" x-text="ep.path"></code>
+                    <div style="color:var(--text-muted);font-size:0.7rem;margin-top:2px;padding-left:60px" x-text="ep.description"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Health -->
+          <div class="card mt-5">
+            <div class="card-header">System Health</div>
+            <div class="code-block" x-text="JSON.stringify(health, null, 2)"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ─── Incident Detail Modal ────────────────────────────────────── -->
+      <div class="modal-overlay" x-show="selectedInc" x-on:click.self="selectedInc = null" x-on:keydown.escape.window="selectedInc = null" x-cloak>
+        <div class="modal" x-show="selectedInc">
+          <template x-if="selectedInc">
+            <div>
+              <div class="flex justify-between items-center mb-3">
+                <h2 x-text="selectedInc.id + ' — ' + selectedInc.title"></h2>
+                <button class="btn btn-sm" x-on:click="selectedInc = null">Close</button>
+              </div>
+              <div class="grid-3 mb-3" style="gap:10px">
+                <div><span style="color:var(--text-muted);font-size:0.7rem">Severity</span><br><span class="badge" x-bind:class="'badge-' + sevColor(selectedInc.severity)" x-text="selectedInc.severity" style="text-transform:uppercase"></span></div>
+                <div><span style="color:var(--text-muted);font-size:0.7rem">Priority</span><br><span style="font-weight:700" x-text="selectedInc.priority || '-'"></span></div>
+                <div><span style="color:var(--text-muted);font-size:0.7rem">State</span><br><span class="state-pill" x-bind:class="'state-' + selectedInc.state" x-text="selectedInc.state"></span></div>
+                <div><span style="color:var(--text-muted);font-size:0.7rem">Service</span><br><span x-text="selectedInc.service"></span></div>
+                <div><span style="color:var(--text-muted);font-size:0.7rem">Commander</span><br><span x-text="selectedInc.commander || 'Unassigned'"></span></div>
+                <div><span style="color:var(--text-muted);font-size:0.7rem">Correlation</span><br><code style="font-size:0.7rem" x-text="selectedInc.correlation_id || '-'"></code></div>
+              </div>
+              <div style="margin-bottom:12px" x-show="selectedInc.description">
+                <span style="color:var(--text-muted);font-size:0.7rem">Description</span>
+                <p style="font-size:0.8rem;margin-top:4px" x-text="selectedInc.description"></p>
+              </div>
+              <div style="margin-bottom:12px" x-show="selectedInc.impact">
+                <span style="color:var(--text-muted);font-size:0.7rem">Impact</span>
+                <p style="font-size:0.8rem;margin-top:4px" x-text="selectedInc.impact || 'Not assessed'"></p>
+              </div>
+
+              <!-- Milestones -->
+              <div class="card-header" style="margin-top:16px">Milestones</div>
+              <div class="grid-2" style="gap:8px;margin-bottom:16px;font-size:0.75rem">
+                <div>Detected: <span style="color:var(--green)" x-text="selectedInc.detected_at ? fmtTime(selectedInc.detected_at) : '-'"></span></div>
+                <div>Acknowledged: <span style="color:var(--orange)" x-text="selectedInc.acknowledged_at ? fmtTime(selectedInc.acknowledged_at) : '-'"></span></div>
+                <div>Mitigated: <span style="color:var(--blue)" x-text="selectedInc.mitigated_at ? fmtTime(selectedInc.mitigated_at) : '-'"></span></div>
+                <div>Resolved: <span style="color:var(--accent-light)" x-text="selectedInc.resolved_at ? fmtTime(selectedInc.resolved_at) : '-'"></span></div>
+              </div>
+
+              <!-- Timeline -->
+              <div class="card-header">Timeline</div>
+              <div style="max-height:200px;overflow-y:auto;margin-bottom:16px">
+                <template x-for="ev in (selectedInc.timeline || [])" :key="ev.id || ev.timestamp">
+                  <div style="padding:6px 0;border-bottom:1px solid var(--bg-3);font-size:0.75rem">
+                    <span style="color:var(--text-dim)" x-text="fmtTime(ev.timestamp)"></span>
+                    <span class="state-pill" x-bind:class="'state-' + ev.state" x-text="ev.state" style="margin:0 6px"></span>
+                    <span x-text="ev.message"></span>
+                    <span style="color:var(--text-dim);margin-left:6px" x-text="'by ' + ev.actor"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex gap-2">
+                <template x-for="action in getActions(selectedInc)" :key="action.state">
+                  <button class="btn" x-bind:class="action.cls" x-text="action.label"
+                          x-on:click="patchState(selectedInc.id, action.state); openIncident(selectedInc.id)"></button>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ─── Create Incident Modal ────────────────────────────────────── -->
+      <div class="modal-overlay" x-show="showCreateModal" x-on:click.self="showCreateModal = false" x-cloak>
+        <div class="modal" style="width:500px">
+          <h2 style="margin-bottom:16px">Create Incident</h2>
+          <div class="flex flex-col gap-3">
+            <input class="input" placeholder="Title" x-model="newInc.title">
+            <textarea class="input" style="height:80px;resize:vertical" placeholder="Description" x-model="newInc.description"></textarea>
+            <div class="grid-2" style="gap:10px">
+              <select class="input" x-model="newInc.severity"><option value="critical">Critical</option><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
+              <input class="input" placeholder="Service" x-model="newInc.service">
+            </div>
+            <input class="input" placeholder="Impact description" x-model="newInc.impact">
+            <input class="input" placeholder="Commander" x-model="newInc.commander">
+          </div>
+          <div class="flex gap-2 mt-5" style="margin-top:16px">
+            <button class="btn btn-accent" x-on:click="createIncident()">Create</button>
+            <button class="btn" x-on:click="showCreateModal = false">Cancel</button>
           </div>
         </div>
       </div>
 
-      <!-- ============================================================= -->
-      <!-- TAB 4: SETTINGS                                               -->
-      <!-- ============================================================= -->
-      <div class="tab-content" id="tab-settings">
+      <script>
+      function dashboard() {
+        return {
+          tab: "overview",
+          tabs: [
+            {id: "overview", label: "Overview"},
+            {id: "incidents", label: "Incidents"},
+            {id: "logs", label: "Logs"},
+            {id: "ingestion", label: "Ingestion"},
+            {id: "settings", label: "Settings"}
+          ],
+          autoRefresh: true,
+          apiVersion: "",
+          health: {},
 
-        <div class="section-title"><span class="icon">&#128268;</span> Integration Status</div>
-        <div class="settings-section">
-          <div class="integration-grid" id="integrationGrid">
-            <div class="loading">Loading integrations...</div>
-          </div>
-        </div>
-      </div>
+          // Overview
+          overview: {totalLogs: 0, services: 0, errorRate: "0.0", anomalies: 0, activeIncidents: 0},
+          pipeline: [
+            {name: "Sources", count: 0, healthy: true},
+            {name: "Vector", count: 0, healthy: true},
+            {name: "Kafka", count: 0, healthy: true},
+            {name: "Bridge", count: 0, healthy: true},
+            {name: "OpenSearch", count: 0, healthy: true},
+            {name: "Incidents", count: 0, healthy: true}
+          ],
 
-    </div><!-- /container -->
+          // Incidents
+          incidents: [],
+          incPagination: {total: 0, limit: 20, offset: 0, has_more: false},
+          incFilter: {state: "", severity: "", service: "", q: ""},
+          incStates: [
+            {key: "", label: "All"},
+            {key: "identified", label: "Identified"},
+            {key: "acknowledged", label: "Acknowledged"},
+            {key: "investigating", label: "Investigating"},
+            {key: "mitigated", label: "Mitigated"},
+            {key: "resolved", label: "Resolved"}
+          ],
+          incSummary: {},
+          incServices: [],
+          selectedInc: null,
+          showCreateModal: false,
+          newInc: {title: "", description: "", severity: "medium", service: "", impact: "", commander: ""},
+          mttr: {},
 
-    <!-- Incident Detail Modal -->
-    <div class="modal-overlay" id="incidentModal">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 id="modalTitle">Incident Details</h2>
-          <button class="modal-close" id="modalClose">&times;</button>
-        </div>
-        <div class="modal-body" id="modalBody">
-          <div class="loading">Loading...</div>
-        </div>
-        <div class="modal-footer" id="modalFooter"></div>
-      </div>
-    </div>
+          // Logs
+          logs: [], logTotal: 0,
+          logFilter: {level: "", q: ""},
 
-    <script>
-    (function() {
-      "use strict";
+          // Ingestion
+          uploadProgress: 0, uploadStatus: "",
+          quickJson: "",
+          curlExample: 'curl -X POST http://localhost:3333/api/upload \\\n  -H "Content-Type: application/json" \\\n  -d \'[{\n    "timestamp": "2026-03-01T12:00:00Z",\n    "level": "ERROR",\n    "service": "api-gateway",\n    "message": "Connection refused",\n    "host": "pod-1",\n    "trace_id": "abc-123"\n  }]\'',
+          logSchema: '{\n  "timestamp": "ISO 8601 (required)",\n  "level": "FATAL|ERROR|WARN|INFO|DEBUG",\n  "service": "originating service name",\n  "message": "log message text",\n  "host": "hostname or pod name",\n  "trace_id": "distributed trace ID",\n  "endpoint": "/api/v1/resource",\n  "duration_ms": 150\n}',
 
-      /* ================================================================= */
-      /* HELPERS                                                           */
-      /* ================================================================= */
-      function fmt(n) {
-        if (n == null || isNaN(n)) return "--";
-        if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-        if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
-        return String(n);
-      }
+          // Settings
+          integrations: {},
+          apiEndpoints: [],
 
-      function esc(s) {
-        if (!s) return "";
-        var d = document.createElement("div");
-        d.textContent = String(s);
-        return d.innerHTML;
-      }
+          async init() {
+            await this.refreshAll();
+            this._interval = setInterval(() => { if (this.autoRefresh) this.refreshAll(); }, 10000);
+          },
 
-      function timeAgo(isoString) {
-        if (!isoString) return "--";
-        try {
-          var now = Date.now();
-          var then = new Date(isoString).getTime();
-          var diff = Math.max(0, now - then);
-          var secs = Math.floor(diff / 1000);
-          if (secs < 60) return secs + "s ago";
-          var mins = Math.floor(secs / 60);
-          if (mins < 60) return mins + "m ago";
-          var hrs = Math.floor(mins / 60);
-          if (hrs < 24) return hrs + "h ago";
-          var days = Math.floor(hrs / 24);
-          return days + "d ago";
-        } catch(e) { return "--"; }
-      }
+          switchTab(t) {
+            this.tab = t;
+            if (t === "incidents") this.loadIncidents();
+            if (t === "logs") this.loadLogs();
+            if (t === "settings") this.loadSettings();
+          },
 
-      function relTime(ts) {
-        if (!ts) return "--";
-        try {
-          var d = new Date(ts);
-          return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
-        } catch(e) { return "--"; }
-      }
+          async refreshAll() {
+            this.loadOverview();
+            if (this.tab === "incidents") this.loadIncidents();
+            if (this.tab === "logs") this.loadLogs();
+          },
 
-      function fullTime(ts) {
-        if (!ts) return "--";
-        try {
-          var d = new Date(ts);
-          return d.toLocaleString();
-        } catch(e) { return "--"; }
-      }
+          // ── Data Loading ──────────────────────────────────────────
+          async safeFetch(url, opts) {
+            try {
+              var ctrl = new AbortController();
+              var timer = setTimeout(function() { ctrl.abort(); }, 15000);
+              var r = await fetch(url, Object.assign({signal: ctrl.signal}, opts || {}));
+              clearTimeout(timer);
+              return r.ok ? await r.json() : null;
+            } catch(e) { return null; }
+          },
 
-      function levelBadge(level) {
-        if (!level) return "";
-        var l = level.toUpperCase();
-        var cls = "badge-debug";
-        if (l === "ERROR") cls = "badge-error";
-        else if (l === "FATAL") cls = "badge-fatal";
-        else if (l === "WARN" || l === "WARNING") cls = "badge-warn";
-        else if (l === "INFO") cls = "badge-info";
-        return '<span class="badge ' + cls + '">' + esc(l) + '</span>';
-      }
+          async loadOverview() {
+            var [countData, anomData, statsData, bridgeData, healthData] = await Promise.all([
+              this.safeFetch("/api/opensearch/logclaw-logs-*/_count"),
+              this.safeFetch("/api/opensearch/logclaw-anomalies-*/_count"),
+              this.safeFetch("/api/ticketing/api/v1/stats"),
+              this.safeFetch("/api/bridge/metrics"),
+              this.safeFetch("/health")
+            ]);
 
-      function severityBadge(sev) {
-        if (!sev) return '<span class="badge badge-sev-low">UNKNOWN</span>';
-        var s = sev.toLowerCase();
-        var cls = "badge-sev-low";
-        if (s === "critical") cls = "badge-sev-critical";
-        else if (s === "high") cls = "badge-sev-high";
-        else if (s === "medium") cls = "badge-sev-medium";
-        return '<span class="badge ' + cls + '">' + esc(sev.toUpperCase()) + '</span>';
-      }
+            if (healthData) this.health = healthData;
 
-      function stateBadge(st) {
-        if (!st) return '<span class="state-badge state-identified">UNKNOWN</span>';
-        var s = st.toLowerCase();
-        var cls = "state-identified";
-        if (s === "acknowledged") cls = "state-acknowledged";
-        else if (s === "investigating") cls = "state-investigating";
-        else if (s === "mitigated") cls = "state-mitigated";
-        else if (s === "resolved") cls = "state-resolved";
-        return '<span class="state-badge ' + cls + '">' + esc(st.toUpperCase()) + '</span>';
-      }
+            var totalLogs = countData ? countData.count : 0;
+            var totalAnomalies = anomData ? anomData.count : 0;
 
-      function scoreColor(score) {
-        var n = Number(score);
-        if (n > 0.8) return "var(--red)";
-        if (n > 0.5) return "var(--orange)";
-        return "var(--green)";
-      }
+            // Service count + error rate from search
+            var searchData = await this.safeFetch("/api/opensearch/logclaw-logs-*/_search", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({size: 0, aggs: {
+                services: {cardinality: {field: "service"}},
+                levels: {terms: {field: "level", size: 10}}
+              }})
+            });
+            var services = 0, errorRate = 0;
+            if (searchData && searchData.aggregations) {
+              services = searchData.aggregations.services.value || 0;
+              var total = 0, errors = 0;
+              (searchData.aggregations.levels.buckets || []).forEach(function(b) {
+                total += b.doc_count;
+                if (b.key === "ERROR" || b.key === "FATAL") errors += b.doc_count;
+              });
+              if (total > 0) errorRate = ((errors / total) * 100).toFixed(1);
 
-      var LEVEL_COLORS = {
-        "FATAL": "#8b0000", "ERROR": "var(--red)",
-        "WARN": "var(--orange)", "WARNING": "var(--orange)",
-        "INFO": "var(--blue)", "DEBUG": "var(--text-dim)", "TRACE": "var(--text-dim)"
-      };
-
-      var SVC_COLORS = [
-        "var(--accent)", "var(--green)", "var(--blue)", "var(--orange)", "var(--red)",
-        "var(--accent-light)", "#e17055", "#00b894", "#0984e3", "#fd79a8"
-      ];
-
-      /* ================================================================= */
-      /* SAFE FETCH                                                        */
-      /* ================================================================= */
-      function safeFetch(url, opts) {
-        return fetch(url, Object.assign({signal: AbortSignal.timeout(15000)}, opts || {}))
-          .then(function(r) {
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.json();
-          });
-      }
-
-      /* ================================================================= */
-      /* STATE                                                             */
-      /* ================================================================= */
-      var state = {
-        totalLogs: 0, anomalyCount: 0, errorRate: 0,
-        serviceCount: 0, incidentCount: 0,
-        autoRefresh: true, refreshTimer: null,
-        currentTab: "pipeline",
-        incidents: [], incidentStats: {},
-        allLogHits: [], services: [],
-        pipelineHealthy: false
-      };
-
-      /* ================================================================= */
-      /* TAB SWITCHING                                                     */
-      /* ================================================================= */
-      function showTab(name) {
-        state.currentTab = name;
-        document.querySelectorAll(".tab-btn").forEach(function(b) {
-          b.classList.toggle("active", b.getAttribute("data-tab") === name);
-        });
-        document.querySelectorAll(".tab-content").forEach(function(c) {
-          c.classList.toggle("active", c.id === "tab-" + name);
-        });
-        if (name === "incidents") {
-          fetchIncidentStats();
-          fetchIncidents();
-        } else if (name === "logs") {
-          fetchErrorLogs();
-          fetchLogStream();
-        } else if (name === "settings") {
-          fetchIntegrations();
-        }
-      }
-      window.showTab = showTab;
-
-      /* ================================================================= */
-      /* INIT                                                              */
-      /* ================================================================= */
-      function init() {
-        setupTabNav();
-        setupDropZone();
-        setupAutoRefreshToggle();
-        setupFilterListeners();
-        setupModalListeners();
-        setupIncidentDelegation();
-        setupLogSearch();
-        buildPipelineFlow();
-        fetchHealth();
-        refreshAll();
-        state.refreshTimer = setInterval(function() {
-          if (state.autoRefresh) refreshAll();
-        }, 10000);
-      }
-
-      function setupTabNav() {
-        document.querySelectorAll(".tab-btn").forEach(function(btn) {
-          btn.addEventListener("click", function() {
-            showTab(btn.getAttribute("data-tab"));
-          });
-        });
-      }
-
-      function setupAutoRefreshToggle() {
-        var btn = document.getElementById("autoRefreshBtn");
-        btn.addEventListener("click", function() {
-          state.autoRefresh = !state.autoRefresh;
-          btn.classList.toggle("active", state.autoRefresh);
-          var dot = document.getElementById("liveDot");
-          dot.style.animationPlayState = state.autoRefresh ? "running" : "paused";
-        });
-        document.getElementById("manualRefreshBtn").addEventListener("click", function() {
-          refreshAll();
-        });
-      }
-
-      /* ================================================================= */
-      /* REFRESH ALL                                                       */
-      /* ================================================================= */
-      function refreshAll() {
-        fetchTotalCount();
-        fetchLevelDistribution();
-        fetchTopServices();
-        fetchAnomalies();
-        if (state.currentTab === "pipeline") {
-          fetchIncidentStats();
-        }
-        if (state.currentTab === "incidents") {
-          fetchIncidentStats();
-          fetchIncidents();
-        }
-        if (state.currentTab === "logs") {
-          fetchErrorLogs();
-          fetchLogStream();
-        }
-        if (state.currentTab === "settings") {
-          fetchIntegrations();
-        }
-      }
-      window.refreshAll = refreshAll;
-
-      /* ================================================================= */
-      /* HEALTH CHECK                                                      */
-      /* ================================================================= */
-      function fetchHealth() {
-        safeFetch("/health")
-          .then(function(d) {
-            var tenant = d.tenant || "unknown";
-            document.getElementById("clusterBadge").textContent = tenant;
-          })
-          .catch(function() {});
-      }
-
-      /* ================================================================= */
-      /* PIPELINE FLOW DIAGRAM                                             */
-      /* ================================================================= */
-      var pipelineNodes = [
-        { id: "sources", icon: "&#128229;", name: "Sources", countId: "pnSources" },
-        { id: "vector", icon: "&#10148;", name: "Vector", countId: "pnVector" },
-        { id: "kafka", icon: "&#9889;", name: "Kafka", countId: "pnKafka" },
-        { id: "bridge", icon: "&#128295;", name: "Bridge", countId: "pnBridge" },
-        { id: "opensearch", icon: "&#128269;", name: "OpenSearch", countId: "pnOpenSearch" },
-        { id: "incidents", icon: "&#128680;", name: "Incidents", countId: "pnIncidents" }
-      ];
-
-      function buildPipelineFlow() {
-        var el = document.getElementById("pipelineFlow");
-        var html = "";
-        pipelineNodes.forEach(function(node, i) {
-          html += '<div class="pipeline-node">' +
-            '<div class="pipeline-node-box" id="pnBox_' + node.id + '">' +
-            '<div class="pipeline-node-status gray" id="pnStatus_' + node.id + '"></div>' +
-            '<div class="pipeline-node-icon">' + node.icon + '</div>' +
-            '<div class="pipeline-node-name">' + node.name + '</div>' +
-            '<div class="pipeline-node-count" id="' + node.countId + '">--</div>' +
-            '</div></div>';
-          if (i < pipelineNodes.length - 1) {
-            html += '<div class="pipeline-arrow" id="pnArrow_' + i + '">' +
-              '<div class="arrow-line"></div></div>';
-          }
-        });
-        el.innerHTML = html;
-      }
-
-      function updatePipelineNode(id, count, healthy) {
-        var box = document.getElementById("pnBox_" + id);
-        var dot = document.getElementById("pnStatus_" + id);
-        var countEl = document.getElementById(pipelineNodes.find(function(n){return n.id===id;}).countId);
-        if (countEl) countEl.textContent = fmt(count);
-        if (box) {
-          box.classList.remove("healthy","warning","error","inactive");
-          if (count > 0 && healthy !== false) box.classList.add("healthy");
-          else if (healthy === false) box.classList.add("error");
-          else box.classList.add("inactive");
-        }
-        if (dot) {
-          dot.classList.remove("green","yellow","red","gray");
-          if (count > 0 && healthy !== false) dot.classList.add("green");
-          else if (healthy === false) dot.classList.add("red");
-          else dot.classList.add("gray");
-        }
-      }
-
-      function updatePipelineArrows(healthy) {
-        for (var i = 0; i < pipelineNodes.length - 1; i++) {
-          var arrow = document.getElementById("pnArrow_" + i);
-          if (arrow) {
-            if (healthy) arrow.classList.add("animated");
-            else arrow.classList.remove("animated");
-          }
-        }
-      }
-
-      /* ================================================================= */
-      /* TOTAL LOG COUNT                                                   */
-      /* ================================================================= */
-      function fetchTotalCount() {
-        safeFetch("/api/opensearch/logclaw-logs-*/_count")
-          .then(function(d) {
-            state.totalLogs = d.count || 0;
-            document.getElementById("statTotal").textContent = fmt(state.totalLogs);
-            state.pipelineHealthy = true;
-            updatePipelineNode("sources", state.totalLogs, true);
-            updatePipelineNode("vector", state.totalLogs, true);
-            updatePipelineNode("kafka", state.totalLogs, true);
-            updatePipelineNode("opensearch", state.totalLogs, true);
-            updatePipelineArrows(true);
-          })
-          .catch(function() {
-            document.getElementById("statTotal").textContent = "--";
-            state.pipelineHealthy = false;
-            updatePipelineArrows(false);
-          });
-        /* Bridge metrics */
-        safeFetch("/api/bridge/metrics")
-          .then(function(d) {
-            var count = d.processed || d.total || d.messages_forwarded || 0;
-            updatePipelineNode("bridge", count, true);
-          })
-          .catch(function() {
-            updatePipelineNode("bridge", 0, false);
-          });
-      }
-
-      /* ================================================================= */
-      /* LEVEL DISTRIBUTION                                                */
-      /* ================================================================= */
-      function fetchLevelDistribution() {
-        var body = JSON.stringify({
-          size: 0,
-          aggs: { levels: { terms: { field: "level.keyword", size: 10 } } }
-        });
-        safeFetch("/api/opensearch/logclaw-logs-*/_search", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: body
-        })
-        .then(function(d) {
-          var buckets = (d.aggregations && d.aggregations.levels && d.aggregations.levels.buckets) || [];
-          var total = buckets.reduce(function(s, b) { return s + b.doc_count; }, 0) || 1;
-          var errorCount = 0;
-          buckets.forEach(function(b) {
-            var l = (b.key || "").toUpperCase();
-            if (l === "ERROR" || l === "FATAL") errorCount += b.doc_count;
-          });
-          state.errorRate = total > 0 ? ((errorCount / total) * 100).toFixed(1) : "0";
-          document.getElementById("statErrorRate").textContent = state.errorRate + "%";
-
-          /* Sort by severity order */
-          var order = ["FATAL","ERROR","WARN","WARNING","INFO","DEBUG","TRACE"];
-          buckets.sort(function(a,b) {
-            var ai = order.indexOf((a.key||"").toUpperCase());
-            var bi = order.indexOf((b.key||"").toUpperCase());
-            if (ai === -1) ai = 99;
-            if (bi === -1) bi = 99;
-            return ai - bi;
-          });
-
-          var el = document.getElementById("levelChart");
-          if (buckets.length === 0) {
-            el.innerHTML = '<div class="table-empty">No data</div>';
-            return;
-          }
-          var maxCount = Math.max.apply(null, buckets.map(function(b){return b.doc_count;}));
-          var html = "";
-          buckets.forEach(function(b) {
-            var pct = maxCount > 0 ? Math.round((b.doc_count / maxCount) * 100) : 0;
-            var color = LEVEL_COLORS[(b.key || "").toUpperCase()] || "var(--text-dim)";
-            html += '<div class="bar-row">' +
-              '<div class="bar-label">' + esc(b.key) + '</div>' +
-              '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '">' +
-              '<span class="bar-fill-text">' + fmt(b.doc_count) + '</span></div></div>' +
-              '<div class="bar-count">' + fmt(b.doc_count) + '</div></div>';
-          });
-          el.innerHTML = html;
-        })
-        .catch(function(e) {
-          document.getElementById("levelChart").innerHTML = '<div class="error-msg">Failed to load: ' + esc(e.message) + '</div>';
-        });
-      }
-
-      /* ================================================================= */
-      /* TOP SERVICES                                                      */
-      /* ================================================================= */
-      function fetchTopServices() {
-        var body = JSON.stringify({
-          size: 0,
-          aggs: { services: { terms: { field: "service.keyword", size: 10 } } }
-        });
-        safeFetch("/api/opensearch/logclaw-logs-*/_search", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: body
-        })
-        .then(function(d) {
-          var buckets = (d.aggregations && d.aggregations.services && d.aggregations.services.buckets) || [];
-          state.serviceCount = buckets.length;
-          state.services = buckets.map(function(b) { return b.key; });
-          document.getElementById("statServices").textContent = String(state.serviceCount);
-          populateServiceFilter(state.services);
-
-          var el = document.getElementById("serviceChart");
-          if (buckets.length === 0) {
-            el.innerHTML = '<div class="table-empty">No data</div>';
-            return;
-          }
-          var maxCount = Math.max.apply(null, buckets.map(function(b){return b.doc_count;}));
-          var html = "";
-          buckets.forEach(function(b, i) {
-            var pct = maxCount > 0 ? Math.round((b.doc_count / maxCount) * 100) : 0;
-            html += '<div class="bar-row">' +
-              '<div class="bar-label">' + esc(b.key) + '</div>' +
-              '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + SVC_COLORS[i % SVC_COLORS.length] + '">' +
-              '<span class="bar-fill-text">' + fmt(b.doc_count) + '</span></div></div>' +
-              '<div class="bar-count">' + fmt(b.doc_count) + '</div></div>';
-          });
-          el.innerHTML = html;
-        })
-        .catch(function(e) {
-          document.getElementById("serviceChart").innerHTML = '<div class="error-msg">Failed to load: ' + esc(e.message) + '</div>';
-        });
-      }
-
-      /* ================================================================= */
-      /* ANOMALIES                                                         */
-      /* ================================================================= */
-      function fetchAnomalies() {
-        safeFetch("/api/opensearch/logclaw-anomalies-*/_count")
-          .then(function(d) {
-            state.anomalyCount = d.count || 0;
-            document.getElementById("statAnomalies").textContent = fmt(state.anomalyCount);
-          })
-          .catch(function() {
-            document.getElementById("statAnomalies").textContent = "--";
-          });
-      }
-
-      /* ================================================================= */
-      /* INCIDENT STATS                                                    */
-      /* ================================================================= */
-      function fetchIncidentStats() {
-        safeFetch("/api/ticketing/api/stats")
-          .then(function(d) {
-            state.incidentStats = d;
-            var total = d.total || 0;
-            state.incidentCount = d.active || total;
-            document.getElementById("statIncidents").textContent = fmt(state.incidentCount);
-            updatePipelineNode("incidents", total, true);
-
-            document.getElementById("incTotal").textContent = fmt(total);
-            document.getElementById("incIdentified").textContent = fmt(d.identified || 0);
-            document.getElementById("incAcknowledged").textContent = fmt(d.acknowledged || 0);
-            document.getElementById("incInvestigating").textContent = fmt(d.investigating || 0);
-            document.getElementById("incMitigated").textContent = fmt(d.mitigated || 0);
-            document.getElementById("incResolved").textContent = fmt(d.resolved || 0);
-          })
-          .catch(function() {
-            document.getElementById("statIncidents").textContent = "--";
-            updatePipelineNode("incidents", 0, null);
-          });
-      }
-
-      /* ================================================================= */
-      /* INCIDENTS LIST                                                    */
-      /* ================================================================= */
-      function fetchIncidents() {
-        var params = [];
-        var stateVal = document.getElementById("filterState").value;
-        var sevVal = document.getElementById("filterSeverity").value;
-        var svcVal = document.getElementById("filterService").value;
-        var searchVal = document.getElementById("filterSearch").value.trim();
-        if (stateVal) params.push("state=" + encodeURIComponent(stateVal));
-        if (sevVal) params.push("severity=" + encodeURIComponent(sevVal));
-        if (svcVal) params.push("service=" + encodeURIComponent(svcVal));
-        if (searchVal) params.push("q=" + encodeURIComponent(searchVal));
-
-        var url = "/api/ticketing/api/incidents";
-        if (params.length > 0) url += "?" + params.join("&");
-
-        safeFetch(url)
-          .then(function(d) {
-            var list = Array.isArray(d) ? d : (d.incidents || d.data || []);
-            state.incidents = list;
-            renderIncidentList(list);
-          })
-          .catch(function(e) {
-            document.getElementById("incidentList").innerHTML =
-              '<div class="error-msg">Failed to load incidents: ' + esc(e.message) + '</div>';
-          });
-      }
-
-      function renderIncidentList(incidents) {
-        var el = document.getElementById("incidentList");
-        if (!incidents || incidents.length === 0) {
-          el.innerHTML = '<div class="table-empty">No incidents found</div>';
-          return;
-        }
-        var html = "";
-        incidents.forEach(function(inc) {
-          var id = inc.id || inc.incident_id || "--";
-          var title = inc.title || inc.subject || "Untitled Incident";
-          var sev = inc.severity || "low";
-          var st = inc.state || inc.status || "identified";
-          var service = inc.service || inc.service_name || "--";
-          var ts = inc.created_at || inc.timestamp || "";
-          var score = inc.anomaly_score != null ? Number(inc.anomaly_score) : null;
-          var stLower = st.toLowerCase();
-
-          html += '<div class="incident-card" data-incident-id="' + esc(id) + '">';
-          html += '<div class="incident-card-header">';
-          html += severityBadge(sev) + ' ' + stateBadge(st);
-          html += '<span class="incident-card-title">' + esc(title) + '</span>';
-          html += '</div>';
-          html += '<div class="incident-card-meta">';
-          html += '<span><strong>ID:</strong> ' + esc(id) + '</span>';
-          html += '<span><strong>Service:</strong> ' + esc(service) + '</span>';
-          html += '<span>' + esc(timeAgo(ts)) + '</span>';
-          if (score != null) {
-            var pct = Math.round(score * 100);
-            html += '<span>Score: ' + score.toFixed(2) +
-              '<span class="anomaly-score-bar"><span class="anomaly-score-fill" style="width:' + pct + '%;background:' + scoreColor(score) + '"></span></span></span>';
-          }
-          html += '</div>';
-          html += '<div class="incident-card-footer">';
-          html += '<div class="incident-card-actions">';
-          if (stLower === "identified") {
-            html += '<button class="btn btn-sm btn-orange" data-action="acknowledge" data-id="' + esc(id) + '">Acknowledge</button>';
-            html += '<button class="btn btn-sm btn-blue" data-action="investigate" data-id="' + esc(id) + '">Investigate</button>';
-          } else if (stLower === "acknowledged") {
-            html += '<button class="btn btn-sm btn-blue" data-action="investigate" data-id="' + esc(id) + '">Investigate</button>';
-          } else if (stLower === "investigating") {
-            html += '<button class="btn btn-sm btn-green" data-action="mitigate" data-id="' + esc(id) + '">Mitigate</button>';
-          } else if (stLower === "mitigated") {
-            html += '<button class="btn btn-sm btn-green" data-action="resolve" data-id="' + esc(id) + '">Resolve</button>';
-          }
-          if (stLower !== "resolved") {
-            html += '<button class="btn btn-sm btn-green" data-action="resolve" data-id="' + esc(id) + '">Resolve</button>';
-          }
-          html += '</div></div></div>';
-        });
-        el.innerHTML = html;
-      }
-
-      function populateServiceFilter(services) {
-        var sel = document.getElementById("filterService");
-        var current = sel.value;
-        /* Keep first option */
-        while (sel.options.length > 1) sel.remove(1);
-        services.forEach(function(s) {
-          var opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = s;
-          sel.appendChild(opt);
-        });
-        if (current) sel.value = current;
-      }
-
-      /* ================================================================= */
-      /* INCIDENT FILTER LISTENERS                                         */
-      /* ================================================================= */
-      function setupFilterListeners() {
-        ["filterState","filterSeverity","filterService"].forEach(function(id) {
-          document.getElementById(id).addEventListener("change", function() {
-            fetchIncidents();
-          });
-        });
-        var searchInput = document.getElementById("filterSearch");
-        var searchTimer;
-        searchInput.addEventListener("input", function() {
-          clearTimeout(searchTimer);
-          searchTimer = setTimeout(function() { fetchIncidents(); }, 400);
-        });
-
-        /* Summary card click filters */
-        document.getElementById("incidentSummaryBar").addEventListener("click", function(e) {
-          var card = e.target.closest(".stat-card[data-state-filter]");
-          if (!card) return;
-          var filter = card.getAttribute("data-state-filter");
-          var sel = document.getElementById("filterState");
-          if (filter === "all") {
-            sel.value = "";
-          } else {
-            sel.value = filter;
-          }
-          /* Visual selection */
-          document.querySelectorAll("#incidentSummaryBar .stat-card").forEach(function(c) {
-            c.classList.remove("selected");
-          });
-          card.classList.add("selected");
-          fetchIncidents();
-        });
-      }
-
-      /* ================================================================= */
-      /* INCIDENT ACTIONS (event delegation)                               */
-      /* ================================================================= */
-      function setupIncidentDelegation() {
-        document.getElementById("incidentList").addEventListener("click", function(e) {
-          /* Action button click */
-          var actionBtn = e.target.closest("[data-action]");
-          if (actionBtn) {
-            e.stopPropagation();
-            var action = actionBtn.getAttribute("data-action");
-            var id = actionBtn.getAttribute("data-id");
-            var stateMap = {
-              "acknowledge": "acknowledged",
-              "investigate": "investigating",
-              "mitigate": "mitigated",
-              "resolve": "resolved"
-            };
-            var newState = stateMap[action];
-            if (newState && id) {
-              patchIncidentState(id, newState);
+              // Render level chart
+              this.renderBarChart("level-chart", searchData.aggregations.levels.buckets, {
+                FATAL: "#c0392b", ERROR: "var(--red)", WARN: "var(--orange)", INFO: "var(--blue)", DEBUG: "#636e72"
+              });
             }
-            return;
+
+            // Service chart
+            var svcData = await this.safeFetch("/api/opensearch/logclaw-logs-*/_search", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({size: 0, aggs: {top_svc: {terms: {field: "service", size: 8}}}})
+            });
+            if (svcData && svcData.aggregations) {
+              var colors = ["var(--accent)", "var(--green)", "var(--blue)", "var(--orange)", "var(--red)", "#a29bfe", "#fd79a8", "#00b894"];
+              this.renderBarChart("service-chart", svcData.aggregations.top_svc.buckets, null, colors);
+            }
+
+            var activeInc = statsData ? (statsData.total - (statsData.by_state.resolved || 0)) : 0;
+
+            this.overview = {totalLogs: totalLogs, services: services, errorRate: errorRate, anomalies: totalAnomalies, activeIncidents: activeInc};
+
+            // Parse bridge metrics
+            var bridgeEtl = 0, bridgeIdx = 0;
+            if (bridgeData && typeof bridgeData === "string") {
+              var m = bridgeData.match(/etl_consumed_total (\d+)/);
+              if (m) bridgeEtl = parseInt(m[1]);
+              m = bridgeData.match(/indexer_indexed_total (\d+)/);
+              if (m) bridgeIdx = parseInt(m[1]);
+            }
+
+            this.pipeline = [
+              {name: "Sources", count: totalLogs, healthy: true},
+              {name: "Vector", count: totalLogs, healthy: true},
+              {name: "Kafka", count: bridgeEtl || totalLogs, healthy: true},
+              {name: "Bridge", count: bridgeIdx || totalLogs, healthy: bridgeData !== null},
+              {name: "OpenSearch", count: totalLogs, healthy: countData !== null},
+              {name: "Incidents", count: activeInc, healthy: statsData !== null}
+            ];
+          },
+
+          renderBarChart(id, buckets, colorMap, colorList) {
+            var el = document.getElementById(id);
+            if (!el || !buckets) return;
+            var max = 0;
+            buckets.forEach(function(b) { if (b.doc_count > max) max = b.doc_count; });
+            if (max === 0) max = 1;
+            var html = "";
+            buckets.forEach(function(b, i) {
+              var pct = ((b.doc_count / max) * 100).toFixed(0);
+              var color = colorMap ? (colorMap[b.key] || "var(--accent)") : (colorList ? colorList[i % colorList.length] : "var(--accent)");
+              html += '<div class="bar-row">';
+              html += '<span class="bar-label">' + b.key + '</span>';
+              html += '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '">' + (pct > 15 ? b.doc_count : '') + '</div></div>';
+              html += '<span class="bar-value">' + b.doc_count + '</span>';
+              html += '</div>';
+            });
+            el.innerHTML = html;
+          },
+
+          async loadIncidents() {
+            var params = new URLSearchParams();
+            params.set("limit", this.incPagination.limit);
+            params.set("offset", this.incPagination.offset);
+            if (this.incFilter.state) params.set("state", this.incFilter.state);
+            if (this.incFilter.severity) params.set("severity", this.incFilter.severity);
+            if (this.incFilter.service) params.set("service", this.incFilter.service);
+            if (this.incFilter.q) params.set("q", this.incFilter.q);
+
+            var [data, statsData, mttrData] = await Promise.all([
+              this.safeFetch("/api/ticketing/api/v1/incidents?" + params.toString()),
+              this.safeFetch("/api/ticketing/api/v1/stats"),
+              this.safeFetch("/api/ticketing/api/v1/metrics/mttr?days=30")
+            ]);
+
+            if (data) {
+              this.incidents = data.data || data.incidents || [];
+              if (data.pagination) this.incPagination = Object.assign(this.incPagination, data.pagination);
+            }
+            if (statsData) {
+              this.incSummary = Object.assign({"": statsData.total}, statsData.by_state);
+              if (statsData.by_service) this.incServices = Object.keys(statsData.by_service);
+            }
+            if (mttrData) this.mttr = mttrData;
+          },
+
+          async openIncident(id) {
+            var data = await this.safeFetch("/api/ticketing/api/v1/incidents/" + id);
+            if (data) this.selectedInc = data;
+          },
+
+          async patchState(id, state) {
+            await fetch("/api/ticketing/api/v1/incidents/" + id, {
+              method: "PATCH",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({state: state, actor: "operator"})
+            });
+            this.loadIncidents();
+          },
+
+          async createIncident() {
+            await fetch("/api/ticketing/api/v1/incidents", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify(this.newInc)
+            });
+            this.showCreateModal = false;
+            this.newInc = {title: "", description: "", severity: "medium", service: "", impact: "", commander: ""};
+            this.loadIncidents();
+          },
+
+          getActions(inc) {
+            var actions = [];
+            var s = inc.state;
+            if (s === "identified") actions.push({state: "acknowledged", label: "Acknowledge", cls: "btn-orange"});
+            if (s === "identified" || s === "acknowledged") actions.push({state: "investigating", label: "Investigate", cls: "btn-blue"});
+            if (s !== "mitigated" && s !== "resolved") actions.push({state: "mitigated", label: "Mitigate", cls: "btn-accent"});
+            if (s !== "resolved") actions.push({state: "resolved", label: "Resolve", cls: "btn-green"});
+            return actions;
+          },
+
+          async loadLogs() {
+            var musts = [];
+            if (this.logFilter.level) musts.push({term: {level: this.logFilter.level}});
+            if (this.logFilter.q) musts.push({multi_match: {query: this.logFilter.q, fields: ["message", "service"]}});
+            var query = musts.length > 0 ? {bool: {must: musts}} : {match_all: {}};
+            var data = await this.safeFetch("/api/opensearch/logclaw-logs-*/_search", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({size: 100, sort: [{"_doc": "desc"}], query: query})
+            });
+            if (data && data.hits) {
+              this.logs = data.hits.hits.map(function(h) { return h._source; });
+              this.logTotal = data.hits.total.value;
+            }
+          },
+
+          async loadSettings() {
+            var [intData, schemaData] = await Promise.all([
+              this.safeFetch("/api/ticketing/api/v1/integrations"),
+              this.safeFetch("/api/ticketing/api/v1/schema")
+            ]);
+            if (intData) this.integrations = intData;
+            if (schemaData) {
+              this.apiVersion = schemaData.version || "";
+              this.apiEndpoints = schemaData.endpoints || [];
+            }
+          },
+
+          // ── Upload Handling ───────────────────────────────────────
+          handleDrop(event) {
+            event.target.classList.remove("dragover");
+            this.handleFiles(event.dataTransfer.files);
+          },
+
+          handleFiles(files) {
+            if (!files || files.length === 0) return;
+            var self = this;
+            var allLogs = [];
+            var pending = files.length;
+            Array.from(files).forEach(function(file) {
+              var reader = new FileReader();
+              reader.onload = function(e) {
+                var text = e.target.result;
+                var parsed = self.parseLogFile(text, file.name);
+                allLogs = allLogs.concat(parsed);
+                pending--;
+                if (pending === 0 && allLogs.length > 0) self.uploadLogs(allLogs);
+              };
+              reader.readAsText(file);
+            });
+          },
+
+          parseLogFile(text, filename) {
+            var ext = (filename.split(".").pop() || "").toLowerCase();
+            // JSON array
+            if (ext === "json") {
+              try {
+                var arr = JSON.parse(text);
+                return Array.isArray(arr) ? arr : [arr];
+              } catch(e) { return []; }
+            }
+            // NDJSON
+            if (ext === "ndjson") {
+              return text.split("\n").filter(Boolean).map(function(line) {
+                try { return JSON.parse(line); } catch(e) { return null; }
+              }).filter(Boolean);
+            }
+            // CSV
+            if (ext === "csv") {
+              var lines = text.split("\n").filter(Boolean);
+              if (lines.length < 2) return [];
+              var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/"/g, ""); });
+              return lines.slice(1).map(function(line) {
+                var vals = line.split(",");
+                var obj = {};
+                headers.forEach(function(h, i) { obj[h] = (vals[i] || "").trim().replace(/"/g, ""); });
+                return obj;
+              });
+            }
+            // Plain text / log
+            return text.split("\n").filter(Boolean).map(function(line) {
+              var level = "INFO";
+              if (/\bFATAL\b/i.test(line)) level = "FATAL";
+              else if (/\bERROR\b/i.test(line)) level = "ERROR";
+              else if (/\bWARN/i.test(line)) level = "WARN";
+              else if (/\bDEBUG\b/i.test(line)) level = "DEBUG";
+              return {timestamp: new Date().toISOString(), level: level, service: "upload", message: line};
+            });
+          },
+
+          async uploadLogs(logs) {
+            var self = this;
+            var batchSize = 50;
+            var totalBatches = Math.ceil(logs.length / batchSize);
+            var sent = 0, batchesDone = 0;
+            self.uploadProgress = 5;
+            self.uploadStatus = "Uploading " + logs.length + " logs...";
+
+            for (var i = 0; i < logs.length; i += batchSize) {
+              var batch = logs.slice(i, i + batchSize);
+              try {
+                await fetch("/api/upload", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(batch)});
+                sent += batch.length;
+              } catch(e) {}
+              batchesDone++;
+              self.uploadProgress = 5 + Math.round((batchesDone / totalBatches) * 95);
+              self.uploadStatus = "Uploading... " + sent + "/" + logs.length;
+            }
+            self.uploadProgress = 100;
+            self.uploadStatus = "Uploaded " + sent + " logs successfully";
+            setTimeout(function() { self.uploadProgress = 0; self.refreshAll(); }, 2000);
+          },
+
+          async sendQuickJson() {
+            try {
+              var logs = JSON.parse(this.quickJson);
+              if (!Array.isArray(logs)) logs = [logs];
+              await this.uploadLogs(logs);
+              this.quickJson = "";
+            } catch(e) {
+              this.uploadStatus = "Invalid JSON: " + e.message;
+            }
+          },
+
+          // ── Helpers ───────────────────────────────────────────────
+          fmt(n) {
+            if (n == null || isNaN(n)) return "-";
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+            if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+            return String(n);
+          },
+          timeAgo(iso) {
+            if (!iso) return "";
+            var s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+            if (s < 60) return s + "s ago";
+            if (s < 3600) return Math.floor(s / 60) + "m ago";
+            if (s < 86400) return Math.floor(s / 3600) + "h ago";
+            return Math.floor(s / 86400) + "d ago";
+          },
+          fmtTime(iso) {
+            if (!iso) return "-";
+            try { return new Date(iso).toLocaleTimeString(); } catch(e) { return iso; }
+          },
+          sevColor(sev) {
+            return {critical: "red", high: "orange", medium: "orange", low: "blue"}[sev] || "purple";
+          },
+          levelClass(level) {
+            return {FATAL: "badge-red", ERROR: "badge-red", WARN: "badge-orange", INFO: "badge-blue", DEBUG: "badge-purple"}[level] || "badge-purple";
           }
-          /* Card click for detail */
-          var card = e.target.closest(".incident-card");
-          if (card) {
-            var incId = card.getAttribute("data-incident-id");
-            if (incId) openIncidentModal(incId);
-          }
-        });
-      }
-
-      function patchIncidentState(id, newState) {
-        safeFetch("/api/ticketing/api/incidents/" + encodeURIComponent(id), {
-          method: "PATCH",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ state: newState })
-        })
-        .then(function() {
-          fetchIncidents();
-          fetchIncidentStats();
-        })
-        .catch(function(e) {
-          alert("Failed to update incident: " + e.message);
-        });
-      }
-
-      /* ================================================================= */
-      /* INCIDENT DETAIL MODAL                                             */
-      /* ================================================================= */
-      function setupModalListeners() {
-        document.getElementById("modalClose").addEventListener("click", closeModal);
-        document.getElementById("incidentModal").addEventListener("click", function(e) {
-          if (e.target === this) closeModal();
-        });
-        document.addEventListener("keydown", function(e) {
-          if (e.key === "Escape") closeModal();
-        });
-      }
-
-      function closeModal() {
-        document.getElementById("incidentModal").classList.remove("open");
-      }
-
-      function openIncidentModal(id) {
-        var overlay = document.getElementById("incidentModal");
-        var titleEl = document.getElementById("modalTitle");
-        var bodyEl = document.getElementById("modalBody");
-        var footerEl = document.getElementById("modalFooter");
-
-        titleEl.textContent = "Incident " + id;
-        bodyEl.innerHTML = '<div class="loading">Loading incident details...</div>';
-        footerEl.innerHTML = "";
-        overlay.classList.add("open");
-
-        safeFetch("/api/ticketing/api/incidents/" + encodeURIComponent(id))
-          .then(function(inc) {
-            renderIncidentDetail(inc);
-          })
-          .catch(function(e) {
-            bodyEl.innerHTML = '<div class="error-msg">Failed to load: ' + esc(e.message) + '</div>';
-          });
-      }
-
-      function renderIncidentDetail(inc) {
-        var bodyEl = document.getElementById("modalBody");
-        var footerEl = document.getElementById("modalFooter");
-        var titleEl = document.getElementById("modalTitle");
-
-        var id = inc.id || inc.incident_id || "--";
-        var title = inc.title || inc.subject || "Untitled";
-        var desc = inc.description || inc.message || "";
-        var sev = inc.severity || "low";
-        var st = inc.state || inc.status || "identified";
-        var service = inc.service || inc.service_name || "--";
-        var assignee = inc.assigned_to || inc.assignee || "--";
-        var createdAt = inc.created_at || inc.timestamp || "";
-        var updatedAt = inc.updated_at || "";
-
-        titleEl.textContent = "Incident " + id;
-
-        var html = '';
-        /* Detail grid */
-        html += '<div class="detail-grid">';
-        html += '<div class="detail-field"><label>Incident ID</label><div class="detail-value mono">' + esc(id) + '</div></div>';
-        html += '<div class="detail-field"><label>Severity</label><div class="detail-value">' + severityBadge(sev) + '</div></div>';
-        html += '<div class="detail-field"><label>State</label><div class="detail-value">' + stateBadge(st) + '</div></div>';
-        html += '<div class="detail-field"><label>Service</label><div class="detail-value">' + esc(service) + '</div></div>';
-        html += '<div class="detail-field"><label>Created</label><div class="detail-value">' + esc(fullTime(createdAt)) + '</div></div>';
-        html += '<div class="detail-field"><label>Last Updated</label><div class="detail-value">' + esc(fullTime(updatedAt)) + '</div></div>';
-        html += '<div class="detail-field"><label>Assigned To</label><div class="detail-value">' + esc(assignee) + '</div></div>';
-        if (inc.anomaly_score != null) {
-          var score = Number(inc.anomaly_score);
-          html += '<div class="detail-field"><label>Anomaly Score</label><div class="detail-value" style="color:' + scoreColor(score) + '">' + score.toFixed(2) + '</div></div>';
-        }
-        html += '</div>';
-
-        /* Title & Description */
-        html += '<div class="detail-field" style="margin-bottom:16px"><label>Title</label><div class="detail-value">' + esc(title) + '</div></div>';
-        if (desc) {
-          html += '<div class="detail-field" style="margin-bottom:16px"><label>Description</label><div class="detail-value">' + esc(desc) + '</div></div>';
-        }
-
-        /* Timeline */
-        var timeline = inc.timeline || inc.state_changes || inc.history || [];
-        if (timeline.length > 0) {
-          html += '<div class="detail-field"><label>Timeline</label></div>';
-          html += '<div class="timeline">';
-          timeline.forEach(function(entry) {
-            var time = entry.timestamp || entry.created_at || entry.time || "";
-            var text = entry.message || entry.description || ("State changed to " + (entry.state || entry.to || "unknown"));
-            var actor = entry.actor || entry.user || entry.changed_by || "";
-            html += '<div class="timeline-item">';
-            html += '<div class="tl-time">' + esc(fullTime(time)) + '</div>';
-            html += '<div class="tl-text">' + esc(text) + '</div>';
-            if (actor) html += '<div class="tl-actor">by ' + esc(actor) + '</div>';
-            html += '</div>';
-          });
-          html += '</div>';
-        }
-
-        /* Evidence logs */
-        var evidence = inc.evidence_logs || inc.evidence || inc.logs || [];
-        if (evidence.length > 0) {
-          html += '<div class="detail-field" style="margin-top:16px"><label>Evidence Logs</label></div>';
-          html += '<div class="table-wrapper"><table class="evidence-table">';
-          html += '<thead><tr><th>Timestamp</th><th>Level</th><th>Message</th></tr></thead><tbody>';
-          evidence.forEach(function(log) {
-            var ts = log["@timestamp"] || log.timestamp || log.time || "";
-            var lev = log.level || "";
-            var msg = log.message || "";
-            html += '<tr><td class="mono">' + esc(relTime(ts)) + '</td><td>' + levelBadge(lev) + '</td><td class="truncate">' + esc(msg) + '</td></tr>';
-          });
-          html += '</tbody></table></div>';
-        }
-
-        /* External references */
-        var refs = inc.external_references || inc.references || inc.links || [];
-        if (refs.length > 0) {
-          html += '<div class="detail-field" style="margin-top:16px"><label>External References</label></div>';
-          html += '<div class="ext-refs">';
-          refs.forEach(function(ref) {
-            var url = ref.url || ref.link || "#";
-            var label = ref.label || ref.type || ref.provider || "Link";
-            html += '<a class="ext-ref-link" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(label) + '</a>';
-          });
-          html += '</div>';
-        }
-
-        bodyEl.innerHTML = html;
-
-        /* Footer action buttons */
-        var stLower = st.toLowerCase();
-        var footerHtml = '';
-        if (stLower === "identified") {
-          footerHtml += '<button class="btn btn-orange" data-modal-action="acknowledged" data-modal-id="' + esc(id) + '">Acknowledge</button>';
-          footerHtml += '<button class="btn btn-blue" data-modal-action="investigating" data-modal-id="' + esc(id) + '">Investigate</button>';
-        }
-        if (stLower === "acknowledged") {
-          footerHtml += '<button class="btn btn-blue" data-modal-action="investigating" data-modal-id="' + esc(id) + '">Investigate</button>';
-        }
-        if (stLower === "investigating") {
-          footerHtml += '<button class="btn btn-green" data-modal-action="mitigated" data-modal-id="' + esc(id) + '">Mitigate</button>';
-        }
-        if (stLower !== "resolved") {
-          footerHtml += '<button class="btn btn-green" data-modal-action="resolved" data-modal-id="' + esc(id) + '">Resolve</button>';
-        }
-        footerEl.innerHTML = footerHtml;
-
-        /* Footer event delegation */
-        footerEl.onclick = function(e) {
-          var btn = e.target.closest("[data-modal-action]");
-          if (!btn) return;
-          var newState = btn.getAttribute("data-modal-action");
-          var incId = btn.getAttribute("data-modal-id");
-          patchIncidentState(incId, newState);
-          closeModal();
         };
       }
-
-      /* ================================================================= */
-      /* ERROR LOGS                                                        */
-      /* ================================================================= */
-      function fetchErrorLogs() {
-        var body = JSON.stringify({
-          size: 50,
-          sort: [{"@timestamp": {"order": "desc"}}],
-          query: {
-            bool: {
-              should: [
-                { term: { "level.keyword": "ERROR" } },
-                { term: { "level.keyword": "FATAL" } }
-              ],
-              minimum_should_match: 1
-            }
-          }
-        });
-        safeFetch("/api/opensearch/logclaw-logs-*/_search", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: body
-        })
-        .then(function(d) {
-          var hits = (d.hits && d.hits.hits) || [];
-          var el = document.getElementById("errorBody");
-          if (hits.length === 0) {
-            el.innerHTML = '<tr><td colspan="5" class="table-empty">No errors found</td></tr>';
-            return;
-          }
-          var html = "";
-          hits.forEach(function(h) {
-            var s = h._source || {};
-            html += '<tr>' +
-              '<td class="mono">' + esc(relTime(s["@timestamp"] || s.timestamp)) + '</td>' +
-              '<td>' + levelBadge(s.level) + '</td>' +
-              '<td>' + esc(s.service || "--") + '</td>' +
-              '<td class="truncate">' + esc(s.message || "--") + '</td>' +
-              '<td class="mono">' + esc(s.trace_id || s.traceId || "--") + '</td></tr>';
-          });
-          el.innerHTML = html;
-        })
-        .catch(function(e) {
-          document.getElementById("errorBody").innerHTML =
-            '<tr><td colspan="5" class="error-msg">Failed to load: ' + esc(e.message) + '</td></tr>';
-        });
-      }
-
-      /* ================================================================= */
-      /* LOG STREAM                                                        */
-      /* ================================================================= */
-      function fetchLogStream() {
-        var body = JSON.stringify({
-          size: 100,
-          sort: [{"@timestamp": {"order": "desc"}}],
-          query: { match_all: {} }
-        });
-        safeFetch("/api/opensearch/logclaw-logs-*/_search", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: body
-        })
-        .then(function(d) {
-          var hits = (d.hits && d.hits.hits) || [];
-          state.allLogHits = hits;
-          renderLogStream(hits);
-        })
-        .catch(function(e) {
-          document.getElementById("logBody").innerHTML =
-            '<tr><td colspan="5" class="error-msg">Failed to load: ' + esc(e.message) + '</td></tr>';
-        });
-      }
-
-      function renderLogStream(hits) {
-        var el = document.getElementById("logBody");
-        if (hits.length === 0) {
-          el.innerHTML = '<tr><td colspan="5" class="table-empty">No logs</td></tr>';
-          return;
-        }
-        var filterText = (document.getElementById("logSearchInput").value || "").toLowerCase().trim();
-        var filtered = hits;
-        if (filterText) {
-          filtered = hits.filter(function(h) {
-            var s = h._source || {};
-            var combined = (s.message || "") + " " + (s.service || "") + " " + (s.level || "") + " " + (s.host || s.hostname || "");
-            return combined.toLowerCase().indexOf(filterText) !== -1;
-          });
-        }
-        if (filtered.length === 0) {
-          el.innerHTML = '<tr><td colspan="5" class="table-empty">No matching logs</td></tr>';
-          return;
-        }
-        var html = "";
-        filtered.forEach(function(h) {
-          var s = h._source || {};
-          html += '<tr>' +
-            '<td class="mono">' + esc(relTime(s["@timestamp"] || s.timestamp)) + '</td>' +
-            '<td>' + levelBadge(s.level) + '</td>' +
-            '<td>' + esc(s.service || "--") + '</td>' +
-            '<td>' + esc(s.host || s.hostname || "--") + '</td>' +
-            '<td class="truncate">' + esc(s.message || "--") + '</td></tr>';
-        });
-        el.innerHTML = html;
-      }
-
-      function setupLogSearch() {
-        var input = document.getElementById("logSearchInput");
-        var timer;
-        input.addEventListener("input", function() {
-          clearTimeout(timer);
-          timer = setTimeout(function() {
-            renderLogStream(state.allLogHits);
-          }, 200);
-        });
-      }
-
-      /* ================================================================= */
-      /* INTEGRATIONS                                                      */
-      /* ================================================================= */
-      var INTEGRATION_DEFS = [
-        { key: "jira", name: "Jira", icon: "&#127919;", desc: "Issue tracking and project management" },
-        { key: "servicenow", name: "ServiceNow", icon: "&#128221;", desc: "IT service management" },
-        { key: "pagerduty", name: "PagerDuty", icon: "&#128276;", desc: "On-call alerting and escalation" },
-        { key: "opsgenie", name: "OpsGenie", icon: "&#128225;", desc: "Alert management and routing" },
-        { key: "slack", name: "Slack", icon: "&#128172;", desc: "Team messaging and notifications" }
-      ];
-
-      function fetchIntegrations() {
-        safeFetch("/api/ticketing/api/integrations")
-          .then(function(d) {
-            renderIntegrations(d);
-          })
-          .catch(function() {
-            renderIntegrations({});
-          });
-      }
-
-      function renderIntegrations(data) {
-        var el = document.getElementById("integrationGrid");
-        var integrations = data.integrations || data;
-        var html = "";
-        INTEGRATION_DEFS.forEach(function(def) {
-          var info = integrations[def.key] || {};
-          var connected = info.enabled === true || info.connected === true || info.status === "connected";
-          html += '<div class="integration-card">';
-          html += '<div class="integration-icon">' + def.icon + '</div>';
-          html += '<div class="integration-info">';
-          html += '<div class="integration-name">' + esc(def.name) + '</div>';
-          html += '<div class="integration-desc">' + esc(def.desc) + '</div>';
-          html += '</div>';
-          html += '<span class="integration-status ' + (connected ? 'connected' : 'disconnected') + '">';
-          html += connected ? 'Connected' : 'Disconnected';
-          html += '</span></div>';
-        });
-        el.innerHTML = html;
-      }
-
-      /* ================================================================= */
-      /* FILE UPLOAD / DRAG & DROP                                         */
-      /* ================================================================= */
-      function setupDropZone() {
-        var zone = document.getElementById("dropZone");
-        var input = document.getElementById("fileInput");
-
-        zone.addEventListener("click", function() { input.click(); });
-        input.addEventListener("change", function() {
-          if (input.files.length > 0) handleFiles(input.files);
-        });
-
-        zone.addEventListener("dragover", function(e) {
-          e.preventDefault();
-          zone.classList.add("drag-over");
-        });
-        zone.addEventListener("dragleave", function() {
-          zone.classList.remove("drag-over");
-        });
-        zone.addEventListener("drop", function(e) {
-          e.preventDefault();
-          zone.classList.remove("drag-over");
-          if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
-        });
-      }
-
-      function handleFiles(fileList) {
-        var progressContainer = document.getElementById("uploadProgress");
-        var progressBar = document.getElementById("uploadProgressBar");
-        var statusEl = document.getElementById("uploadStatus");
-
-        progressContainer.style.display = "block";
-        statusEl.style.display = "block";
-        progressBar.style.width = "0%";
-        statusEl.textContent = "Parsing files...";
-
-        var allLogs = [];
-        var filesProcessed = 0;
-        var totalFiles = fileList.length;
-
-        Array.from(fileList).forEach(function(file) {
-          var reader = new FileReader();
-          reader.onload = function(e) {
-            var text = e.target.result;
-            var logs = parseLogFile(text, file.name);
-            allLogs = allLogs.concat(logs);
-            filesProcessed++;
-            progressBar.style.width = Math.round((filesProcessed / totalFiles) * 30) + "%";
-            statusEl.textContent = "Parsed " + filesProcessed + "/" + totalFiles + " files (" + allLogs.length + " entries)";
-            if (filesProcessed === totalFiles) {
-              uploadLogs(allLogs);
-            }
-          };
-          reader.onerror = function() {
-            filesProcessed++;
-            if (filesProcessed === totalFiles && allLogs.length > 0) uploadLogs(allLogs);
-          };
-          reader.readAsText(file);
-        });
-      }
-
-      function parseLogFile(text, filename) {
-        var logs = [];
-        var ext = filename.split(".").pop().toLowerCase();
-
-        if (ext === "json") {
-          try {
-            var parsed = JSON.parse(text);
-            if (Array.isArray(parsed)) return parsed;
-            return [parsed];
-          } catch(e) { /* fall through to ndjson */ }
-        }
-
-        if (ext === "ndjson" || ext === "json") {
-          var lines = text.split("\n");
-          lines.forEach(function(line) {
-            line = line.trim();
-            if (!line) return;
-            try { logs.push(JSON.parse(line)); } catch(e) { /* skip */ }
-          });
-          if (logs.length > 0) return logs;
-        }
-
-        if (ext === "csv") {
-          var csvLines = text.split("\n");
-          if (csvLines.length < 2) return [];
-          var headers = csvLines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
-          for (var i = 1; i < csvLines.length; i++) {
-            var line = csvLines[i].trim();
-            if (!line) continue;
-            var vals = line.split(",").map(function(v) { return v.trim().replace(/^"|"$/g, ""); });
-            var obj = {};
-            headers.forEach(function(h, idx) { obj[h] = vals[idx] || ""; });
-            if (!obj["@timestamp"] && !obj.timestamp) obj["@timestamp"] = new Date().toISOString();
-            logs.push(obj);
-          }
-          return logs;
-        }
-
-        /* .log / .txt  plain text lines */
-        var textLines = text.split("\n");
-        textLines.forEach(function(line) {
-          line = line.trim();
-          if (!line) return;
-          var entry = { message: line, "@timestamp": new Date().toISOString(), source: filename };
-          var levelMatch = line.match(/\b(FATAL|ERROR|WARN(?:ING)?|INFO|DEBUG|TRACE)\b/i);
-          if (levelMatch) entry.level = levelMatch[1].toUpperCase();
-          logs.push(entry);
-        });
-        return logs;
-      }
-
-      function uploadLogs(logs) {
-        var progressBar = document.getElementById("uploadProgressBar");
-        var statusEl = document.getElementById("uploadStatus");
-        var batchSize = 50;
-        var totalBatches = Math.ceil(logs.length / batchSize);
-        var batchesSent = 0;
-        var totalSent = 0;
-        var errors = [];
-
-        function sendNextBatch(idx) {
-          if (idx >= logs.length) {
-            progressBar.style.width = "100%";
-            if (errors.length > 0) {
-              statusEl.textContent = "Uploaded " + totalSent + "/" + logs.length + " logs (" + errors.length + " batch errors)";
-            } else {
-              statusEl.textContent = "Successfully uploaded " + totalSent + " logs";
-            }
-            setTimeout(function() { refreshAll(); }, 1500);
-            return;
-          }
-          var batch = logs.slice(idx, idx + batchSize);
-          fetch("/api/upload", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(batch)
-          })
-          .then(function(r) { return r.json(); })
-          .then(function() {
-            totalSent += batch.length;
-            batchesSent++;
-            var pct = 30 + Math.round((batchesSent / totalBatches) * 70);
-            progressBar.style.width = pct + "%";
-            statusEl.textContent = "Uploading... " + totalSent + "/" + logs.length;
-            sendNextBatch(idx + batchSize);
-          })
-          .catch(function(e) {
-            errors.push(e.message);
-            batchesSent++;
-            sendNextBatch(idx + batchSize);
-          });
-        }
-
-        statusEl.textContent = "Uploading " + logs.length + " logs in batches of " + batchSize + "...";
-        sendNextBatch(0);
-      }
-
-      /* ================================================================= */
-      /* BOOT                                                              */
-      /* ================================================================= */
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
-      } else {
-        init();
-      }
-
-    })();
-    </script>
+      </script>
     </body>
     </html>
