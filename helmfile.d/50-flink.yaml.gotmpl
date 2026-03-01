@@ -9,6 +9,10 @@ releases:
         value: {{ env "TENANT_ID" | default "dev-local" }}
       - name: global.kafkaBrokers
         value: {{ env "KAFKA_BROKERS" | default (printf "logclaw-kafka-%s-kafka-bootstrap.logclaw-%s.svc:9092" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}
+      - name: global.kafkaTopics.anomalies
+        value: {{ env "KAFKA_TOPIC_ANOMALIES" | default "anomaly-events" }}
+      - name: global.opensearchEndpoint
+        value: {{ env "OPENSEARCH_ENDPOINT" | default (printf "http://logclaw-opensearch-%s.logclaw-%s.svc:9200" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}
       - name: global.objectStorage.bucket
         value: {{ env "OBJECT_STORAGE_BUCKET" | default "logclaw-dev-local" }}
       - name: global.objectStorage.provider

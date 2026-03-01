@@ -194,6 +194,7 @@ Installs into dedicated namespaces:
 | Operator | Namespace |
 |---|---|
 | Strimzi Kafka 0.50.1 | `strimzi-system` |
+| Flink Kubernetes Operator 1.9.0 | `flink-system` |
 | External Secrets | `external-secrets` |
 | cert-manager | `cert-manager` |
 | OpenSearch Operator | `opensearch-operator-system` |
@@ -201,6 +202,7 @@ Installs into dedicated namespaces:
 Wait for all operator pods to be ready:
 ```bash
 kubectl get pods -n strimzi-system -w
+kubectl get pods -n flink-system -w
 kubectl get pods -n external-secrets -w
 kubectl get pods -n cert-manager -w
 kubectl get pods -n opensearch-operator-system -w
@@ -247,7 +249,7 @@ The local dev environment uses `ci/default-values.yaml` overrides to run without
 |---|---|---|
 | Kafka | Single-node KRaft, plain listener (port 9092) | Multi-broker, TLS + SCRAM-SHA-512 |
 | OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
-| Flink | Jobs **disabled** (no Flink operator) | FlinkDeployment CRDs |
+| Flink | Operator + CRDs installed, jobs **disabled** (no app JARs) | FlinkDeployment CRDs (ETL + enrichment + anomaly) |
 | ML Engine (Feast) | Runs with local file registry | Redis online store + S3 offline |
 | ML Engine (KServe) | **Skipped** (no KServe CRD) | InferenceService for anomaly model |
 | Airflow | `apache/airflow:2.9.2`, bundled PostgreSQL | Custom image, external PostgreSQL |
