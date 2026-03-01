@@ -313,27 +313,12 @@ helm list -n logclaw-dev-local
 # → All 8 releases should be "deployed"
 ```
 
-### 6 — Access the services
+### 6 — Open all services (port-forwarding)
 
-All services run inside the kind cluster. Use `kubectl port-forward` to access them from your workstation.
-
-#### Service URL reference
-
-| Service | Local URL | Port-Forward Command |
-|---|---|---|
-| Airflow Webserver | `http://localhost:8080` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080` |
-| OpenSearch API | `http://localhost:9200` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200` |
-| Kafka Bootstrap | `localhost:9092` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-kafka-dev-local-kafka-bootstrap 9092:9092` |
-| Vector (log ingestion) | `http://localhost:18080` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 18080:8080` |
-| Vector (admin API) | `http://localhost:8686` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686` |
-| Vector (Prometheus metrics) | `http://localhost:9598` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 9598:9598` |
-| Feast Feature Server | `http://localhost:6567` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567` |
-| Ticketing Agent | `http://localhost:18081` | `kubectl -n logclaw-dev-local port-forward svc/logclaw-ticketing-agent-dev-local 18081:8080` |
-
-#### Quick-start: open all services
+All services run inside the kind cluster. Run this **one block** to expose everything to your machine:
 
 ```bash
-# Run all port-forwards in background
+# Forward all LogClaw services to localhost
 kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-kafka-dev-local-kafka-bootstrap 9092:9092 &
@@ -341,35 +326,41 @@ kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 18080:
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ticketing-agent-dev-local 18081:8080 &
-
-echo "All services forwarded. Press Ctrl+C or run 'kill %1 %2 %3 %4 %5 %6 %7' to stop."
+echo "All services forwarded — stop with: kill %1 %2 %3 %4 %5 %6 %7"
 ```
 
-#### Verify each service
+Once running, your services are at:
+
+| Service | URL | What you get |
+|---|---|---|
+| **Airflow** | [http://localhost:8080](http://localhost:8080) | DAG management UI (login: `admin` / `admin`) |
+| **OpenSearch** | [http://localhost:9200](http://localhost:9200) | Log search & analytics API |
+| **Kafka** | `localhost:9092` | Message broker (PLAIN, no auth) |
+| **Vector — ingest** | `POST` [http://localhost:18080](http://localhost:18080) | Send JSON logs here |
+| **Vector — admin** | [http://localhost:8686/health](http://localhost:8686/health) | Pipeline health & topology |
+| **Feast** | [http://localhost:6567](http://localhost:6567) | ML feature server |
+| **Ticketing Agent** | [http://localhost:18081](http://localhost:18081) | Incident management health |
+
+Quick smoke test after port-forwarding:
 
 ```bash
-# Airflow — default login admin/admin
+# Airflow UI
 open http://localhost:8080
 
-# OpenSearch — cluster health (dev uses HTTP, no auth)
+# OpenSearch cluster health
 curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
 
-# OpenSearch — search logs
-curl -s http://localhost:9200/logclaw-logs-*/_count | python3 -m json.tool
-
-# Kafka — list topics (via exec, no local client needed)
+# Kafka topics
 kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
   bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 
-# Vector — check pipeline topology
+# Vector health
 curl -s http://localhost:8686/health
-curl -s http://localhost:9598/metrics | head -20
 
-# Feast — health check
-curl -s http://localhost:6567/health
-
-# Ticketing Agent — health check
-curl -s http://localhost:18081/
+# Send a test log through the pipeline
+curl -X POST http://localhost:18080 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello from logclaw","level":"INFO","service":"test"}'
 ```
 
 ### 7 — End-to-end pipeline test
