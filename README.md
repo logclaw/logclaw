@@ -79,7 +79,7 @@ charts/
 └── logclaw-zammad/           # In-cluster ITSM (zero-egress option)
 
 operators/                    # Cluster-level operator bootstrap (once per cluster)
-├── strimzi/                  # strimzi-kafka-operator 0.41.0
+├── strimzi/                  # strimzi-kafka-operator 0.50.1
 ├── flink-operator/           # flink-kubernetes-operator 1.9.0
 ├── opensearch-operator/      # opensearch-operator 2.6.1
 ├── eso/                      # external-secrets 0.10.3
@@ -142,16 +142,16 @@ global:
 
 | Component | Version |
 |---|---|
-| Apache Kafka (Strimzi) | 3.7.0 |
+| Apache Kafka (Strimzi) | 4.1.1 (Strimzi 0.50.1) |
 | Apache Flink | 1.19.0 |
 | OpenSearch | 2.14.0 |
 | External Secrets Operator | 0.10.3 |
 | cert-manager | v1.16.1 |
-| Apache Airflow | 1.14.0 |
+| Apache Airflow | 2.9.2 (chart 1.14.0) |
 | Zammad | 12.4.1 |
 | Vector.dev | 0.38.0 |
 | KServe | 0.13.0 |
-| Feast | 0.40.0 |
+| Feast | 0.40.1 |
 
 ---
 
@@ -176,7 +176,7 @@ helm plugin install https://github.com/helm-unittest/helm-unittest
 make kind-create
 ```
 
-This spins up a [kind](https://kind.sigs.k8s.io/) cluster named `logclaw-dev` and installs cert-manager CRDs.
+This spins up a [kind](https://kind.sigs.k8s.io/) cluster named `logclaw-dev`, installs cert-manager CRDs, and labels the control-plane node with a topology zone (required by `topologySpreadConstraints`).
 
 Verify:
 ```bash
@@ -193,7 +193,7 @@ Installs into dedicated namespaces:
 
 | Operator | Namespace |
 |---|---|
-| Strimzi Kafka | `strimzi-system` |
+| Strimzi Kafka 0.50.1 | `strimzi-system` |
 | External Secrets | `external-secrets` |
 | cert-manager | `cert-manager` |
 | OpenSearch Operator | `opensearch-operator-system` |
@@ -206,83 +206,133 @@ kubectl get pods -n cert-manager -w
 kubectl get pods -n opensearch-operator-system -w
 ```
 
-### 3 — Configure a local tenant
+> **Important:** After installing Strimzi, ensure the CRDs match the operator version. Helm does not auto-upgrade CRDs. If you see entity operator errors about missing `kafka.strimzi.io/v1` resources, run:
+> ```bash
+> kubectl apply -f https://github.com/strimzi/strimzi-kafka-operator/releases/download/0.50.1/strimzi-crds-0.50.1.yaml \
+>   --server-side --force-conflicts
+> ```
 
-Copy and edit the template:
-```bash
-cp gitops/tenants/_template.yaml gitops/tenants/tenant-dev-local.yaml
-```
-
-Minimum required values for local dev (no cloud secrets — ESO can be skipped):
-```yaml
-global:
-  tenantId: dev-local
-  tier: standard                # lighter resource requests
-  cloudProvider: local
-  objectStorage:
-    provider: s3
-    bucket: logclaw-dev-local
-    endpoint: "http://minio.minio.svc:9000"   # or leave blank to skip S3 sink
-    region: us-east-1
-  secretStore:
-    provider: aws               # won't matter if ESO disabled per-chart
-```
-
-### 4 — Install the full tenant stack
+### 3 — Install the full tenant stack
 
 ```bash
 make install TENANT_ID=dev-local STORAGE_CLASS=standard
 ```
 
-This runs `helmfile apply` deploying all charts in dependency order. On a typical laptop (~16 GB RAM) expect:
+This will:
+1. Create the `logclaw-dev-local` namespace
+2. Generate dev secrets (OpenSearch, Airflow, Redis, Kafka credentials)
+3. Run `helmfile apply` deploying all charts in dependency order
+
+On a typical laptop (~16 GB RAM) expect:
 
 | Time | Milestone |
 |---|---|
-| T+2 min | Namespace, RBAC, NetworkPolicies created |
-| T+6 min | Kafka 3-broker KRaft cluster ready |
-| T+10 min | OpenSearch 3-node cluster green |
-| T+15 min | Flink jobs submitted and running |
-| T+20 min | Full stack operational |
+| T+2 min | Namespace, RBAC, NetworkPolicies, secrets created |
+| T+5 min | Kafka single-node KRaft cluster ready |
+| T+8 min | OpenSearch 3-node cluster green |
+| T+12 min | Vector ingestion pipeline connected to Kafka |
+| T+15 min | Airflow scheduler + webserver running |
+| T+18 min | Full stack operational (13 pods) |
 
 Check progress:
 ```bash
 watch kubectl get pods -n logclaw-dev-local
 ```
 
+#### What runs locally vs. production
+
+The local dev environment uses `ci/default-values.yaml` overrides to run without cloud-only CRDs:
+
+| Component | Local Dev | Production |
+|---|---|---|
+| Kafka | Single-node KRaft, plain listener (port 9092) | Multi-broker, TLS + SCRAM-SHA-512 |
+| OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
+| Flink | Jobs **disabled** (no Flink operator) | FlinkDeployment CRDs |
+| ML Engine (Feast) | Runs with local file registry | Redis online store + S3 offline |
+| ML Engine (KServe) | **Skipped** (no KServe CRD) | InferenceService for anomaly model |
+| Airflow | `apache/airflow:2.9.2`, bundled PostgreSQL | Custom image, external PostgreSQL |
+| Ticketing Agent | Python HTTP placeholder | Real agent with Kafka consumer |
+| VPA | **Skipped** (no VPA CRD) | VerticalPodAutoscaler recommendations |
+| Secrets | `make create-dev-secrets` (static) | ESO ExternalSecrets (auto-refresh) |
+
+### 4 — Run Airflow DB migrations
+
+The first time Airflow is installed, the scheduler and webserver wait for database migrations. If you deployed with `--no-hooks` or helmfile timed out, run migrations manually:
+
+```bash
+kubectl run airflow-migrate --restart=Never \
+  --namespace logclaw-dev-local \
+  --image=apache/airflow:2.9.2 \
+  --env="AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@logclaw-airflow-dev-local-postgresql.logclaw-dev-local:5432/postgres?sslmode=disable" \
+  --command -- airflow db migrate
+
+# Wait for completion
+kubectl wait --for=condition=Ready=false pod/airflow-migrate \
+  -n logclaw-dev-local --timeout=120s 2>/dev/null || true
+
+# Clean up
+kubectl delete pod airflow-migrate -n logclaw-dev-local
+
+# Restart pods waiting for migrations
+kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=scheduler
+kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=webserver
+```
+
 ### 5 — Verify the stack
 
 ```bash
-# Run built-in Helm tests
-make test TENANT_ID=dev-local
+# All pods should be Running
+kubectl get pods -n logclaw-dev-local
+
+# Expected: 13 pods, all 1/1 or 2/2 Running
+#   logclaw-kafka-dev-local-combined-0                          1/1  Running
+#   logclaw-kafka-dev-local-entity-operator-...                 2/2  Running
+#   logclaw-opensearch-dev-local-masters-0                      1/1  Running
+#   logclaw-opensearch-dev-local-data-0                         1/1  Running
+#   logclaw-opensearch-dev-local-coordinators-0                 1/1  Running
+#   logclaw-ingestion-dev-local-...                             1/1  Running
+#   logclaw-ml-engine-dev-local-feast-server-...                1/1  Running
+#   logclaw-airflow-dev-local-postgresql-0                      1/1  Running
+#   logclaw-airflow-dev-local-scheduler-...                     2/2  Running
+#   logclaw-airflow-dev-local-webserver-...                     1/1  Running
+#   logclaw-airflow-dev-local-triggerer-0                       2/2  Running
+#   logclaw-airflow-dev-local-statsd-...                        1/1  Running
+#   logclaw-ticketing-agent-dev-local-...                       1/1  Running
 
 # Kafka cluster health
 kubectl -n logclaw-dev-local get kafka -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'
 # → True
 
-# Flink anomaly job state
-kubectl -n logclaw-dev-local get flinkdeployment -o jsonpath='{.items[*].status.jobStatus.state}'
-# → RUNNING RUNNING RUNNING
-
 # OpenSearch cluster health
-kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-opensearch 9200:9200 &
-curl -s http://localhost:9200/_cluster/health | jq .status
-# → "green"
+kubectl -n logclaw-dev-local exec logclaw-opensearch-dev-local-masters-0 -- \
+  curl -sk -u admin:admin https://localhost:9200/_cluster/health | python3 -m json.tool
+# → "status": "green"
+
+# Helm releases
+helm list -n logclaw-dev-local
+# → All 8 releases should be "deployed"
 ```
 
 ### 6 — Access the services
 
 ```bash
-# OpenSearch Dashboards
-kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-opensearch-dashboards 5601:5601
-open http://localhost:5601
+# Airflow Webserver
+kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080
+open http://localhost:8080
 
-# Flink Web UI
-kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-flink-rest 8081:8081
-open http://localhost:8081
+# OpenSearch API (admin:admin)
+kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200
+curl -sk -u admin:admin https://localhost:9200/_cluster/health
 
-# Airflow
-kubectl -n logclaw-dev-local port-forward svc/logclaw-dev-local-airflow-webserver 8080:8080
-open http://localhost:8080   # admin / admin (default)
+# Feast Feature Server
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567
+curl http://localhost:6567/health
+
+# Vector ingestion (send test logs)
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686
+curl -X POST http://localhost:8686 \
+  -H "Content-Type: application/json" \
+  -d '{"message": "test log entry", "level": "info"}'
 ```
 
 ### 7 — Tear down
@@ -294,6 +344,74 @@ make uninstall TENANT_ID=dev-local
 # Remove everything including the kind cluster
 make kind-delete
 ```
+
+### Troubleshooting
+
+<details>
+<summary><b>Strimzi entity operator CrashLoopBackOff</b></summary>
+
+The entity operator fails with `kafkausers` CRD at `kafka.strimzi.io/v1` not found. This happens when Helm installed older CRDs and didn't upgrade them:
+
+```bash
+kubectl apply -f https://github.com/strimzi/strimzi-kafka-operator/releases/download/0.50.1/strimzi-crds-0.50.1.yaml \
+  --server-side --force-conflicts
+kubectl rollout restart deployment -n strimzi-system strimzi-cluster-operator
+```
+</details>
+
+<details>
+<summary><b>Airflow webserver OOMKilled</b></summary>
+
+The Airflow webserver needs at least 1Gi memory. The `ci/default-values.yaml` sets the limit to 2Gi. If you see OOMKilled, check that you're using the CI values file:
+
+```bash
+helm get values logclaw-airflow-dev-local -n logclaw-dev-local | grep -A3 memory
+```
+</details>
+
+<details>
+<summary><b>Airflow scheduler/webserver stuck in Init:0/1</b></summary>
+
+These pods wait for DB migrations via an init container. See [Step 4](#4--run-airflow-db-migrations) to run migrations manually.
+</details>
+
+<details>
+<summary><b>OpenSearch authentication failed</b></summary>
+
+The dev secrets use `admin:admin` credentials. If you see authentication errors, verify the secret matches:
+
+```bash
+kubectl get secret opensearch-admin-credentials -n logclaw-dev-local \
+  -o jsonpath='{.data.password}' | base64 -d
+# Should output: admin
+```
+
+To reset: `make create-dev-secrets TENANT_ID=dev-local`
+</details>
+
+<details>
+<summary><b>Pods stuck in Pending (topology spread)</b></summary>
+
+All charts use `topologySpreadConstraints` with zone-based scheduling. Kind nodes need the zone label:
+
+```bash
+kubectl label node logclaw-dev-control-plane topology.kubernetes.io/zone=zone-a --overwrite
+```
+
+`make kind-create` does this automatically.
+</details>
+
+<details>
+<summary><b>Vector ingestion not connecting to Kafka</b></summary>
+
+Local dev uses a plain (no TLS, no auth) Kafka listener on port 9092. Verify the listener exists:
+
+```bash
+kubectl -n logclaw-dev-local get kafka logclaw-kafka-dev-local \
+  -o jsonpath='{.spec.kafka.listeners[*].name}'
+# Should include: plain
+```
+</details>
 
 ---
 
