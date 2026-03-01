@@ -1,0 +1,11 @@
+releases:
+  - name: logclaw-dashboard-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ../charts/logclaw-dashboard
+    values:
+      - ../charts/logclaw-dashboard/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.opensearchEndpoint
+        value: {{ env "OPENSEARCH_ENDPOINT" | default (printf "http://logclaw-opensearch-%s.logclaw-%s.svc:9200" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}

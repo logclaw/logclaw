@@ -7,6 +7,8 @@ repositories:
     url: "https://charts.jetstack.io"
   - name: opensearch-operator
     url: "https://opensearch-project.github.io/opensearch-k8s-operator/"
+  - name: flink-operator-repo
+    url: "https://archive.apache.org/dist/flink/flink-kubernetes-operator-1.9.0/"
 
 releases:
   - name: strimzi-kafka-operator
@@ -43,3 +45,11 @@ releases:
     createNamespace: true
     values:
       - ../operators/opensearch-operator/values.yaml
+
+  - name: flink-kubernetes-operator
+    namespace: flink-system
+    chart: flink-operator-repo/flink-kubernetes-operator
+    version: "1.9.0"
+    createNamespace: true
+    values:
+      - ../operators/flink-operator/values.yaml

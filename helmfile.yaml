@@ -25,7 +25,9 @@ helmfiles:
   - path: helmfile.d/30-ingestion.yaml.gotmpl
   - path: helmfile.d/40-opensearch.yaml.gotmpl
   - path: helmfile.d/50-flink.yaml.gotmpl
+  - path: helmfile.d/55-bridge.yaml.gotmpl
   - path: helmfile.d/60-ml-engine.yaml.gotmpl
   - path: helmfile.d/70-airflow.yaml.gotmpl
   - path: helmfile.d/80-ticketing-agent.yaml.gotmpl
   - path: helmfile.d/85-zammad.yaml.gotmpl
+  - path: helmfile.d/90-dashboard.yaml.gotmpl

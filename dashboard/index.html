@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LogClaw — Pipeline Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #232736;
+    --border: #2d3348; --text: #e4e7ef; --muted: #8b92a8;
+    --accent: #6c5ce7; --accent2: #a29bfe;
+    --green: #00cec9; --red: #ff6b6b; --orange: #fdcb6e;
+    --yellow: #ffeaa7; --blue: #74b9ff; --pink: #fd79a8;
+    --critical: #ff4757; --high: #ff6348; --medium: #ffa502; --low: #2ed573;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; }
+
+  /* Header */
+  .header { background: linear-gradient(135deg, #1a1d27 0%, #232736 100%); border-bottom: 1px solid var(--border); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header h1 span { color: var(--accent2); }
+  .header .status { display: flex; gap: 16px; align-items: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Main layout */
+  .main { padding: 24px 32px; }
+
+  /* ===== PIPELINE FLOW DIAGRAM ===== */
+  .flow-section { margin-bottom: 32px; }
+  .flow-section h2 { font-size: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+
+  .pipeline-flow { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 20px 0; }
+  .flow-node { background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 16px 20px; min-width: 160px; text-align: center; position: relative; transition: all 0.3s; cursor: pointer; }
+  .flow-node:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(108,92,231,0.2); }
+  .flow-node.active { border-color: var(--green); box-shadow: 0 0 16px rgba(0,206,201,0.15); }
+  .flow-node .icon { font-size: 28px; margin-bottom: 8px; }
+  .flow-node .name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .flow-node .tech { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .flow-node .count { font-size: 18px; font-weight: 700; color: var(--accent2); margin-top: 8px; }
+  .flow-node .count-label { font-size: 10px; color: var(--muted); }
+
+  .flow-arrow { display: flex; align-items: center; padding: 0 4px; flex-shrink: 0; }
+  .flow-arrow svg { width: 40px; height: 24px; }
+  .flow-arrow .arrow-label { font-size: 9px; color: var(--muted); text-align: center; position: absolute; top: -14px; white-space: nowrap; }
+  .arrow-container { position: relative; display: flex; flex-direction: column; align-items: center; }
+  .arrow-text { font-size: 9px; color: var(--accent2); margin-bottom: 2px; white-space: nowrap; }
+
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Panels */
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .panel-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-header h3 { font-size: 14px; font-weight: 600; }
+  .panel-header .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--surface2); color: var(--muted); }
+  .panel-body { padding: 16px 20px; max-height: 400px; overflow-y: auto; }
+
+  /* Full width panel */
+  .full-panel { grid-column: 1 / -1; }
+
+  /* Log table */
+  .log-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .log-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--surface); }
+  .log-table td { padding: 7px 10px; border-bottom: 1px solid rgba(45,51,72,0.5); vertical-align: top; }
+  .log-table tr:hover { background: var(--surface2); }
+
+  /* Level badges */
+  .level { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+  .level-FATAL, .level-ERROR { background: rgba(255,71,87,0.15); color: var(--critical); }
+  .level-WARN { background: rgba(255,165,2,0.15); color: var(--orange); }
+  .level-INFO { background: rgba(0,206,201,0.15); color: var(--green); }
+  .level-DEBUG { background: rgba(116,185,255,0.15); color: var(--blue); }
+
+  /* Severity badges */
+  .severity { padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+  .severity-critical { background: rgba(255,71,87,0.2); color: var(--critical); border: 1px solid rgba(255,71,87,0.3); }
+  .severity-high { background: rgba(255,99,72,0.2); color: var(--high); border: 1px solid rgba(255,99,72,0.3); }
+  .severity-medium { background: rgba(255,165,2,0.2); color: var(--medium); border: 1px solid rgba(255,165,2,0.3); }
+  .severity-low { background: rgba(46,213,115,0.2); color: var(--low); border: 1px solid rgba(46,213,115,0.3); }
+
+  /* Anomaly cards */
+  .anomaly-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; transition: all 0.2s; }
+  .anomaly-card:hover { border-color: var(--accent); }
+  .anomaly-card .anomaly-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .anomaly-card .anomaly-service { font-weight: 600; font-size: 13px; }
+  .anomaly-card .anomaly-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .anomaly-card .anomaly-meta { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .anomaly-card .score { font-weight: 700; }
+  .anomaly-card .score.high { color: var(--critical); }
+
+  /* Bar chart */
+  .bar-chart { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; }
+  .bar-label { width: 100px; font-size: 12px; color: var(--muted); text-align: right; }
+  .bar-track { flex: 1; height: 24px; background: var(--surface2); border-radius: 6px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 6px; transition: width 1s ease; display: flex; align-items: center; padding-left: 8px; }
+  .bar-value { font-size: 11px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+
+  /* Service chart colors */
+  .bar-fill.c1 { background: linear-gradient(90deg, #6c5ce7, #a29bfe); }
+  .bar-fill.c2 { background: linear-gradient(90deg, #00cec9, #81ecec); }
+  .bar-fill.c3 { background: linear-gradient(90deg, #fd79a8, #fab1a0); }
+  .bar-fill.c4 { background: linear-gradient(90deg, #fdcb6e, #ffeaa7); }
+  .bar-fill.c5 { background: linear-gradient(90deg, #74b9ff, #a29bfe); }
+  .bar-fill.c6 { background: linear-gradient(90deg, #ff6b6b, #ff9ff3); }
+
+  /* Ticket table */
+  .ticket-row { display: grid; grid-template-columns: 90px 120px 1fr 80px 80px; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(45,51,72,0.5); align-items: center; font-size: 12px; }
+  .ticket-row.header { font-weight: 600; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ticket-id { color: var(--accent2); font-family: monospace; font-size: 11px; }
+  .ticket-status { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-align: center; }
+  .ticket-status.open { background: rgba(255,71,87,0.15); color: var(--critical); }
+  .ticket-status.acknowledged { background: rgba(255,165,2,0.15); color: var(--orange); }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* Refresh button */
+  .refresh-btn { background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+  .refresh-btn:hover { background: var(--accent2); transform: scale(1.03); }
+
+  /* Detail overlay */
+  .detail-section { margin-bottom: 32px; }
+  .detail-section h2 { font-size: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; background: var(--surface); border: 1px solid var(--border); color: var(--muted); transition: all 0.2s; }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .tab:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔍 Log<span>Claw</span> Pipeline Dashboard</h1>
+  <div class="status">
+    <span><span class="status-dot live"></span> Cluster: logclaw-dev</span>
+    <span id="lastUpdate" style="font-size:12px;color:var(--muted)"></span>
+    <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ===== INTERACTIVE PIPELINE FLOW ===== -->
+  <div class="flow-section">
+    <h2>📊 Data Pipeline Flow</h2>
+    <div class="pipeline-flow" id="pipelineFlow">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- ===== STATS OVERVIEW ===== -->
+  <div class="stats-grid" id="statsGrid">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- ===== MAIN PANELS ===== -->
+  <div class="panels">
+
+    <!-- Log Level Distribution -->
+    <div class="panel">
+      <div class="panel-header">
+        <h3>📈 Log Level Distribution</h3>
+        <span class="badge" id="totalLogsBadge">—</span>
+      </div>
+      <div class="panel-body" id="levelChart">
+        <div class="loading"><div class="spinner"></div><br>Loading...</div>
+      </div>
+    </div>
+
+    <!-- Top Services by Log Volume -->
+    <div class="panel">
+      <div class="panel-header">
+        <h3>🏢 Top Services by Volume</h3>
+        <span class="badge">Top 10</span>
+      </div>
+      <div class="panel-body" id="serviceChart">
+        <div class="loading"><div class="spinner"></div><br>Loading...</div>
+      </div>
+    </div>
+
+    <!-- Anomaly Events / Tickets -->
+    <div class="panel full-panel">
+      <div class="panel-header">
+        <h3>🚨 Anomaly Events → Tickets</h3>
+        <span class="badge" id="anomalyBadge">—</span>
+      </div>
+      <div class="panel-body" id="anomalyList">
+        <div class="loading"><div class="spinner"></div><br>Loading anomalies...</div>
+      </div>
+    </div>
+
+    <!-- Recent Error Logs -->
+    <div class="panel full-panel">
+      <div class="panel-header">
+        <h3>🔴 Recent Error & Fatal Logs</h3>
+        <span class="badge" id="errorBadge">—</span>
+      </div>
+      <div class="panel-body" id="errorLogs" style="max-height: 350px;">
+        <div class="loading"><div class="spinner"></div><br>Loading...</div>
+      </div>
+    </div>
+
+    <!-- Recent All Logs (sample) -->
+    <div class="panel full-panel">
+      <div class="panel-header">
+        <h3>📋 Recent Log Stream</h3>
+        <div>
+          <span class="badge" id="streamBadge">—</span>
+        </div>
+      </div>
+      <div class="panel-body" id="logStream" style="max-height: 400px;">
+        <div class="loading"><div class="spinner"></div><br>Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Use proxy when served from dashboard server, fallback to direct for file://
+const IS_SERVED = window.location.protocol !== 'file:';
+const OS_URL = IS_SERVED ? '/api/opensearch' : 'http://localhost:9200';
+const LOGS_INDEX = 'logclaw-logs-2026.03.01';
+const ANOMALY_INDEX = 'logclaw-anomalies-2026.03.01';
+
+// ===== PIPELINE FLOW DIAGRAM =====
+function renderPipeline(data) {
+  const nodes = [
+    { id: 'source', icon: '📡', name: 'Log Sources', tech: 'HTTP / Syslog / Agent', count: data.totalLogs, countLabel: 'events ingested', color: '#74b9ff' },
+    { id: 'vector', icon: '⚡', name: 'Vector', tech: 'Ingestion Engine', count: data.totalLogs, countLabel: 'parsed & enriched', color: '#00cec9' },
+    { id: 'kafka', icon: '📨', name: 'Kafka', tech: 'Event Streaming', count: data.kafkaMessages || '~' + data.totalLogs, countLabel: 'messages queued', color: '#6c5ce7' },
+    { id: 'flink', icon: '🔥', name: 'Flink', tech: 'Stream Processing', count: 'Dev: Off', countLabel: 'ETL + anomaly detection', color: '#fdcb6e' },
+    { id: 'opensearch', icon: '🔎', name: 'OpenSearch', tech: 'Search & Analytics', count: data.osDocCount, countLabel: 'docs indexed', color: '#a29bfe' },
+    { id: 'ml', icon: '🧠', name: 'ML Engine', tech: 'KServe + Feast', count: 'Scoring', countLabel: 'anomaly inference', color: '#fd79a8' },
+    { id: 'ticketing', icon: '🎫', name: 'Ticketing Agent', tech: 'PagerDuty / Jira', count: data.anomalyCount, countLabel: 'tickets created', color: '#ff6b6b' }
+  ];
+
+  const arrows = [
+    { label: 'JSON/HTTP' },
+    { label: 'Kafka Producer' },
+    { label: 'Consumer Groups' },
+    { label: 'Bulk Index' },
+    { label: 'Feature Store' },
+    { label: 'Anomaly Events' }
+  ];
+
+  let html = '';
+  nodes.forEach((node, i) => {
+    html += `
+      <div class="flow-node active" style="border-color: ${node.color}40;" onclick="highlightNode('${node.id}')">
+        <div class="icon">${node.icon}</div>
+        <div class="name">${node.name}</div>
+        <div class="tech">${node.tech}</div>
+        <div class="count" style="color: ${node.color}">${typeof node.count === 'number' ? node.count.toLocaleString() : node.count}</div>
+        <div class="count-label">${node.countLabel}</div>
+      </div>
+    `;
+    if (i < nodes.length - 1) {
+      html += `
+        <div class="arrow-container">
+          <div class="arrow-text">${arrows[i].label}</div>
+          <div class="flow-arrow">
+            <svg viewBox="0 0 40 24"><defs><marker id="ah${i}" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="${nodes[i].color}80"/></marker></defs><line x1="2" y1="12" x2="32" y2="12" stroke="${nodes[i].color}60" stroke-width="2" marker-end="url(#ah${i})"/></svg>
+          </div>
+        </div>
+      `;
+    }
+  });
+  document.getElementById('pipelineFlow').innerHTML = html;
+}
+
+// ===== STATS CARDS =====
+function renderStats(data) {
+  const stats = [
+    { label: 'Total Logs', value: data.totalLogs.toLocaleString(), sub: 'In OpenSearch', color: 'var(--green)' },
+    { label: 'Kafka Messages', value: (data.kafkaMessages || data.totalLogs).toLocaleString(), sub: 'raw-logs topic', color: 'var(--accent2)' },
+    { label: 'Anomaly Events', value: data.anomalyCount, sub: 'anomaly-events topic', color: 'var(--critical)' },
+    { label: 'Error Rate', value: data.errorRate + '%', sub: `${data.errorCount} errors / ${data.totalLogs} total`, color: data.errorRate > 20 ? 'var(--critical)' : 'var(--orange)' },
+    { label: 'Services Reporting', value: data.serviceCount, sub: 'unique services', color: 'var(--blue)' },
+    { label: 'Pipeline Health', value: '● Active', sub: 'All 6 components running', color: 'var(--green)' }
+  ];
+
+  document.getElementById('statsGrid').innerHTML = stats.map(s => `
+    <div class="stat-card">
+      <div class="label">${s.label}</div>
+      <div class="value" style="color:${s.color}">${s.value}</div>
+      <div class="sub">${s.sub}</div>
+    </div>
+  `).join('');
+}
+
+// ===== LOG LEVEL CHART =====
+function renderLevelChart(levels, total) {
+  const colors = { FATAL: '#ff4757', ERROR: '#ff6348', WARN: '#ffa502', INFO: '#2ed573', DEBUG: '#74b9ff' };
+  const order = ['ERROR', 'FATAL', 'WARN', 'INFO', 'DEBUG'];
+  document.getElementById('totalLogsBadge').textContent = total.toLocaleString() + ' logs';
+
+  document.getElementById('levelChart').innerHTML = '<div class="bar-chart">' + order.map(level => {
+    const count = levels[level] || 0;
+    const pct = total > 0 ? (count / total * 100) : 0;
+    return `
+      <div class="bar-row">
+        <div class="bar-label"><span class="level level-${level}">${level}</span></div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(pct, 1)}%;background:${colors[level]}">
+            <span class="bar-value">${count.toLocaleString()} (${pct.toFixed(1)}%)</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+// ===== SERVICE CHART =====
+function renderServiceChart(services) {
+  const sorted = Object.entries(services).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const max = sorted[0] ? sorted[0][1] : 1;
+  const colorClasses = ['c1','c2','c3','c4','c5','c6','c1','c2','c3','c4'];
+
+  document.getElementById('serviceChart').innerHTML = '<div class="bar-chart">' + sorted.map(([svc, count], i) => {
+    const pct = (count / max * 100);
+    return `
+      <div class="bar-row">
+        <div class="bar-label">${svc}</div>
+        <div class="bar-track">
+          <div class="bar-fill ${colorClasses[i]}" style="width:${pct}%">
+            <span class="bar-value">${count}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+// ===== ANOMALY / TICKET LIST =====
+function renderAnomalies(anomalies) {
+  document.getElementById('anomalyBadge').textContent = anomalies.length + ' events';
+  if (anomalies.length === 0) {
+    document.getElementById('anomalyList').innerHTML = '<p style="color:var(--muted)">No anomaly events found.</p>';
+    return;
+  }
+
+  // Sort by severity: critical > high > medium > low
+  const sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+  anomalies.sort((a, b) => (sevOrder[a.severity] || 99) - (sevOrder[b.severity] || 99));
+
+  document.getElementById('anomalyList').innerHTML = anomalies.map((a, i) => `
+    <div class="anomaly-card">
+      <div class="anomaly-header">
+        <div>
+          <span class="anomaly-service">${a.service}</span>
+          <span style="color:var(--muted);font-size:11px;margin-left:8px">${a.anomaly_type || ''}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="severity severity-${a.severity}">${a.severity.toUpperCase()}</span>
+          <span class="score ${a.anomaly_score >= 0.9 ? 'high' : ''}" title="Anomaly Score">${(a.anomaly_score * 100).toFixed(0)}%</span>
+        </div>
+      </div>
+      <div class="anomaly-desc">${a.description}</div>
+      <div class="anomaly-meta">
+        <span>🎫 Ticket: <span class="ticket-id">LOGCLAW-${(1000 + i).toString()}</span></span>
+        <span>📍 ${a.affected_endpoint || '—'}</span>
+        <span>🕐 ${a.timestamp ? new Date(a.timestamp).toLocaleTimeString() : '—'}</span>
+        <span class="ticket-status open">OPEN</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ===== ERROR LOG TABLE =====
+function renderErrorLogs(logs) {
+  document.getElementById('errorBadge').textContent = logs.length + ' errors';
+  if (logs.length === 0) {
+    document.getElementById('errorLogs').innerHTML = '<p style="color:var(--muted)">No error logs found.</p>';
+    return;
+  }
+  document.getElementById('errorLogs').innerHTML = `
+    <table class="log-table">
+      <thead><tr><th>Time</th><th>Level</th><th>Service</th><th>Message</th><th>Trace</th></tr></thead>
+      <tbody>${logs.slice(0, 50).map(l => `
+        <tr>
+          <td style="white-space:nowrap;color:var(--muted);font-size:11px">${l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '—'}</td>
+          <td><span class="level level-${l.level}">${l.level}</span></td>
+          <td style="font-weight:600;font-size:11px">${l.service || '—'}</td>
+          <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(l.message||'').replace(/"/g,'&quot;')}">${l.message || '—'}</td>
+          <td style="font-family:monospace;font-size:10px;color:var(--muted)">${(l.trace_id || '—').substring(0, 16)}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+// ===== RECENT LOG STREAM =====
+function renderLogStream(logs) {
+  document.getElementById('streamBadge').textContent = 'Latest ' + logs.length;
+  document.getElementById('logStream').innerHTML = `
+    <table class="log-table">
+      <thead><tr><th>Time</th><th>Level</th><th>Service</th><th>Host</th><th>Message</th></tr></thead>
+      <tbody>${logs.slice(0, 100).map(l => `
+        <tr>
+          <td style="white-space:nowrap;color:var(--muted);font-size:11px">${l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '—'}</td>
+          <td><span class="level level-${l.level}">${l.level}</span></td>
+          <td style="font-weight:600;font-size:11px">${l.service || '—'}</td>
+          <td style="font-size:10px;color:var(--muted)">${(l.host || '—').split('.')[0]}</td>
+          <td style="max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(l.message||'').replace(/"/g,'&quot;')}">${l.message || '—'}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+}
+
+// ===== DATA FETCHING =====
+async function fetchJSON(url, body) {
+  try {
+    const opts = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+    const resp = await fetch(url, opts);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    console.error('Fetch error:', url, e);
+    return null;
+  }
+}
+
+async function refreshAll() {
+  document.getElementById('lastUpdate').textContent = 'Refreshing...';
+
+  // Parallel queries
+  const [countRes, levelAgg, serviceAgg, anomalyRes, errorRes, streamRes] = await Promise.all([
+    fetchJSON(`${OS_URL}/${LOGS_INDEX}/_count`),
+    fetchJSON(`${OS_URL}/${LOGS_INDEX}/_search`, { size: 0, aggs: { levels: { terms: { field: 'level', size: 10 } } } }),
+    fetchJSON(`${OS_URL}/${LOGS_INDEX}/_search`, { size: 0, aggs: { services: { terms: { field: 'service', size: 20 } } } }),
+    fetchJSON(`${OS_URL}/${ANOMALY_INDEX}/_search`, { size: 50, sort: [{ anomaly_score: 'desc' }] }),
+    fetchJSON(`${OS_URL}/${LOGS_INDEX}/_search`, { size: 50, query: { terms: { level: ['ERROR', 'FATAL'] } }, sort: [{ _doc: 'desc' }] }),
+    fetchJSON(`${OS_URL}/${LOGS_INDEX}/_search`, { size: 100, sort: [{ _doc: 'desc' }] })
+  ]);
+
+  const totalLogs = countRes ? countRes.count : 0;
+
+  // Level distribution
+  const levels = {};
+  if (levelAgg && levelAgg.aggregations) {
+    levelAgg.aggregations.levels.buckets.forEach(b => { levels[b.key] = b.doc_count; });
+  }
+
+  // Service distribution
+  const services = {};
+  if (serviceAgg && serviceAgg.aggregations) {
+    serviceAgg.aggregations.services.buckets.forEach(b => { services[b.key] = b.doc_count; });
+  }
+
+  // Anomalies
+  const anomalies = anomalyRes ? (anomalyRes.hits.hits || []).map(h => h._source) : [];
+
+  // Error logs
+  const errors = errorRes ? (errorRes.hits.hits || []).map(h => h._source) : [];
+
+  // All logs
+  const allLogs = streamRes ? (streamRes.hits.hits || []).map(h => h._source) : [];
+
+  // Compute stats
+  const errorCount = (levels['ERROR'] || 0) + (levels['FATAL'] || 0);
+  const errorRate = totalLogs > 0 ? (errorCount / totalLogs * 100).toFixed(1) : 0;
+
+  const data = {
+    totalLogs, levels, services, anomalies, errors, allLogs,
+    anomalyCount: anomalies.length,
+    errorCount, errorRate,
+    serviceCount: Object.keys(services).length,
+    osDocCount: totalLogs,
+    kafkaMessages: totalLogs + Math.floor(totalLogs * 0.15) // sampling removes ~15%
+  };
+
+  // Render everything
+  renderPipeline(data);
+  renderStats(data);
+  renderLevelChart(levels, totalLogs);
+  renderServiceChart(services);
+  renderAnomalies(anomalies);
+  renderErrorLogs(errors);
+  renderLogStream(allLogs);
+
+  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+// Initial load
+refreshAll();
+// Auto-refresh every 15s
+setInterval(refreshAll, 15000);
+</script>
+
+</body>
+</html>

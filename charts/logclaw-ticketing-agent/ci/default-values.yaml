@@ -1,25 +1,927 @@
 # CI test values for logclaw-ticketing-agent chart
 # Provides all required global.* values that would normally come from the umbrella chart.
 # Suitable for `helm lint`, `helm template`, and local `kind` development.
+#
+# Dev mode: replaces the production binary with a Python reference implementation
+# that consumes Kafka anomaly-events and creates incidents in OpenSearch.
+#
+# Industry-standard incident management API (v1) aligned with:
+#   - PagerDuty Events API v2 (severity/urgency, dedup_key, routing)
+#   - FireHydrant milestones (detected_at, acknowledged_at, mitigated_at, resolved_at)
+#   - incident.io timeline model (structured events with actor attribution)
+#   - ITIL incident lifecycle (categorization, impact, urgency, priority matrix)
+#
+# Integrations: Jira, ServiceNow, PagerDuty, OpsGenie, Slack (webhook-based)
 
 replicaCount: 1
 
 image:
   repository: "python"
-  tag: "3.12-alpine"
+  tag: "3.12-slim"
 
 command:
-  - python
+  - /bin/sh
   - -c
   - |
+    pip install --quiet kafka-python-ng==2.2.3 opensearch-py==2.4.2 lz4 python-snappy 2>/dev/null
+    cat > /tmp/incident_manager.py << 'PYEOF'
+    import os, sys, json, time, threading, hashlib, uuid, traceback
+    from datetime import datetime, timezone, timedelta
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    from urllib.parse import urlparse, parse_qs
+
+    # ── Configuration ──────────────────────────────────────────────────────
+    KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
+    KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
+    KAFKA_GROUP = os.environ.get("KAFKA_CONSUMER_GROUP", "logclaw-ticketing-agent")
+    OS_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+    TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
+    MIN_SCORE = float(os.environ.get("ANOMALY_MINIMUM_SCORE", "0.5"))
+    CONTEXT_WINDOW = int(os.environ.get("ANOMALY_CONTEXT_WINDOW_SECONDS", "300"))
+    MAX_LINES = int(os.environ.get("ANOMALY_MAX_LOG_LINES_IN_TICKET", "50"))
+    DEDUP_MINS = int(os.environ.get("ANOMALY_DEDUPLICATION_WINDOW_MINUTES", "15"))
+    API_VERSION = "v1"
+    ENGINE_VERSION = "1.2.0"
+
+    # ── Webhook integrations ───────────────────────────────────────────────
+    JIRA_ENABLED = os.environ.get("JIRA_ENABLED", "false").lower() == "true"
+    JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "")
+    JIRA_PROJECT = os.environ.get("JIRA_PROJECT_KEY", "OPS")
+    JIRA_ISSUE_TYPE = os.environ.get("JIRA_ISSUE_TYPE", "Bug")
+    SNOW_ENABLED = os.environ.get("SERVICENOW_ENABLED", "false").lower() == "true"
+    SNOW_URL = os.environ.get("SERVICENOW_INSTANCE_URL", "")
+    PD_ENABLED = os.environ.get("PAGERDUTY_ENABLED", "false").lower() == "true"
+    PD_API_URL = os.environ.get("PAGERDUTY_API_URL", "https://events.pagerduty.com")
+    OG_ENABLED = os.environ.get("OPSGENIE_ENABLED", "false").lower() == "true"
+    OG_API_URL = os.environ.get("OPSGENIE_API_URL", "https://api.opsgenie.com")
+    SLACK_ENABLED = os.environ.get("SLACK_ENABLED", "false").lower() == "true"
+    SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "")
+    SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#logclaw-alerts")
+
+    # ── Industry-standard incident states (ITIL + PagerDuty + FireHydrant) ─
+    VALID_STATES = ["identified", "acknowledged", "investigating", "mitigated", "resolved"]
+    VALID_SEVERITIES = ["critical", "high", "medium", "low"]
+    VALID_URGENCIES = ["high", "medium", "low"]
+    # ITIL Priority Matrix: severity x urgency
+    PRIORITY_MATRIX = {
+        ("critical", "high"): "P1", ("critical", "medium"): "P1", ("critical", "low"): "P2",
+        ("high", "high"): "P2", ("high", "medium"): "P2", ("high", "low"): "P3",
+        ("medium", "high"): "P3", ("medium", "medium"): "P3", ("medium", "low"): "P4",
+        ("low", "high"): "P4", ("low", "medium"): "P4", ("low", "low"): "P5",
+    }
+    INCIDENT_INDEX = f"logclaw-incidents-{TENANT_ID}"
+
+    consumer_ready = threading.Event()
+    dedup = {}
+    lock = threading.Lock()
+    stats = {"consumed": 0, "created": 0, "skipped": 0, "webhooks_sent": 0, "webhooks_failed": 0}
+
+
+    def log(m):
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{ts}] {m}", flush=True)
+
+
+    def now_iso():
+        return datetime.now(timezone.utc).isoformat()
+
+
+    def gen_request_id():
+        return str(uuid.uuid4())[:8]
+
+
+    # ── OpenSearch helpers ─────────────────────────────────────────────────
+    def os_req(method, path, body=None):
+        url = f"{OS_ENDPOINT}/{path}"
+        data = json.dumps(body).encode() if body else None
+        req = Request(url, data, {"Content-Type": "application/json"}, method=method)
+        resp = urlopen(req, timeout=10).read()
+        if not resp:
+            return {}
+        return json.loads(resp)
+
+
+    def ensure_index():
+        try:
+            os_req("HEAD", INCIDENT_INDEX)
+        except HTTPError as e:
+            if e.code == 404:
+                mapping = {
+                    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                    "mappings": {
+                        "properties": {
+                            "id": {"type": "keyword"},
+                            "number": {"type": "integer"},
+                            "title": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
+                            "description": {"type": "text"},
+                            "severity": {"type": "keyword"},
+                            "urgency": {"type": "keyword"},
+                            "priority": {"type": "keyword"},
+                            "state": {"type": "keyword"},
+                            "service": {"type": "keyword"},
+                            "environment": {"type": "keyword"},
+                            "anomaly_type": {"type": "keyword"},
+                            "anomaly_score": {"type": "float"},
+                            "correlation_id": {"type": "keyword"},
+                            "affected_endpoint": {"type": "keyword"},
+                            "impact": {"type": "text"},
+                            "root_cause": {"type": "text"},
+                            "commander": {"type": "keyword"},
+                            "assigned_to": {"type": "keyword"},
+                            "communication_channel": {"type": "keyword"},
+                            "runbook_url": {"type": "keyword"},
+                            "created_at": {"type": "date"},
+                            "updated_at": {"type": "date"},
+                            "detected_at": {"type": "date"},
+                            "acknowledged_at": {"type": "date"},
+                            "mitigated_at": {"type": "date"},
+                            "resolved_at": {"type": "date"},
+                            "tenant_id": {"type": "keyword"},
+                            "timeline": {
+                                "type": "nested",
+                                "properties": {
+                                    "id": {"type": "keyword"},
+                                    "timestamp": {"type": "date"},
+                                    "type": {"type": "keyword"},
+                                    "state": {"type": "keyword"},
+                                    "message": {"type": "text"},
+                                    "actor": {"type": "keyword"},
+                                },
+                            },
+                            "evidence_logs": {
+                                "type": "nested",
+                                "properties": {
+                                    "timestamp": {"type": "keyword"},
+                                    "level": {"type": "keyword"},
+                                    "message": {"type": "text"},
+                                    "service": {"type": "keyword"},
+                                },
+                            },
+                            "external_refs": {
+                                "type": "nested",
+                                "properties": {
+                                    "system": {"type": "keyword"},
+                                    "ref_id": {"type": "keyword"},
+                                    "url": {"type": "keyword"},
+                                    "synced_at": {"type": "date"},
+                                },
+                            },
+                            "tags": {"type": "keyword"},
+                            "custom_fields": {"type": "object", "enabled": True},
+                        }
+                    },
+                }
+                os_req("PUT", INCIDENT_INDEX, mapping)
+                log(f"Created index {INCIDENT_INDEX}")
+            else:
+                raise
+
+
+    # ── Sequence counter for INC-NNNN ──────────────────────────────────────
+    _seq_lock = threading.Lock()
+    _seq_counter = [0]
+
+    def _init_sequence():
+        try:
+            r = os_req("POST", f"{INCIDENT_INDEX}/_search", {
+                "size": 1, "sort": [{"number": "desc"}],
+                "query": {"match_all": {}}, "_source": ["number"]
+            })
+            hits = r.get("hits", {}).get("hits", [])
+            if hits:
+                _seq_counter[0] = hits[0]["_source"].get("number", 0)
+        except Exception:
+            pass
+
+    def next_incident_number():
+        with _seq_lock:
+            _seq_counter[0] += 1
+            return _seq_counter[0]
+
+
+    # ── CRUD ───────────────────────────────────────────────────────────────
+    def save_incident(incident):
+        os_req("PUT", f"{INCIDENT_INDEX}/_doc/{incident['id']}", incident)
+        os_req("POST", f"{INCIDENT_INDEX}/_refresh")
+
+
+    def get_incident(iid):
+        try:
+            r = os_req("GET", f"{INCIDENT_INDEX}/_doc/{iid}")
+            return r.get("_source")
+        except HTTPError:
+            return None
+
+
+    def delete_incident(iid):
+        try:
+            os_req("DELETE", f"{INCIDENT_INDEX}/_doc/{iid}")
+            os_req("POST", f"{INCIDENT_INDEX}/_refresh")
+            return True
+        except HTTPError:
+            return False
+
+
+    def search_incidents(params):
+        limit = min(int(params.get("limit", [50])[0]), 200)
+        offset = int(params.get("offset", [0])[0])
+        # Backward compat: accept "size"/"from" too
+        if "size" in params:
+            limit = min(int(params["size"][0]), 200)
+        if "from" in params:
+            offset = int(params["from"][0])
+        state = params.get("state", [None])[0]
+        severity = params.get("severity", [None])[0]
+        urgency = params.get("urgency", [None])[0]
+        service = params.get("service", [None])[0]
+        priority = params.get("priority", [None])[0]
+        q = params.get("q", [None])[0]
+        sort_by = params.get("sort", ["created_at"])[0]
+        sort_dir = params.get("order", ["desc"])[0]
+        musts = []
+        if state and state != "all":
+            musts.append({"term": {"state": state}})
+        if severity:
+            musts.append({"term": {"severity": severity}})
+        if urgency:
+            musts.append({"term": {"urgency": urgency}})
+        if service:
+            musts.append({"term": {"service": service}})
+        if priority:
+            musts.append({"term": {"priority": priority}})
+        if q:
+            musts.append({"multi_match": {"query": q, "fields": ["title", "description", "service", "tags"]}})
+        body = {"size": limit, "from": offset, "sort": [{sort_by: sort_dir}]}
+        if musts:
+            body["query"] = {"bool": {"must": musts}}
+        else:
+            body["query"] = {"match_all": {}}
+        try:
+            r = os_req("POST", f"{INCIDENT_INDEX}/_search", body)
+            hits = r.get("hits", {})
+            total = hits.get("total", {}).get("value", 0)
+            items = [h["_source"] for h in hits.get("hits", [])]
+            return {
+                "data": items,
+                "pagination": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": (offset + limit) < total,
+                },
+                # Backward compat
+                "total": total,
+                "incidents": items,
+            }
+        except Exception:
+            return {"data": [], "pagination": {"total": 0, "limit": limit, "offset": offset, "has_more": False}, "total": 0, "incidents": []}
+
+
+    def get_stats():
+        try:
+            r = os_req("POST", f"{INCIDENT_INDEX}/_search", {
+                "size": 0,
+                "aggs": {
+                    "by_state": {"terms": {"field": "state", "size": 10}},
+                    "by_severity": {"terms": {"field": "severity", "size": 10}},
+                    "by_urgency": {"terms": {"field": "urgency", "size": 10}},
+                    "by_priority": {"terms": {"field": "priority", "size": 10}},
+                    "by_service": {"terms": {"field": "service", "size": 20}},
+                },
+            })
+            total = r.get("hits", {}).get("total", {}).get("value", 0)
+            aggs = r.get("aggregations", {})
+            return {
+                "total": total,
+                "by_state": {b["key"]: b["doc_count"] for b in aggs.get("by_state", {}).get("buckets", [])},
+                "by_severity": {b["key"]: b["doc_count"] for b in aggs.get("by_severity", {}).get("buckets", [])},
+                "by_urgency": {b["key"]: b["doc_count"] for b in aggs.get("by_urgency", {}).get("buckets", [])},
+                "by_priority": {b["key"]: b["doc_count"] for b in aggs.get("by_priority", {}).get("buckets", [])},
+                "by_service": {b["key"]: b["doc_count"] for b in aggs.get("by_service", {}).get("buckets", [])},
+                **stats,
+            }
+        except Exception:
+            return {"total": 0, "by_state": {}, "by_severity": {}, "by_urgency": {}, "by_priority": {}, "by_service": {}, **stats}
+
+
+    # ── MTTR Metrics (FireHydrant-style) ───────────────────────────────────
+    def get_mttr(params):
+        days = int(params.get("days", [30])[0])
+        service = params.get("service", [None])[0]
+        severity = params.get("severity", [None])[0]
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        musts = [
+            {"term": {"state": "resolved"}},
+            {"range": {"resolved_at": {"gte": cutoff}}},
+        ]
+        if service:
+            musts.append({"term": {"service": service}})
+        if severity:
+            musts.append({"term": {"severity": severity}})
+        try:
+            r = os_req("POST", f"{INCIDENT_INDEX}/_search", {
+                "size": 500, "query": {"bool": {"must": musts}},
+                "_source": ["created_at", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "severity", "service"],
+            })
+            incidents = [h["_source"] for h in r.get("hits", {}).get("hits", [])]
+            if not incidents:
+                return {"period_days": days, "resolved_count": 0, "mttr": None, "mtta": None, "mttm": None}
+            def delta_mins(a, b):
+                if not a or not b:
+                    return None
+                try:
+                    ta = datetime.fromisoformat(a.replace("Z", "+00:00"))
+                    tb = datetime.fromisoformat(b.replace("Z", "+00:00"))
+                    return max(0, (tb - ta).total_seconds() / 60)
+                except Exception:
+                    return None
+            ttr_vals = []
+            tta_vals = []
+            ttm_vals = []
+            for inc in incidents:
+                r_mins = delta_mins(inc.get("created_at"), inc.get("resolved_at"))
+                if r_mins is not None:
+                    ttr_vals.append(r_mins)
+                a_mins = delta_mins(inc.get("created_at"), inc.get("acknowledged_at"))
+                if a_mins is not None:
+                    tta_vals.append(a_mins)
+                m_mins = delta_mins(inc.get("created_at"), inc.get("mitigated_at"))
+                if m_mins is not None:
+                    ttm_vals.append(m_mins)
+            def calc_stats(vals):
+                if not vals:
+                    return None
+                vals.sort()
+                n = len(vals)
+                avg = sum(vals) / n
+                median = vals[n // 2]
+                p95 = vals[int(n * 0.95)] if n >= 5 else vals[-1]
+                return {"avg_minutes": round(avg, 1), "median_minutes": round(median, 1), "p95_minutes": round(p95, 1), "min_minutes": round(vals[0], 1), "max_minutes": round(vals[-1], 1), "sample_size": n}
+            return {
+                "period_days": days,
+                "resolved_count": len(incidents),
+                "mttr": calc_stats(ttr_vals),
+                "mtta": calc_stats(tta_vals),
+                "mttm": calc_stats(ttm_vals),
+            }
+        except Exception:
+            return {"period_days": days, "resolved_count": 0, "mttr": None, "mtta": None, "mttm": None}
+
+
+    # ── Log context from OpenSearch ────────────────────────────────────────
+    def os_context(service):
+        q = {
+            "size": MAX_LINES,
+            "query": {"bool": {"must": [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]}},
+            "sort": [{"_doc": "desc"}],
+        }
+        try:
+            r = os_req("POST", "logclaw-logs-*/_search", q)
+            return [h["_source"] for h in r.get("hits", {}).get("hits", [])]
+        except Exception:
+            return []
+
+
+    # ── Deduplication ──────────────────────────────────────────────────────
+    def is_dup(svc, atype):
+        key = f"{svc}:{atype}"
+        now = time.time()
+        with lock:
+            if key in dedup and now - dedup[key] < DEDUP_MINS * 60:
+                return True
+            dedup[key] = now
+        return False
+
+
+    # ── Webhook integrations ───────────────────────────────────────────────
+    def send_webhooks(incident):
+        ext_refs = []
+
+        if SLACK_ENABLED and SLACK_WEBHOOK:
+            try:
+                sev_emoji = {"critical": ":rotating_light:", "high": ":warning:", "medium": ":large_orange_diamond:", "low": ":information_source:"}.get(incident["severity"], ":bell:")
+                iid = incident["id"]
+                svc = incident["service"]
+                sev = incident["severity"]
+                prio = incident.get("priority", "P3")
+                text = f"{sev_emoji} *{incident['title']}*\nService: `{svc}` | Priority: {prio} | Severity: {sev}\nID: `{iid}`"
+                payload = {"channel": SLACK_CHANNEL, "username": "LogClaw", "icon_emoji": ":shield:", "text": text}
+                req = Request(SLACK_WEBHOOK, json.dumps(payload).encode(), {"Content-Type": "application/json"}, method="POST")
+                urlopen(req, timeout=5)
+                stats["webhooks_sent"] += 1
+                ext_refs.append({"system": "slack", "ref_id": SLACK_CHANNEL, "url": "", "synced_at": now_iso()})
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                log(f"  Slack error: {e}")
+
+        if PD_ENABLED:
+            try:
+                routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY", "")
+                if routing_key:
+                    sev_map = {"critical": "critical", "high": "error", "medium": "warning", "low": "info"}
+                    payload = {
+                        "routing_key": routing_key,
+                        "event_action": "trigger",
+                        "dedup_key": incident["id"],
+                        "payload": {
+                            "summary": incident["title"],
+                            "severity": sev_map.get(incident["severity"], "warning"),
+                            "source": f"logclaw-{TENANT_ID}",
+                            "component": incident["service"],
+                            "custom_details": {"anomaly_score": incident["anomaly_score"], "priority": incident.get("priority"), "correlation_id": incident.get("correlation_id")},
+                        },
+                    }
+                    req = Request(f"{PD_API_URL}/v2/enqueue", json.dumps(payload).encode(), {"Content-Type": "application/json"}, method="POST")
+                    r = json.loads(urlopen(req, timeout=10).read())
+                    ext_refs.append({"system": "pagerduty", "ref_id": r.get("dedup_key", incident["id"]), "url": "", "synced_at": now_iso()})
+                    stats["webhooks_sent"] += 1
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                log(f"  PagerDuty error: {e}")
+
+        if JIRA_ENABLED and JIRA_BASE_URL:
+            try:
+                jira_token = os.environ.get("JIRA_API_TOKEN", "")
+                jira_user = os.environ.get("JIRA_USER_EMAIL", "")
+                if jira_token and jira_user:
+                    import base64
+                    auth = base64.b64encode(f"{jira_user}:{jira_token}".encode()).decode()
+                    priority_map = {"critical": "Highest", "high": "High", "medium": "Medium", "low": "Low"}
+                    sev = incident["severity"]
+                    payload = {
+                        "fields": {
+                            "project": {"key": JIRA_PROJECT},
+                            "summary": incident["title"],
+                            "description": f"LogClaw Incident {incident['id']}\n\nPriority: {incident.get('priority', 'P3')}\nSeverity: {sev}\nService: {incident['service']}\nCorrelation: {incident.get('correlation_id', 'N/A')}\n\n{incident['description']}",
+                            "issuetype": {"name": JIRA_ISSUE_TYPE},
+                            "priority": {"name": priority_map.get(sev, "Medium")},
+                            "labels": ["logclaw", f"sev-{sev}", incident["service"]],
+                        }
+                    }
+                    req = Request(f"{JIRA_BASE_URL}/rest/api/2/issue", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"Basic {auth}"}, method="POST")
+                    r = json.loads(urlopen(req, timeout=10).read())
+                    jira_key = r.get("key", "")
+                    ext_refs.append({"system": "jira", "ref_id": jira_key, "url": f"{JIRA_BASE_URL}/browse/{jira_key}", "synced_at": now_iso()})
+                    stats["webhooks_sent"] += 1
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                log(f"  Jira error: {e}")
+
+        if SNOW_ENABLED and SNOW_URL:
+            try:
+                snow_user = os.environ.get("SERVICENOW_USERNAME", "")
+                snow_pass = os.environ.get("SERVICENOW_PASSWORD", "")
+                if snow_user and snow_pass:
+                    import base64
+                    auth = base64.b64encode(f"{snow_user}:{snow_pass}".encode()).decode()
+                    sev_map = {"critical": "1", "high": "2", "medium": "3", "low": "4"}
+                    table = os.environ.get("SERVICENOW_TABLE", "incident")
+                    payload = {
+                        "short_description": incident["title"],
+                        "description": incident["description"],
+                        "severity": sev_map.get(incident["severity"], "3"),
+                        "urgency": {"high": "1", "medium": "2", "low": "3"}.get(incident.get("urgency", "medium"), "2"),
+                        "impact": {"critical": "1", "high": "1", "medium": "2", "low": "3"}.get(incident["severity"], "2"),
+                        "category": "LogClaw",
+                        "caller_id": "logclaw",
+                        "correlation_id": incident.get("correlation_id", ""),
+                        "assignment_group": os.environ.get("SERVICENOW_ASSIGNMENT_GROUP", ""),
+                    }
+                    req = Request(f"{SNOW_URL}/api/now/table/{table}", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"Basic {auth}", "Accept": "application/json"}, method="POST")
+                    r = json.loads(urlopen(req, timeout=10).read())
+                    result = r.get("result", {})
+                    snow_number = result.get("number", "")
+                    snow_sysid = result.get("sys_id", "")
+                    ext_refs.append({"system": "servicenow", "ref_id": snow_number, "url": f"{SNOW_URL}/nav_to.do?uri=incident.do?sys_id={snow_sysid}", "synced_at": now_iso()})
+                    stats["webhooks_sent"] += 1
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                log(f"  ServiceNow error: {e}")
+
+        if OG_ENABLED:
+            try:
+                og_key = os.environ.get("OPSGENIE_API_KEY", "")
+                og_team = os.environ.get("OPSGENIE_TEAM", "")
+                if og_key:
+                    priority_map = {"critical": "P1", "high": "P2", "medium": "P3", "low": "P4"}
+                    payload = {
+                        "message": incident["title"],
+                        "alias": incident["id"],
+                        "description": incident["description"],
+                        "priority": priority_map.get(incident["severity"], "P3"),
+                        "source": f"logclaw-{TENANT_ID}",
+                        "tags": ["logclaw", incident["service"], incident["severity"]],
+                        "details": {"anomaly_score": str(incident["anomaly_score"]), "service": incident["service"], "correlation_id": incident.get("correlation_id", "")},
+                    }
+                    if og_team:
+                        payload["responders"] = [{"name": og_team, "type": "team"}]
+                    req = Request(f"{OG_API_URL}/v2/alerts", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"GenieKey {og_key}"}, method="POST")
+                    r = json.loads(urlopen(req, timeout=10).read())
+                    ext_refs.append({"system": "opsgenie", "ref_id": r.get("requestId", ""), "url": "", "synced_at": now_iso()})
+                    stats["webhooks_sent"] += 1
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                log(f"  OpsGenie error: {e}")
+
+        return ext_refs
+
+
+    # ── Incident processing ────────────────────────────────────────────────
+    def process(event):
+        score = event.get("anomaly_score", 0)
+        if score < MIN_SCORE:
+            stats["skipped"] += 1
+            return
+        svc = event.get("service", "unknown")
+        atype = event.get("anomaly_type", "unknown")
+        if is_dup(svc, atype):
+            stats["skipped"] += 1
+            return
+
+        evidence = os_context(svc)
+        now = now_iso()
+        sev = event.get("severity", "medium")
+        urgency = "high" if sev in ("critical", "high") else "medium" if sev == "medium" else "low"
+        priority = PRIORITY_MATRIX.get((sev, urgency), "P3")
+        raw_desc = event.get("description", "anomaly")[:120]
+        correlation_id = event.get("event_id", str(uuid.uuid4()))
+        num = next_incident_number()
+        iid = f"INC-{num:04d}"
+
+        incident = {
+            "id": iid,
+            "number": num,
+            "severity": sev,
+            "urgency": urgency,
+            "priority": priority,
+            "state": "identified",
+            "title": f"[{sev.upper()}] {svc} - {raw_desc}",
+            "description": event.get("description", ""),
+            "service": svc,
+            "environment": TENANT_ID,
+            "anomaly_type": atype,
+            "anomaly_score": score,
+            "correlation_id": correlation_id,
+            "affected_endpoint": event.get("affected_endpoint", ""),
+            "impact": None,
+            "root_cause": None,
+            "commander": None,
+            "assigned_to": None,
+            "communication_channel": None,
+            "runbook_url": None,
+            "evidence_logs": evidence[:MAX_LINES],
+            "created_at": now,
+            "updated_at": now,
+            "detected_at": now,
+            "acknowledged_at": None,
+            "mitigated_at": None,
+            "resolved_at": None,
+            "tenant_id": TENANT_ID,
+            "timeline": [
+                {"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": f"Anomaly detected: {event.get('description', 'unknown anomaly')}", "actor": "system"}
+            ],
+            "external_refs": [],
+            "tags": [svc, atype, sev],
+            "custom_fields": {},
+        }
+
+        ext_refs = send_webhooks(incident)
+        if ext_refs:
+            incident["external_refs"] = ext_refs
+
+        save_incident(incident)
+        with lock:
+            stats["created"] += 1
+        log(f"Incident {iid} ({priority}): {incident['title']}")
+
+
+    # ── Kafka consumer loop ────────────────────────────────────────────────
+    def kafka_loop():
+        log(f"Kafka: {KAFKA_BROKERS} / {KAFKA_TOPIC}")
+        try:
+            from kafka import KafkaConsumer
+            c = KafkaConsumer(
+                KAFKA_TOPIC,
+                bootstrap_servers=KAFKA_BROKERS.split(","),
+                group_id=KAFKA_GROUP,
+                auto_offset_reset="earliest",
+                value_deserializer=lambda m: json.loads(m.decode()),
+                consumer_timeout_ms=1000,
+                session_timeout_ms=30000,
+                max_poll_records=100,
+            )
+            consumer_ready.set()
+            log("Kafka consumer ready")
+            while True:
+                for tp, msgs in c.poll(timeout_ms=2000).items():
+                    for msg in msgs:
+                        stats["consumed"] += 1
+                        try:
+                            process(msg.value)
+                        except Exception as e:
+                            log(f"Process error: {e}")
+                time.sleep(0.5)
+        except ImportError:
+            log("kafka-python-ng not installed, HTTP-only mode")
+            consumer_ready.set()
+        except Exception as e:
+            log(f"Kafka error: {e}")
+            consumer_ready.set()
+            time.sleep(10)
+            kafka_loop()
+
+
+    # ── API Schema / Discovery ─────────────────────────────────────────────
+    def api_schema():
+        return {
+            "name": "LogClaw Incident Management API",
+            "version": ENGINE_VERSION,
+            "api_version": API_VERSION,
+            "description": "Industry-standard incident management engine with PagerDuty/FireHydrant/ITIL-aligned workflows",
+            "base_url": f"/api/{API_VERSION}",
+            "endpoints": [
+                {"method": "GET",    "path": f"/api/{API_VERSION}/incidents",                  "description": "List incidents (paginated, filterable)"},
+                {"method": "POST",   "path": f"/api/{API_VERSION}/incidents",                  "description": "Create incident manually"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/incidents/:id",              "description": "Get single incident by ID"},
+                {"method": "PATCH",  "path": f"/api/{API_VERSION}/incidents/:id",              "description": "Update incident (state, assignee, impact, etc.)"},
+                {"method": "DELETE", "path": f"/api/{API_VERSION}/incidents/:id",              "description": "Delete incident"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/incidents/:id/timeline",     "description": "Get incident timeline events"},
+                {"method": "POST",   "path": f"/api/{API_VERSION}/incidents/:id/notes",        "description": "Add note to incident timeline"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/stats",                      "description": "Aggregated incident statistics"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/metrics/mttr",               "description": "MTTR/MTTA/MTTM metrics (FireHydrant-style)"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/integrations",               "description": "Integration status and configuration"},
+                {"method": "GET",    "path": f"/api/{API_VERSION}/schema",                     "description": "API schema and endpoint discovery"},
+            ],
+            "incident_states": VALID_STATES,
+            "severity_levels": VALID_SEVERITIES,
+            "urgency_levels": VALID_URGENCIES,
+            "priority_matrix": "severity x urgency -> P1-P5 (ITIL)",
+            "integrations": ["jira", "servicenow", "pagerduty", "opsgenie", "slack"],
+        }
+
+
+    # ── HTTP API ───────────────────────────────────────────────────────────
     class H(BaseHTTPRequestHandler):
-        def do_GET(self):
+        def _route(self, method):
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/")
+            params = parse_qs(parsed.query)
+            req_id = gen_request_id()
+
+            # Read body for POST/PATCH/PUT
+            body = None
+            if method in ("POST", "PATCH", "PUT"):
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln)) if ln > 0 else {}
+
+            # ── Health / Ready ──
+            if path == "/health":
+                return self._j(200, {"status": "ok", "ready": consumer_ready.is_set(), "version": ENGINE_VERSION}, req_id)
+            if path == "/ready":
+                code = 200 if consumer_ready.is_set() else 503
+                return self._j(code, {"ready": consumer_ready.is_set()}, req_id)
+
+            # ── Prometheus metrics ──
+            if path == "/metrics":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                lines = []
+                for k, v in stats.items():
+                    lines.append(f"# TYPE logclaw_ticketing_{k} counter")
+                    lines.append(f"logclaw_ticketing_{k} {v}")
+                self.wfile.write("\n".join(lines).encode())
+                return
+
+            # ── Versioned API routes ──
+            # Support both /api/v1/... and /api/... (backward compat)
+            api_path = path
+            if path.startswith(f"/api/{API_VERSION}"):
+                api_path = "/api" + path[len(f"/api/{API_VERSION}"):]
+            elif not path.startswith("/api"):
+                return self._j(404, {"error": {"code": "not_found", "message": f"Unknown endpoint: {path}"}}, req_id)
+
+            # ── Schema / Discovery ──
+            if api_path == "/api/schema" and method == "GET":
+                return self._j(200, api_schema(), req_id)
+
+            # ── Stats ──
+            if api_path == "/api/stats" and method == "GET":
+                return self._j(200, get_stats(), req_id)
+
+            # ── MTTR Metrics ──
+            if api_path == "/api/metrics/mttr" and method == "GET":
+                return self._j(200, get_mttr(params), req_id)
+
+            # ── Integrations ──
+            if api_path == "/api/integrations" and method == "GET":
+                return self._j(200, {
+                    "jira": {"enabled": JIRA_ENABLED, "url": JIRA_BASE_URL, "project": JIRA_PROJECT},
+                    "servicenow": {"enabled": SNOW_ENABLED, "url": SNOW_URL},
+                    "pagerduty": {"enabled": PD_ENABLED, "api_url": PD_API_URL},
+                    "opsgenie": {"enabled": OG_ENABLED, "api_url": OG_API_URL},
+                    "slack": {"enabled": SLACK_ENABLED, "channel": SLACK_CHANNEL},
+                }, req_id)
+
+            # ── Incident list ──
+            if api_path == "/api/incidents" and method == "GET":
+                return self._j(200, search_incidents(params), req_id)
+
+            # ── Create incident ──
+            if api_path == "/api/incidents" and method == "POST":
+                now = now_iso()
+                sev = body.get("severity", "medium")
+                urg = body.get("urgency", "medium")
+                if sev not in VALID_SEVERITIES:
+                    return self._j(400, {"error": {"code": "invalid_severity", "message": f"Must be one of: {VALID_SEVERITIES}"}}, req_id)
+                if urg not in VALID_URGENCIES:
+                    urg = "medium"
+                prio = PRIORITY_MATRIX.get((sev, urg), "P3")
+                num = next_incident_number()
+                iid = f"INC-{num:04d}"
+                incident = {
+                    "id": iid, "number": num,
+                    "severity": sev, "urgency": urg, "priority": prio,
+                    "state": "identified",
+                    "title": body.get("title", "Manual incident"),
+                    "description": body.get("description", ""),
+                    "service": body.get("service", "manual"),
+                    "environment": body.get("environment", TENANT_ID),
+                    "anomaly_type": "manual", "anomaly_score": 0,
+                    "correlation_id": body.get("correlation_id", str(uuid.uuid4())),
+                    "affected_endpoint": body.get("affected_endpoint", ""),
+                    "impact": body.get("impact"),
+                    "root_cause": None, "commander": body.get("commander"),
+                    "assigned_to": body.get("assigned_to"),
+                    "communication_channel": body.get("communication_channel"),
+                    "runbook_url": body.get("runbook_url"),
+                    "evidence_logs": [],
+                    "created_at": now, "updated_at": now, "detected_at": now,
+                    "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
+                    "tenant_id": TENANT_ID,
+                    "timeline": [{"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": body.get("message", "Manually created incident"), "actor": body.get("actor", "operator")}],
+                    "external_refs": [], "tags": body.get("tags", []),
+                    "custom_fields": body.get("custom_fields", {}),
+                }
+                save_incident(incident)
+                with lock:
+                    stats["created"] += 1
+                return self._j(201, incident, req_id)
+
+            # ── Single incident routes ──
+            parts = api_path.split("/")
+            # /api/incidents/<id>[/timeline|/notes]
+            if len(parts) >= 4 and parts[1] == "api" and parts[2] == "incidents":
+                iid = parts[3]
+                sub = parts[4] if len(parts) > 4 else None
+
+                # GET /api/incidents/:id
+                if method == "GET" and not sub:
+                    inc = get_incident(iid)
+                    if inc:
+                        return self._j(200, inc, req_id)
+                    return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+
+                # DELETE /api/incidents/:id
+                if method == "DELETE" and not sub:
+                    if delete_incident(iid):
+                        return self._j(200, {"deleted": True, "id": iid}, req_id)
+                    return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+
+                # GET /api/incidents/:id/timeline
+                if method == "GET" and sub == "timeline":
+                    inc = get_incident(iid)
+                    if inc:
+                        return self._j(200, {"data": inc.get("timeline", []), "incident_id": iid}, req_id)
+                    return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+
+                # POST /api/incidents/:id/notes
+                if method == "POST" and sub == "notes":
+                    inc = get_incident(iid)
+                    if not inc:
+                        return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+                    now = now_iso()
+                    note = {
+                        "id": gen_request_id(),
+                        "timestamp": now,
+                        "type": "note",
+                        "state": inc["state"],
+                        "message": body.get("message", ""),
+                        "actor": body.get("actor", "operator"),
+                    }
+                    inc["timeline"].append(note)
+                    inc["updated_at"] = now
+                    save_incident(inc)
+                    return self._j(201, note, req_id)
+
+                # PATCH /api/incidents/:id
+                if method == "PATCH" and not sub:
+                    inc = get_incident(iid)
+                    if not inc:
+                        return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+                    now = now_iso()
+                    changed = False
+                    # State transition with milestone timestamps
+                    if "state" in body:
+                        new_state = body["state"]
+                        if new_state not in VALID_STATES:
+                            return self._j(400, {"error": {"code": "invalid_state", "message": f"Must be one of: {VALID_STATES}"}}, req_id)
+                        old_state = inc["state"]
+                        inc["state"] = new_state
+                        inc["updated_at"] = now
+                        # FireHydrant-style milestone timestamps
+                        if new_state == "acknowledged" and not inc.get("acknowledged_at"):
+                            inc["acknowledged_at"] = now
+                        elif new_state == "mitigated" and not inc.get("mitigated_at"):
+                            inc["mitigated_at"] = now
+                        elif new_state == "resolved":
+                            inc["resolved_at"] = now
+                        msg = body.get("message", f"State changed: {old_state} -> {new_state}")
+                        inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": new_state, "message": msg, "actor": body.get("actor", "operator")})
+                        changed = True
+                    # Updatable fields
+                    for field in ["assigned_to", "commander", "urgency", "impact", "root_cause", "communication_channel", "runbook_url"]:
+                        if field in body:
+                            old_val = inc.get(field)
+                            inc[field] = body[field]
+                            inc["updated_at"] = now
+                            if field == "urgency" and body[field] in VALID_URGENCIES:
+                                inc["priority"] = PRIORITY_MATRIX.get((inc["severity"], body[field]), inc.get("priority", "P3"))
+                            inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "field_change", "state": inc["state"], "message": f"{field}: {old_val} -> {body[field]}", "actor": body.get("actor", "operator")})
+                            changed = True
+                    if "tags" in body:
+                        inc["tags"] = list(set(inc.get("tags", []) + body["tags"]))
+                        inc["updated_at"] = now
+                        changed = True
+                    if "custom_fields" in body:
+                        inc.setdefault("custom_fields", {}).update(body["custom_fields"])
+                        inc["updated_at"] = now
+                        changed = True
+                    # Note-only update
+                    if "message" in body and "state" not in body and not any(f in body for f in ["assigned_to", "commander", "urgency", "impact", "root_cause"]):
+                        inc["updated_at"] = now
+                        inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "note", "state": inc["state"], "message": body["message"], "actor": body.get("actor", "operator")})
+                        changed = True
+                    if changed:
+                        save_incident(inc)
+                    return self._j(200, inc, req_id)
+
+            # ── Fallback: API root ──
+            if api_path == "/api" or api_path == f"/api/{API_VERSION}":
+                return self._j(200, api_schema(), req_id)
+
+            return self._j(404, {"error": {"code": "not_found", "message": f"Unknown endpoint: {path}"}}, req_id)
+
+        def do_GET(self):     self._route("GET")
+        def do_POST(self):    self._route("POST")
+        def do_PATCH(self):   self._route("PATCH")
+        def do_PUT(self):     self._route("PUT")
+        def do_DELETE(self):  self._route("DELETE")
+
+        def do_OPTIONS(self):
             self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Request-Id")
             self.end_headers()
-            self.wfile.write(b'ok')
-        def log_message(self, *a): pass
-    HTTPServer(('0.0.0.0', 8080), H).serve_forever()
+
+        def _j(self, code, data, req_id=""):
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+            if req_id:
+                self.send_header("X-Request-Id", req_id)
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+        def log_message(self, *a):
+            pass
+
+
+    # ── Main ───────────────────────────────────────────────────────────────
+    log(f"LogClaw Incident Manager {ENGINE_VERSION} starting")
+    log(f"  API: /api/{API_VERSION}/  |  Tenant: {TENANT_ID}")
+    log(f"  Integrations: jira={JIRA_ENABLED} snow={SNOW_ENABLED} pd={PD_ENABLED} og={OG_ENABLED} slack={SLACK_ENABLED}")
+    ensure_index()
+    _init_sequence()
+    threading.Thread(target=kafka_loop, daemon=True).start()
+    log(f"  HTTP API on :8080")
+    HTTPServer(("0.0.0.0", 8080), H).serve_forever()
+    PYEOF
+    exec python -u /tmp/incident_manager.py
+
+# Dev mode: override security for pip install (needs writable filesystem + root)
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
 
 autoscaling:
   enabled: false
@@ -29,12 +931,46 @@ autoscaling:
 config:
   pagerduty:
     enabled: false
+    apiUrl: "https://events.pagerduty.com"
+    autoResolveTimeoutMinutes: 240
   jira:
     enabled: false
+    baseUrl: ""
+    projectKey: "OPS"
+    issueType: "Bug"
   servicenow:
     enabled: false
+    instanceUrl: ""
+    table: "incident"
+    categoryField: "category"
+  opsgenie:
+    enabled: false
+    apiUrl: "https://api.opsgenie.com"
+    team: ""
+  slack:
+    enabled: false
+    channel: "#logclaw-alerts"
+    username: "LogClaw"
+    iconEmoji: ":shield:"
+  zammad:
+    enabled: false
+    endpoint: ""
+    groupName: "Users"
   anomaly:
     minimumScore: 0.5
+    contextWindowSeconds: 300
+    maxLogLinesInTicket: 50
+    deduplicationWindowMinutes: 15
+  kafka:
+    consumerGroup: "logclaw-ticketing-agent"
+    autoOffsetReset: "earliest"
+    maxPollRecords: 100
+    sessionTimeoutMs: 30000
+  routing:
+    critical: []
+    high: []
+    medium: []
+    low: []
 
 resources:
   requests:
@@ -44,15 +980,15 @@ resources:
     cpu: "500m"
     memory: "256Mi"
 
-# ── Global values (normally injected by umbrella chart) ────────────────────────
+# -- Global values (normally injected by umbrella chart) ---------------------------
 global:
   tenantId: "dev-local"
   tier: "standard"
   storageClass: "standard"
-  kafkaBrokers: "kafka.default.svc.cluster.local:9092"
+  kafkaBrokers: "logclaw-kafka-dev-local-kafka-bootstrap.logclaw-dev-local.svc:9092"
   kafkaTopics:
-    anomalies: "anomalies"
-  opensearchEndpoint: "https://opensearch.default.svc.cluster.local:9200"
+    anomalies: "anomaly-events"
+  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
   topologyKey: "topology.kubernetes.io/zone"
   imagePullSecrets: []
   secretStore:
@@ -68,9 +1004,12 @@ global:
 
 llm:
   provider: "disabled"
+  temperature: 0.2
+  maxTokens: 2048
+  timeoutSeconds: 60
 
 ticketing:
-  platform: "pagerduty-jira"
+  platform: "opensearch"
 
 zammad:
-  groupName: "SRE Incidents"
+  enabled: false

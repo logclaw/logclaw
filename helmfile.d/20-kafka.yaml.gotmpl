@@ -2,6 +2,7 @@ releases:
   - name: logclaw-kafka-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
     chart: ../charts/logclaw-kafka
+    installed: {{ ne (env "KAFKA_EXTERNAL" | default "false") "true" }}
     values:
       - ../charts/logclaw-kafka/ci/default-values.yaml
     set:

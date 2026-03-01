@@ -1,0 +1,548 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-bridge.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-bridge.labels" . | nindent 4 }}
+data:
+  main.py: |
+    """
+    LogClaw Bridge Service — dev-mode replacement for Apache Flink stream processing.
+
+    Consumes raw logs from Kafka, normalizes and enriches them, performs statistical
+    anomaly detection (z-score on per-service error rates), and bulk-indexes
+    enriched logs and anomaly events into OpenSearch.
+
+    Architecture:
+      Thread 1 (ETL)      : raw-logs -> normalize -> enriched-logs
+      Thread 2 (Anomaly)  : enriched-logs -> z-score detector -> anomaly-events
+      Thread 3 (Indexer)  : enriched-logs + anomaly queue -> OpenSearch bulk API
+      Main thread         : HTTP health/ready/metrics server on :8080
+    """
+
+    import json
+    import logging
+    import os
+    import signal
+    import sys
+    import threading
+    import time
+    import uuid
+    from collections import defaultdict, deque
+    from datetime import datetime, timezone
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    import numpy as np
+    from kafka import KafkaConsumer, KafkaProducer
+    from opensearchpy import OpenSearch, helpers as os_helpers
+
+    # ---------------------------------------------------------------------------
+    # Configuration
+    # ---------------------------------------------------------------------------
+    KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
+    KAFKA_TOPIC_RAW = os.environ.get("KAFKA_TOPIC_RAW", "raw-logs")
+    KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
+    KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
+    OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+    TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
+    ANOMALY_ZSCORE_THRESHOLD = float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0"))
+    ANOMALY_WINDOW_SECONDS = int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300"))
+    BULK_SIZE = int(os.environ.get("OPENSEARCH_BULK_SIZE", "500"))
+    BULK_INTERVAL = float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5"))
+
+    BUCKET_WIDTH = 10  # seconds per sliding-window bucket
+
+    # ---------------------------------------------------------------------------
+    # Logging
+    # ---------------------------------------------------------------------------
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stdout,
+    )
+    log = logging.getLogger("logclaw.bridge")
+
+    # ---------------------------------------------------------------------------
+    # Shared state
+    # ---------------------------------------------------------------------------
+    shutdown_event = threading.Event()
+    anomaly_queue = deque(maxlen=10_000)  # Thread 2 -> Thread 3
+
+    # Metrics counters (simple atomic-ish ints protected by the GIL)
+    metrics = {
+        "etl_consumed": 0,
+        "etl_produced": 0,
+        "etl_errors": 0,
+        "anomaly_consumed": 0,
+        "anomaly_detected": 0,
+        "anomaly_errors": 0,
+        "indexer_consumed": 0,
+        "indexer_indexed": 0,
+        "indexer_bulk_requests": 0,
+        "indexer_errors": 0,
+    }
+
+    # Readiness flags per consumer group
+    ready_flags = {
+        "etl": threading.Event(),
+        "anomaly": threading.Event(),
+        "indexer": threading.Event(),
+    }
+
+
+    # ---------------------------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------------------------
+    def _now_iso():
+        return datetime.now(timezone.utc).isoformat()
+
+
+    def _make_consumer(topic, group_id):
+        brokers = KAFKA_BROKERS.split(",")
+        return KafkaConsumer(
+            topic,
+            bootstrap_servers=brokers,
+            group_id=group_id,
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+            auto_commit_interval_ms=5000,
+            consumer_timeout_ms=1000,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            reconnect_backoff_ms=500,
+            reconnect_backoff_max_ms=10000,
+        )
+
+
+    def _make_producer():
+        brokers = KAFKA_BROKERS.split(",")
+        return KafkaProducer(
+            bootstrap_servers=brokers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            acks="all",
+            retries=3,
+            retry_backoff_ms=500,
+        )
+
+
+    def _opensearch_client():
+        return OpenSearch(
+            hosts=[OPENSEARCH_ENDPOINT],
+            use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
+            verify_certs=False,
+            timeout=30,
+        )
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 1: ETL Consumer
+    # ---------------------------------------------------------------------------
+    def etl_consumer_loop():
+        """Read raw logs, normalize fields, and forward to enriched-logs topic."""
+        log.info("ETL consumer starting (group=logclaw-bridge-etl, topic=%s)", KAFKA_TOPIC_RAW)
+        consumer = None
+        producer = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_RAW, "logclaw-bridge-etl")
+            producer = _make_producer()
+            ready_flags["etl"].set()
+            log.info("ETL consumer ready")
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=1000)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["etl_consumed"] += 1
+                            try:
+                                enriched = _normalize(msg.value)
+                                producer.send(KAFKA_TOPIC_ENRICHED, value=enriched)
+                                metrics["etl_produced"] += 1
+                            except Exception:
+                                metrics["etl_errors"] += 1
+                                log.exception("ETL normalization error")
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["etl_errors"] += 1
+                        log.exception("ETL poll error")
+                        time.sleep(2)
+        finally:
+            _close_safely(consumer, "ETL consumer")
+            _close_safely(producer, "ETL producer")
+            log.info("ETL consumer stopped")
+
+
+    def _normalize(raw):
+        """Ensure consistent field names, uppercase level, add ingest timestamp."""
+        doc = dict(raw)
+        if "level" in doc:
+            doc["level"] = str(doc["level"]).upper()
+        else:
+            doc["level"] = "INFO"
+
+        if "message" not in doc or not doc["message"]:
+            doc["message"] = "(no message)"
+
+        doc["ingest_timestamp"] = _now_iso()
+        doc.setdefault("tenant_id", TENANT_ID)
+        doc.setdefault("service", "unknown")
+        doc.setdefault("timestamp", _now_iso())
+
+        return doc
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 2: Anomaly Detector
+    # ---------------------------------------------------------------------------
+    class SlidingWindowBucket:
+        __slots__ = ("error_count", "total_count")
+
+        def __init__(self):
+            self.error_count = 0
+            self.total_count = 0
+
+
+    def anomaly_detector_loop():
+        """Track per-service error rates and emit anomaly events on z-score spikes."""
+        log.info("Anomaly detector starting (group=logclaw-bridge-anomaly, topic=%s)", KAFKA_TOPIC_ENRICHED)
+        consumer = None
+        producer = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-anomaly")
+            producer = _make_producer()
+            ready_flags["anomaly"].set()
+            log.info("Anomaly detector ready")
+
+            windows = defaultdict(lambda: deque(maxlen=ANOMALY_WINDOW_SECONDS // BUCKET_WIDTH))
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=1000)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["anomaly_consumed"] += 1
+                            try:
+                                _process_anomaly_record(msg.value, windows, producer)
+                            except Exception:
+                                metrics["anomaly_errors"] += 1
+                                log.exception("Anomaly processing error")
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["anomaly_errors"] += 1
+                        log.exception("Anomaly poll error")
+                        time.sleep(2)
+        finally:
+            _close_safely(consumer, "Anomaly consumer")
+            _close_safely(producer, "Anomaly producer")
+            log.info("Anomaly detector stopped")
+
+
+    def _process_anomaly_record(doc, windows, producer):
+        service = doc.get("service", "unknown")
+        level = doc.get("level", "INFO").upper()
+        is_error = level in ("ERROR", "FATAL", "CRITICAL")
+
+        now_ts = time.time()
+        bucket_ts = int(now_ts // BUCKET_WIDTH) * BUCKET_WIDTH
+
+        window = windows[service]
+
+        if not window or window[-1][0] != bucket_ts:
+            window.append((bucket_ts, SlidingWindowBucket()))
+        current_bucket = window[-1][1]
+        current_bucket.total_count += 1
+        if is_error:
+            current_bucket.error_count += 1
+
+        cutoff = now_ts - ANOMALY_WINDOW_SECONDS
+        while window and window[0][0] < cutoff:
+            window.popleft()
+
+        if len(window) < 3:
+            return
+
+        rates = []
+        for _, bucket in window:
+            if bucket.total_count > 0:
+                rates.append(bucket.error_count / bucket.total_count)
+            else:
+                rates.append(0.0)
+
+        rates_arr = np.array(rates, dtype=np.float64)
+        mean = np.mean(rates_arr)
+        std = np.std(rates_arr)
+
+        if std < 1e-9:
+            return
+
+        current_rate = rates[-1]
+        z_score = (current_rate - mean) / std
+
+        if z_score < ANOMALY_ZSCORE_THRESHOLD:
+            return
+
+        severity, anomaly_score = _classify_zscore(z_score)
+
+        anomaly_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": _now_iso(),
+            "tenant_id": TENANT_ID,
+            "anomaly_type": "error_rate_spike",
+            "severity": severity,
+            "service": service,
+            "description": (
+                "Error rate spike detected for service '{}': "
+                "z-score={:.2f}, current_rate={:.3f}, "
+                "mean_rate={:.3f}, std={:.3f}"
+            ).format(service, z_score, current_rate, mean, std),
+            "anomaly_score": round(anomaly_score, 2),
+            "affected_endpoint": doc.get("endpoint", ""),
+            "status": "open",
+            "environment": TENANT_ID,
+            "z_score": round(z_score, 2),
+            "error_rate": round(current_rate, 4),
+            "window_buckets": len(window),
+        }
+
+        producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
+        anomaly_queue.append(anomaly_event)
+        metrics["anomaly_detected"] += 1
+        log.info(
+            "Anomaly detected: service=%s severity=%s z_score=%.2f score=%.2f",
+            service, severity, z_score, anomaly_score,
+        )
+
+
+    def _classify_zscore(z):
+        if z >= 4.0:
+            return "critical", 0.98
+        elif z >= 3.0:
+            return "high", 0.90
+        elif z >= 2.5:
+            return "medium", 0.80
+        else:
+            return "low", 0.70
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 3: OpenSearch Indexer
+    # ---------------------------------------------------------------------------
+    def opensearch_indexer_loop():
+        """Bulk-index enriched logs and anomaly events into OpenSearch."""
+        log.info(
+            "OpenSearch indexer starting (group=logclaw-bridge-indexer, topic=%s, bulk_size=%d, interval=%.1fs)",
+            KAFKA_TOPIC_ENRICHED, BULK_SIZE, BULK_INTERVAL,
+        )
+        consumer = None
+        os_client = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-indexer")
+            os_client = _opensearch_client()
+            ready_flags["indexer"].set()
+            log.info("OpenSearch indexer ready")
+
+            buffer = []
+            last_flush = time.time()
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=500)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["indexer_consumed"] += 1
+                            doc = msg.value
+                            today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
+                            buffer.append({
+                                "_index": "logclaw-logs-{}".format(today),
+                                "_source": doc,
+                            })
+
+                    while anomaly_queue:
+                        try:
+                            anomaly = anomaly_queue.popleft()
+                            today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
+                            buffer.append({
+                                "_index": "logclaw-anomalies-{}".format(today),
+                                "_source": anomaly,
+                            })
+                        except IndexError:
+                            break
+
+                    elapsed = time.time() - last_flush
+                    if len(buffer) >= BULK_SIZE or (buffer and elapsed >= BULK_INTERVAL):
+                        _flush_bulk(os_client, buffer)
+                        buffer = []
+                        last_flush = time.time()
+
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["indexer_errors"] += 1
+                        log.exception("Indexer loop error")
+                        time.sleep(2)
+
+            if buffer:
+                _flush_bulk(os_client, buffer)
+
+        finally:
+            _close_safely(consumer, "Indexer consumer")
+            log.info("OpenSearch indexer stopped")
+
+
+    def _flush_bulk(client, actions):
+        if not actions:
+            return
+        try:
+            success, errors = os_helpers.bulk(client, actions, raise_on_error=False)
+            metrics["indexer_indexed"] += success
+            metrics["indexer_bulk_requests"] += 1
+            if errors:
+                metrics["indexer_errors"] += len(errors)
+                log.warning("Bulk index had %d errors out of %d actions", len(errors), len(actions))
+            else:
+                log.debug("Bulk indexed %d documents", success)
+        except Exception:
+            metrics["indexer_errors"] += 1
+            log.exception("Bulk index request failed (%d actions)", len(actions))
+
+
+    # ---------------------------------------------------------------------------
+    # HTTP Health Server
+    # ---------------------------------------------------------------------------
+    class HealthHandler(BaseHTTPRequestHandler):
+        """Minimal HTTP handler for /health, /ready, and /metrics."""
+
+        def do_GET(self):
+            if self.path == "/health":
+                self._respond_json(200, {
+                    "status": "healthy",
+                    "service": "logclaw-bridge",
+                    "tenant_id": TENANT_ID,
+                    "timestamp": _now_iso(),
+                })
+            elif self.path == "/ready":
+                all_ready = all(f.is_set() for f in ready_flags.values())
+                if all_ready:
+                    self._respond_json(200, {
+                        "status": "ready",
+                        "consumers": {k: v.is_set() for k, v in ready_flags.items()},
+                    })
+                else:
+                    self._respond_json(503, {
+                        "status": "not_ready",
+                        "consumers": {k: v.is_set() for k, v in ready_flags.items()},
+                    })
+            elif self.path == "/metrics":
+                self._respond_metrics()
+            else:
+                self._respond_json(404, {"error": "not found"})
+
+        def _respond_json(self, code, body):
+            payload = json.dumps(body).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _respond_metrics(self):
+            lines = []
+            for key, value in metrics.items():
+                prom_name = "logclaw_bridge_{}_total".format(key)
+                lines.append("# TYPE {} counter".format(prom_name))
+                lines.append("{} {}".format(prom_name, value))
+            for name, flag in ready_flags.items():
+                prom_name = "logclaw_bridge_ready_{}".format(name)
+                lines.append("# TYPE {} gauge".format(prom_name))
+                lines.append("{} {}".format(prom_name, 1 if flag.is_set() else 0))
+            body = "\n".join(lines) + "\n"
+            payload = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format, *args):
+            """Suppress default stderr logging; use structured logger instead."""
+            log.debug("HTTP %s", format % args)
+
+
+    # ---------------------------------------------------------------------------
+    # Utilities
+    # ---------------------------------------------------------------------------
+    def _close_safely(resource, name):
+        if resource is None:
+            return
+        try:
+            resource.close()
+        except Exception:
+            log.debug("Error closing %s (ignored)", name)
+
+
+    # ---------------------------------------------------------------------------
+    # Main entry-point
+    # ---------------------------------------------------------------------------
+    def main():
+        log.info("=" * 60)
+        log.info("LogClaw Bridge Service starting")
+        log.info("  KAFKA_BROKERS          = %s", KAFKA_BROKERS)
+        log.info("  KAFKA_TOPIC_RAW        = %s", KAFKA_TOPIC_RAW)
+        log.info("  KAFKA_TOPIC_ENRICHED   = %s", KAFKA_TOPIC_ENRICHED)
+        log.info("  KAFKA_TOPIC_ANOMALIES  = %s", KAFKA_TOPIC_ANOMALIES)
+        log.info("  OPENSEARCH_ENDPOINT    = %s", OPENSEARCH_ENDPOINT)
+        log.info("  TENANT_ID              = %s", TENANT_ID)
+        log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", ANOMALY_ZSCORE_THRESHOLD)
+        log.info("  ANOMALY_WINDOW_SECONDS = %d", ANOMALY_WINDOW_SECONDS)
+        log.info("  OPENSEARCH_BULK_SIZE   = %d", BULK_SIZE)
+        log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", BULK_INTERVAL)
+        log.info("=" * 60)
+
+        if not os.environ.get("KAFKA_BROKERS"):
+            log.warning("KAFKA_BROKERS not set; using default localhost:9092")
+        if not os.environ.get("OPENSEARCH_ENDPOINT"):
+            log.warning("OPENSEARCH_ENDPOINT not set; using default http://localhost:9200")
+
+        threads = [
+            threading.Thread(target=etl_consumer_loop, name="etl-consumer", daemon=True),
+            threading.Thread(target=anomaly_detector_loop, name="anomaly-detector", daemon=True),
+            threading.Thread(target=opensearch_indexer_loop, name="opensearch-indexer", daemon=True),
+        ]
+        for t in threads:
+            t.start()
+            log.info("Started thread: %s", t.name)
+
+        server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+        server_thread = threading.Thread(target=server.serve_forever, name="http-health", daemon=True)
+        server_thread.start()
+        log.info("Health server listening on :8080")
+
+        def _shutdown(signum, frame):
+            sig_name = signal.Signals(signum).name
+            log.info("Received %s - initiating graceful shutdown", sig_name)
+            shutdown_event.set()
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+        # Block main thread until shutdown signal is received
+        log.info("Bridge service running - waiting for shutdown signal")
+        while not shutdown_event.is_set():
+            try:
+                shutdown_event.wait(timeout=1.0)
+            except (KeyboardInterrupt, SystemExit):
+                shutdown_event.set()
+                break
+
+        log.info("Shutdown signal received - stopping worker threads")
+
+        for t in threads:
+            t.join(timeout=10)
+            if t.is_alive():
+                log.warning("Thread %s did not stop within 10s", t.name)
+
+        server.shutdown()
+        log.info("LogClaw Bridge Service stopped")
+
+
+    if __name__ == "__main__":
+        main()

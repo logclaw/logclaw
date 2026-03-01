@@ -194,6 +194,7 @@ Installs into dedicated namespaces:
 | Operator | Namespace |
 |---|---|
 | Strimzi Kafka 0.50.1 | `strimzi-system` |
+| Flink Kubernetes Operator 1.9.0 | `flink-system` |
 | External Secrets | `external-secrets` |
 | cert-manager | `cert-manager` |
 | OpenSearch Operator | `opensearch-operator-system` |
@@ -201,6 +202,7 @@ Installs into dedicated namespaces:
 Wait for all operator pods to be ready:
 ```bash
 kubectl get pods -n strimzi-system -w
+kubectl get pods -n flink-system -w
 kubectl get pods -n external-secrets -w
 kubectl get pods -n cert-manager -w
 kubectl get pods -n opensearch-operator-system -w
@@ -247,7 +249,7 @@ The local dev environment uses `ci/default-values.yaml` overrides to run without
 |---|---|---|
 | Kafka | Single-node KRaft, plain listener (port 9092) | Multi-broker, TLS + SCRAM-SHA-512 |
 | OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
-| Flink | Jobs **disabled** (no Flink operator) | FlinkDeployment CRDs |
+| Flink | Operator + CRDs installed, jobs **disabled** (no app JARs) | FlinkDeployment CRDs (ETL + enrichment + anomaly) |
 | ML Engine (Feast) | Runs with local file registry | Redis online store + S3 offline |
 | ML Engine (KServe) | **Skipped** (no KServe CRD) | InferenceService for anomaly model |
 | Airflow | `apache/airflow:2.9.2`, bundled PostgreSQL | Custom image, external PostgreSQL |
@@ -284,12 +286,10 @@ kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=webserver
 # All pods should be Running
 kubectl get pods -n logclaw-dev-local
 
-# Expected: 13 pods, all 1/1 or 2/2 Running
+# Expected: 11 pods, all 1/1 or 2/2 Running
 #   logclaw-kafka-dev-local-combined-0                          1/1  Running
 #   logclaw-kafka-dev-local-entity-operator-...                 2/2  Running
-#   logclaw-opensearch-dev-local-masters-0                      1/1  Running
-#   logclaw-opensearch-dev-local-data-0                         1/1  Running
-#   logclaw-opensearch-dev-local-coordinators-0                 1/1  Running
+#   opensearch-dev-local-0                                      1/1  Running
 #   logclaw-ingestion-dev-local-...                             1/1  Running
 #   logclaw-ml-engine-dev-local-feast-server-...                1/1  Running
 #   logclaw-airflow-dev-local-postgresql-0                      1/1  Running
@@ -304,41 +304,134 @@ kubectl -n logclaw-dev-local get kafka -o jsonpath='{.items[0].status.conditions
 # → True
 
 # OpenSearch cluster health
-kubectl -n logclaw-dev-local exec logclaw-opensearch-dev-local-masters-0 -- \
-  curl -sk -u admin:admin https://localhost:9200/_cluster/health | python3 -m json.tool
-# → "status": "green"
+kubectl -n logclaw-dev-local exec opensearch-dev-local-0 -- \
+  curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
+# → "status": "yellow" (single-node dev mode)
 
 # Helm releases
 helm list -n logclaw-dev-local
 # → All 8 releases should be "deployed"
 ```
 
-### 6 — Access the services
+### 6 — Create the Airflow admin user
+
+The Airflow chart does **not** auto-create a login user. Run this once after the first install:
 
 ```bash
-# Airflow Webserver
-kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080
-open http://localhost:8080
-
-# OpenSearch API (admin:admin)
-kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200
-curl -sk -u admin:admin https://localhost:9200/_cluster/health
-
-# Feast Feature Server
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567
-curl http://localhost:6567/health
-
-# Vector ingestion (send test logs)
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686
-curl -X POST http://localhost:8686 \
-  -H "Content-Type: application/json" \
-  -d '{"message": "test log entry", "level": "info"}'
+kubectl -n logclaw-dev-local exec deploy/logclaw-airflow-dev-local-webserver -- \
+  airflow users create \
+    --username admin --password admin \
+    --firstname LogClaw --lastname Admin \
+    --role Admin --email admin@logclaw.local
 ```
 
-### 7 — Tear down
+### 7 — Open all services (port-forwarding)
+
+All services run inside the kind cluster. Run this **one block** to expose everything to your machine:
 
 ```bash
-# Remove just the tenant
+# Forward all LogClaw services to localhost
+kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-kafka-dev-local-kafka-bootstrap 9092:9092 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 18080:8080 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-ticketing-agent-dev-local 18081:8080 &
+echo "All services forwarded — stop with: kill %1 %2 %3 %4 %5 %6 %7"
+```
+
+Once running, your services are at:
+
+| Service | URL | What you get |
+|---|---|---|
+| **Airflow** | [http://localhost:8080](http://localhost:8080) | DAG management UI (login: `admin` / `admin`) |
+| **OpenSearch** | [http://localhost:9200](http://localhost:9200) | Log search & analytics API |
+| **Kafka** | `localhost:9092` | Message broker (PLAIN, no auth) |
+| **Vector — ingest** | `POST` [http://localhost:18080](http://localhost:18080) | Send JSON logs here |
+| **Vector — admin** | [http://localhost:8686/health](http://localhost:8686/health) | Pipeline health & topology |
+| **Feast** | [http://localhost:6567](http://localhost:6567) | ML feature server |
+| **Ticketing Agent** | [http://localhost:18081](http://localhost:18081) | Incident management health |
+
+#### Default credentials
+
+| Service | Username | Password | Notes |
+|---|---|---|---|
+| **Airflow** | `admin` | `admin` | Created in Step 6 above |
+| **OpenSearch** | — | — | Security plugin disabled in dev; no auth needed |
+| **Kafka (PLAIN)** | — | — | Port 9092, anonymous access |
+| **Kafka (TLS)** | `admin` | `dev-kafka-password` | Port 9093, SCRAM-SHA-512 |
+| **Airflow PostgreSQL** | `postgres` | `postgres` | Internal DB, port 5432 |
+| **OpenSearch (secret)** | `admin` | `admin` | Stored in `opensearch-admin-credentials` secret |
+| **Ticketing Agent** | — | — | Reads creds from `logclaw-ticketing-agent-dev-local-credentials` |
+| **Redis (ML Engine)** | — | `dev-redis-password` | Internal, no external port |
+
+> All credentials are dev-only placeholders created by `make create-dev-secrets`.
+> Production uses External Secrets Operator to pull from AWS Secrets Manager / GCP Secret Manager / Vault.
+
+Quick smoke test after port-forwarding:
+
+```bash
+# Airflow UI
+open http://localhost:8080
+
+# OpenSearch cluster health
+curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
+
+# Kafka topics
+kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+# Vector health
+curl -s http://localhost:8686/health
+
+# Send a test log through the pipeline
+curl -X POST http://localhost:18080 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello from logclaw","level":"INFO","service":"test"}'
+```
+
+### 8 — End-to-end pipeline test
+
+Send test logs through the full pipeline and verify each step.
+
+```bash
+# Step 1: Send logs via HTTP → Vector
+curl -X POST http://localhost:18080 \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Payment failed: timeout", "level": "ERROR", "service": "payment-api"}'
+
+# Step 2: Verify logs landed in Kafka (raw-logs topic)
+kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
+  bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic raw-logs --from-beginning --max-messages 5 --timeout-ms 10000
+
+# Step 3: Check OpenSearch for indexed logs
+curl -s 'http://localhost:9200/logclaw-logs-*/_search' \
+  -H "Content-Type: application/json" \
+  -d '{"size":5,"query":{"match_all":{}},"sort":[{"ingest_timestamp":{"order":"desc"}}]}' \
+  | python3 -m json.tool
+
+# Step 4: Produce an anomaly event (simulates ML engine output)
+kubectl -n logclaw-dev-local exec -i logclaw-kafka-dev-local-combined-0 -- \
+  bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic anomaly-events <<'EOF'
+{"anomaly_id":"ANO-001","service":"payment-api","score":0.92,"severity":"critical","message":"Error rate spike to 15%"}
+EOF
+
+# Step 5: Verify anomaly event in topic
+kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
+  bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic anomaly-events --from-beginning --max-messages 5 --timeout-ms 10000
+```
+
+> **Note:** In local dev, the Kafka → OpenSearch bridge (Flink) and the ticketing agent are stubs.
+> Logs flow from HTTP → Vector → Kafka automatically. To test OpenSearch indexing, use the
+> bulk API directly or wait for the Flink operator to be installed.
+
+### 9 — Tear down
+
+```bash
+# Remove just the tenant stack
 make uninstall TENANT_ID=dev-local
 
 # Remove everything including the kind cluster
@@ -399,6 +492,63 @@ kubectl label node logclaw-dev-control-plane topology.kubernetes.io/zone=zone-a 
 ```
 
 `make kind-create` does this automatically.
+</details>
+
+<details>
+<summary><b>OpenSearch cluster_manager_not_discovered_exception</b></summary>
+
+The Opster operator creates a temporary bootstrap pod for initial cluster formation. With single-replica master pools (dev mode), the bootstrap creates a 2-node voting config then deletes itself, leaving the single master without quorum.
+
+**Fix:** Deploy a standalone single-node OpenSearch bypassing the Opster operator:
+
+```bash
+# Delete the operator-managed cluster
+kubectl delete opensearchcluster logclaw-opensearch-dev-local -n logclaw-dev-local
+kubectl delete pvc -n logclaw-dev-local -l opster.io/opensearch-cluster=logclaw-opensearch-dev-local
+
+# Deploy standalone single-node (see gitops/tenants/tenant-dev-local.yaml for the manifest)
+kubectl apply -f - <<'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch-dev-local
+  namespace: logclaw-dev-local
+spec:
+  serviceName: logclaw-opensearch-dev-local
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch-dev-local
+  template:
+    metadata:
+      labels:
+        app: opensearch-dev-local
+    spec:
+      initContainers:
+        - name: sysctl
+          image: busybox
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext: { privileged: true }
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.14.0
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
+            - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+            - { name: cluster.name, value: logclaw-opensearch-dev-local }
+          ports:
+            - { containerPort: 9200, name: http }
+            - { containerPort: 9300, name: transport }
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/opensearch/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 10Gi } }
+EOF
+```
 </details>
 
 <details>

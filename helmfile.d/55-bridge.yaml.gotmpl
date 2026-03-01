@@ -1,21 +1,19 @@
 releases:
-  - name: logclaw-ticketing-agent-{{ env "TENANT_ID" | default "dev-local" }}
+  - name: logclaw-bridge-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
-    chart: ../charts/logclaw-ticketing-agent
+    chart: ../charts/logclaw-bridge
     values:
-      - ../charts/logclaw-ticketing-agent/ci/default-values.yaml
+      - ../charts/logclaw-bridge/ci/default-values.yaml
     set:
       - name: global.tenantId
         value: {{ env "TENANT_ID" | default "dev-local" }}
       - name: global.kafkaBrokers
         value: {{ env "KAFKA_BROKERS" | default (printf "logclaw-kafka-%s-kafka-bootstrap.logclaw-%s.svc:9092" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}
+      - name: global.kafkaTopics.rawLogs
+        value: {{ env "KAFKA_TOPIC_RAW" | default "raw-logs" }}
+      - name: global.kafkaTopics.enriched
+        value: {{ env "KAFKA_TOPIC_ENRICHED" | default "enriched-logs" }}
       - name: global.kafkaTopics.anomalies
         value: {{ env "KAFKA_TOPIC_ANOMALIES" | default "anomaly-events" }}
       - name: global.opensearchEndpoint
         value: {{ env "OPENSEARCH_ENDPOINT" | default (printf "http://logclaw-opensearch-%s.logclaw-%s.svc:9200" (env "TENANT_ID" | default "dev-local") (env "TENANT_ID" | default "dev-local")) }}
-      - name: global.llm.provider
-        value: {{ env "LLM_PROVIDER" | default "disabled" }}
-      - name: global.llm.model
-        value: {{ env "LLM_MODEL" | default "llama3.2:8b" }}
-      - name: ticketing.platform
-        value: {{ env "TICKETING_PLATFORM" | default "pagerduty-jira" }}

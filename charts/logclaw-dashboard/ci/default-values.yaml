@@ -1,0 +1,44 @@
+# CI test values for logclaw-dashboard chart
+replicaCount: 1
+
+image:
+  repository: "python"
+  tag: "3.12-slim"
+
+# Dev mode: run as root (python:3.12-slim has no user 1000)
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+command:
+  - /bin/sh
+  - -c
+  - |
+    exec python -u /app/server.py
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  kafkaBrokers: "logclaw-kafka-dev-local-kafka-bootstrap.logclaw-dev-local.svc:9092"
+  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
+  imagePullSecrets: []
+  secretStore:
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+  monitoring:
+    enabled: false
+    prometheusNamespace: "monitoring"

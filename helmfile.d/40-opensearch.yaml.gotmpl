@@ -2,6 +2,7 @@ releases:
   - name: logclaw-opensearch-{{ env "TENANT_ID" | default "dev-local" }}
     namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
     chart: ../charts/logclaw-opensearch
+    installed: {{ ne (env "OPENSEARCH_EXTERNAL" | default "false") "true" }}
     timeout: 900
     values:
       - ../charts/logclaw-opensearch/ci/default-values.yaml

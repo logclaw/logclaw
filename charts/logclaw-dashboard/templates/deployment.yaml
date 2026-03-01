@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-dashboard.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-dashboard.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-dashboard.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-dashboard.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/server: {{ include (print $.Template.BasePath "/configmap-server.yaml") . | sha256sum }}
+        checksum/html: {{ include (print $.Template.BasePath "/configmap-html.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with ((.Values.global).imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logclaw-dashboard.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dashboard
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3333
+              protocol: TCP
+          env:
+            - name: TENANT_ID
+              value: {{ include "logclaw-dashboard.tenantId" . | quote }}
+            - name: OPENSEARCH_ENDPOINT
+              value: {{ include "logclaw-dashboard.opensearchEndpoint" . | quote }}
+            - name: VECTOR_ENDPOINT
+              value: {{ include "logclaw-dashboard.vectorEndpoint" . | quote }}
+            - name: TICKETING_ENDPOINT
+              value: {{ include "logclaw-dashboard.ticketingEndpoint" . | quote }}
+            - name: ZAMMAD_ENDPOINT
+              value: {{ include "logclaw-dashboard.zammadEndpoint" . | quote }}
+            - name: BRIDGE_ENDPOINT
+              value: {{ include "logclaw-dashboard.bridgeEndpoint" . | quote }}
+            - name: FEAST_ENDPOINT
+              value: {{ include "logclaw-dashboard.feastEndpoint" . | quote }}
+            - name: AIRFLOW_ENDPOINT
+              value: {{ include "logclaw-dashboard.airflowEndpoint" . | quote }}
+          volumeMounts:
+            - name: server-code
+              mountPath: /app/server.py
+              subPath: server.py
+              readOnly: true
+            - name: html
+              mountPath: /app/static
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: server-code
+          configMap:
+            name: {{ include "logclaw-dashboard.fullname" . }}-server
+        - name: html
+          configMap:
+            name: {{ include "logclaw-dashboard.fullname" . }}-html
+        - name: tmp
+          emptyDir: {}
