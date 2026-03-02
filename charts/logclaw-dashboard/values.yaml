@@ -3,8 +3,8 @@ fullnameOverride: ""
 replicaCount: 1
 
 image:
-  repository: "python"
-  tag: "3.12-slim"
+  repository: "ghcr.io/logclaw/dashboard"
+  tag: "latest"
   pullPolicy: IfNotPresent
 
 serviceAccount:
@@ -12,15 +12,13 @@ serviceAccount:
   annotations: {}
   name: ""
 
-command: []
-
 securityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  fsGroup: 1000
+  runAsUser: 1001
+  fsGroup: 1001
 
 containerSecurityContext:
-  readOnlyRootFilesystem: false
+  readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
 
 podAnnotations: {}
@@ -30,26 +28,26 @@ affinity: {}
 
 service:
   type: ClusterIP
-  port: 3333
+  port: 3000
 
 resources:
   requests:
-    cpu: "50m"
-    memory: "64Mi"
-  limits:
-    cpu: "200m"
+    cpu: "100m"
     memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
 
 livenessProbe:
   httpGet:
-    path: /health
-    port: 3333
+    path: /
+    port: 3000
   initialDelaySeconds: 10
   periodSeconds: 10
 
 readinessProbe:
   httpGet:
-    path: /health
-    port: 3333
+    path: /
+    port: 3000
   initialDelaySeconds: 5
   periodSeconds: 5

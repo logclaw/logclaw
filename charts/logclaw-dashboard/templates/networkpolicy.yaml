@@ -15,7 +15,7 @@ spec:
   ingress:
     # Dashboard needs to be accessible from any source (port-forward, ingress, etc.)
     - ports:
-        - port: 3333
+        - port: 3000
           protocol: TCP
   egress:
     # kube-dns — always required

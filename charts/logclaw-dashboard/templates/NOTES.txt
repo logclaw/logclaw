@@ -1,12 +1,19 @@
-LogClaw Dashboard deployed for tenant {{ include "logclaw-dashboard.tenantId" . }}.
+LogClaw Dashboard (Next.js) deployed for tenant {{ include "logclaw-dashboard.tenantId" . }}.
 
 == Access ==
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "logclaw-dashboard.fullname" . }} 3333:3333
-  open http://localhost:3333
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "logclaw-dashboard.fullname" . }} 3000:3000
+  open http://localhost:3000
+
+== Pages ==
+  /            Overview – stats, pipeline flow, charts, logs
+  /incidents   Incident management with filtering and traces
+  /ingestion   File upload and API reference
+  /settings    Service health and configuration
 
 == Features ==
-  - Drag & drop log file upload
   - Real-time pipeline flow visualization
-  - Log search and filtering
-  - Anomaly detection monitoring
-  - Ticket management (via Zammad)
+  - Drag & drop log file upload (JSON, NDJSON, CSV, text)
+  - Log level distribution and top services charts
+  - Anomaly detection monitoring with z-score display
+  - Incident management with state transitions and traces
+  - Service health monitoring

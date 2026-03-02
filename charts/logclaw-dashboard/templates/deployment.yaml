@@ -19,10 +19,8 @@ spec:
     metadata:
       labels:
         {{- include "logclaw-dashboard.selectorLabels" . | nindent 8 }}
-      annotations:
-        checksum/server: {{ include (print $.Template.BasePath "/configmap-server.yaml") . | sha256sum }}
-        checksum/html: {{ include (print $.Template.BasePath "/configmap-html.yaml") . | sha256sum }}
       {{- with .Values.podAnnotations }}
+      annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
@@ -49,21 +47,35 @@ spec:
         - name: dashboard
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.command }}
-          command:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
-              containerPort: 3333
+              containerPort: 3000
               protocol: TCP
           env:
-            - name: TENANT_ID
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            - name: NEXT_PUBLIC_TENANT_ID
               value: {{ include "logclaw-dashboard.tenantId" . | quote }}
             - name: OPENSEARCH_ENDPOINT
               value: {{ include "logclaw-dashboard.opensearchEndpoint" . | quote }}
+            - name: OPENSEARCH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-admin-credentials
+                  key: username
+                  optional: true
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-admin-credentials
+                  key: password
+                  optional: true
             - name: VECTOR_ENDPOINT
               value: {{ include "logclaw-dashboard.vectorEndpoint" . | quote }}
             - name: TICKETING_ENDPOINT
@@ -77,13 +89,8 @@ spec:
             - name: AIRFLOW_ENDPOINT
               value: {{ include "logclaw-dashboard.airflowEndpoint" . | quote }}
           volumeMounts:
-            - name: server-code
-              mountPath: /app/server.py
-              subPath: server.py
-              readOnly: true
-            - name: html
-              mountPath: /app/static
-              readOnly: true
+            - name: nextjs-cache
+              mountPath: /app/.next/cache
             - name: tmp
               mountPath: /tmp
           livenessProbe:
@@ -93,11 +100,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        - name: server-code
-          configMap:
-            name: {{ include "logclaw-dashboard.fullname" . }}-server
-        - name: html
-          configMap:
-            name: {{ include "logclaw-dashboard.fullname" . }}-html
+        - name: nextjs-cache
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
