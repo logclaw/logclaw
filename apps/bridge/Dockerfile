@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 LABEL org.opencontainers.image.source="https://github.com/logclaw/logclaw"
 LABEL org.opencontainers.image.description="LogClaw Bridge — Kafka→OpenSearch ETL with anomaly detection"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
