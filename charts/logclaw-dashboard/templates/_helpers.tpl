@@ -131,7 +131,7 @@ Resolve feastEndpoint — Feast feature server (ML Engine).
 */}}
 {{- define "logclaw-dashboard.feastEndpoint" -}}
 {{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-ml-engine-{{ $tenantId }}-feast-server.{{ .Release.Namespace }}.svc:6567
+http://logclaw-ml-engine-{{ $tenantId }}-feast-server.{{ .Release.Namespace }}.svc:6566
 {{- end }}
 
 {{/*

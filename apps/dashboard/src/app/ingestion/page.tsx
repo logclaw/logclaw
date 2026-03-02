@@ -1,28 +1,56 @@
 "use client";
 
 import FileUploader from "@/components/file-uploader";
+import {
+  Upload,
+  Terminal,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react";
 
 export default function IngestionPage() {
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-slate-200">Log Ingestion</h1>
+      {/* Header */}
+      <div className="animate-fade-in-up flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
+          <Upload className="h-5 w-5 text-[#FF5722]" />
+        </div>
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+            Log Ingestion
+          </h1>
+          <p className="text-[13px] text-[#6e6e73]">
+            Upload logs to the pipeline
+          </p>
+        </div>
+      </div>
 
       <FileUploader />
 
       {/* API docs reference */}
-      <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-3 text-sm font-medium text-slate-400 uppercase tracking-wider">
-          API Reference
-        </h3>
-        <div className="space-y-4">
+      <div className="animate-fade-in-up rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="mb-5 flex items-center gap-2">
+          <Terminal className="h-4 w-4 text-[#aeaeb2]" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            API Reference
+          </h3>
+        </div>
+        <div className="space-y-6">
           <div>
-            <h4 className="text-sm font-medium text-slate-300">
-              POST /api/vector/
-            </h4>
-            <p className="mt-1 text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <span className="rounded-md bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                POST
+              </span>
+              <h4 className="font-mono text-[14px] font-medium text-[#1d1d1f]">
+                /api/vector/
+              </h4>
+            </div>
+            <p className="mt-1.5 text-[13px] text-[#6e6e73]">
               Send log entries directly to the Vector ingestion pipeline.
             </p>
-            <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-400">
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-[#1d1d1f] p-4 text-[12px] text-[#aeaeb2] font-mono">
 {`curl -X POST http://localhost:3000/api/vector/ \\
   -H "Content-Type: application/json" \\
   -d '[{
@@ -36,81 +64,63 @@ export default function IngestionPage() {
           </div>
 
           <div>
-            <h4 className="text-sm font-medium text-slate-300">
+            <h4 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
               Supported Formats
             </h4>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { format: "JSON", ext: ".json", desc: "Array or single object" },
-                { format: "NDJSON", ext: ".ndjson", desc: "One JSON per line" },
-                { format: "CSV", ext: ".csv", desc: "Header row required" },
-                { format: "Text", ext: ".txt/.log", desc: "One log per line" },
-              ].map((f) => (
-                <div
-                  key={f.format}
-                  className="rounded-lg border border-slate-600 bg-slate-900/50 p-3"
-                >
-                  <p className="text-sm font-medium text-slate-300">
-                    {f.format}
-                  </p>
-                  <p className="text-xs text-slate-500">{f.ext}</p>
-                  <p className="mt-1 text-[10px] text-slate-600">{f.desc}</p>
-                </div>
-              ))}
+                { format: "JSON", ext: ".json", desc: "Array or single object", icon: FileJson },
+                { format: "NDJSON", ext: ".ndjson", desc: "One JSON per line", icon: FileJson },
+                { format: "CSV", ext: ".csv", desc: "Header row required", icon: FileSpreadsheet },
+                { format: "Text", ext: ".txt/.log", desc: "One log per line", icon: FileText },
+              ].map((f) => {
+                const Icon = f.icon;
+                return (
+                  <div
+                    key={f.format}
+                    className="card-hover rounded-xl bg-[#fafafa] p-4"
+                  >
+                    <Icon className="h-5 w-5 text-[#aeaeb2] mb-2" />
+                    <p className="text-[14px] font-semibold text-[#1d1d1f]">
+                      {f.format}
+                    </p>
+                    <p className="font-mono text-[11px] text-[#aeaeb2]">{f.ext}</p>
+                    <p className="mt-1 text-[11px] text-[#6e6e73]">{f.desc}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           <div>
-            <h4 className="text-sm font-medium text-slate-300">
+            <h4 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
               Required Fields
             </h4>
-            <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="mt-3 overflow-x-auto rounded-xl border border-[#e5e5ea]">
+              <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="text-left text-xs text-slate-500">
-                    <th className="pb-2 pr-4 font-medium">Field</th>
-                    <th className="pb-2 pr-4 font-medium">Type</th>
-                    <th className="pb-2 font-medium">Description</th>
+                  <tr className="border-b border-[#f2f2f7] text-left text-[10px] uppercase tracking-wider text-[#aeaeb2]">
+                    <th className="px-4 py-2.5 font-medium">Field</th>
+                    <th className="px-4 py-2.5 font-medium">Type</th>
+                    <th className="px-4 py-2.5 font-medium">Description</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs text-slate-400">
-                  <tr>
-                    <td className="py-1 pr-4 font-mono text-blue-400">
-                      message
-                    </td>
-                    <td className="py-1 pr-4">string</td>
-                    <td>Log message (required)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 pr-4 font-mono text-blue-400">
-                      level
-                    </td>
-                    <td className="py-1 pr-4">string</td>
-                    <td>
-                      DEBUG, INFO, WARN, ERROR, FATAL (defaults to INFO)
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 pr-4 font-mono text-blue-400">
-                      timestamp
-                    </td>
-                    <td className="py-1 pr-4">ISO 8601</td>
-                    <td>Auto-generated if missing</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 pr-4 font-mono text-blue-400">
-                      service
-                    </td>
-                    <td className="py-1 pr-4">string</td>
-                    <td>Service name for grouping</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1 pr-4 font-mono text-blue-400">
-                      trace_id
-                    </td>
-                    <td className="py-1 pr-4">string</td>
-                    <td>Distributed trace correlation</td>
-                  </tr>
+                <tbody className="text-[12px] text-[#6e6e73]">
+                  {[
+                    { field: "message", type: "string", desc: "Log message (required)" },
+                    { field: "level", type: "string", desc: "DEBUG, INFO, WARN, ERROR, FATAL" },
+                    { field: "timestamp", type: "ISO 8601", desc: "Auto-generated if missing" },
+                    { field: "service", type: "string", desc: "Service name for grouping" },
+                    { field: "trace_id", type: "string", desc: "Distributed trace correlation" },
+                  ].map((row) => (
+                    <tr key={row.field} className="border-b border-[#f2f2f7]/60">
+                      <td className="px-4 py-2.5 font-mono text-[#FF5722] font-medium">
+                        {row.field}
+                      </td>
+                      <td className="px-4 py-2.5 text-[#aeaeb2]">{row.type}</td>
+                      <td className="px-4 py-2.5">{row.desc}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

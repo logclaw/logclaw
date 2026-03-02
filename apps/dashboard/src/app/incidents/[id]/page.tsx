@@ -13,6 +13,18 @@ import {
   timeAgo,
   formatDuration,
 } from "@/lib/utils";
+import {
+  ArrowLeft,
+  GitBranch,
+  Clock,
+  CheckCircle2,
+  Eye,
+  Search,
+  AlertCircle,
+  Loader2,
+  User,
+  Server,
+} from "lucide-react";
 
 export default function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,7 +51,8 @@ export default function IncidentDetailPage() {
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-900/30 px-4 py-8 text-center text-red-300">
+      <div className="animate-fade-in flex items-center gap-2.5 rounded-xl bg-red-50 px-4 py-8 text-[13px] font-medium text-red-500">
+        <AlertCircle className="mx-auto h-5 w-5" />
         {error}
       </div>
     );
@@ -47,69 +60,100 @@ export default function IncidentDetailPage() {
 
   if (!incident) {
     return (
-      <div className="py-12 text-center text-slate-500">Loading incident...</div>
+      <div className="flex items-center justify-center gap-2 py-20 text-[13px] text-[#aeaeb2]">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading incident...
+      </div>
     );
   }
 
   const actions = getAvailableActions(incident.state);
 
   return (
-    <div className="space-y-6">
-      {/* Back + title */}
+    <div className="animate-fade-in-up space-y-6">
+      {/* Back + header */}
       <div>
         <button
           onClick={() => router.push("/incidents")}
-          className="mb-3 text-sm text-slate-500 hover:text-slate-300"
+          className="mb-4 flex items-center gap-1.5 text-[13px] text-[#6e6e73] transition-colors hover:text-[#1d1d1f]"
         >
-          ← Back to incidents
+          <ArrowLeft className="h-4 w-4" />
+          Back to incidents
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <span
-            className={`rounded-full px-2.5 py-1 text-xs font-bold uppercase ${severityColor(incident.severity)}`}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-bold uppercase ${severityColor(incident.severity)}`}
           >
             {incident.severity}
           </span>
           <span
-            className={`rounded-full px-2.5 py-1 text-xs font-bold uppercase ${stateColor(incident.state)}`}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-bold uppercase ${stateColor(incident.state)}`}
           >
             {incident.state}
           </span>
-          <h1 className="text-lg font-bold text-slate-200">
-            {incident.title}
-          </h1>
-        </div>
-        <p className="mt-1 text-sm text-slate-500">
-          {incident.service} · Created {timeAgo(incident.created_at)}
-          {incident.assigned_to && ` · Assigned to ${incident.assigned_to}`}
-          {incident.mttr_seconds != null && (
-            <> · MTTR: {formatDuration(incident.mttr_seconds)}</>
+          {incident.priority && (
+            <span className="rounded-md bg-[#f5f5f7] px-2 py-1 text-[11px] font-medium text-[#aeaeb2]">
+              {incident.priority}
+            </span>
           )}
-        </p>
+        </div>
+        <h1 className="mt-2 text-[20px] font-bold tracking-tight text-[#1d1d1f]">
+          {incident.title}
+        </h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px] text-[#6e6e73]">
+          <span className="flex items-center gap-1">
+            <Server className="h-3.5 w-3.5" />
+            {incident.service}
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            {timeAgo(incident.created_at)}
+          </span>
+          {incident.assigned_to && (
+            <span className="flex items-center gap-1">
+              <User className="h-3.5 w-3.5" />
+              {incident.assigned_to}
+            </span>
+          )}
+          {incident.mttr_seconds != null && (
+            <span className="font-mono text-[#FF5722]">
+              MTTR: {formatDuration(incident.mttr_seconds)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Actions */}
       {actions.length > 0 && (
         <div className="flex gap-2">
-          {actions.map((a) => (
-            <button
-              key={a.action}
-              onClick={() => doTransition(a.action)}
-              disabled={transitioning}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${a.className} disabled:opacity-50`}
-            >
-              {a.label}
-            </button>
-          ))}
+          {actions.map((a) => {
+            const Icon = a.icon;
+            return (
+              <button
+                key={a.action}
+                onClick={() => doTransition(a.action)}
+                disabled={transitioning}
+                className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-medium transition-all duration-200 ${a.className} disabled:opacity-50 active:scale-[0.98]`}
+              >
+                {transitioning ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Icon className="h-4 w-4" />
+                )}
+                {a.label}
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* Description */}
       {incident.description && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <h3 className="mb-2 text-sm font-medium text-slate-400">
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
             Description
           </h3>
-          <p className="text-sm text-slate-300 whitespace-pre-wrap">
+          <p className="text-[14px] leading-relaxed text-[#1d1d1f] whitespace-pre-wrap">
             {incident.description}
           </p>
         </div>
@@ -117,16 +161,17 @@ export default function IncidentDetailPage() {
 
       {/* Affected services */}
       {incident.affected_services && incident.affected_services.length > 0 && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <h3 className="mb-2 text-sm font-medium text-slate-400">
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
             Affected Services
           </h3>
           <div className="flex flex-wrap gap-2">
             {incident.affected_services.map((svc) => (
               <span
                 key={svc}
-                className="rounded-lg bg-slate-700 px-3 py-1 text-xs text-slate-300"
+                className="flex items-center gap-1.5 rounded-full bg-[#f5f5f7] px-3 py-1.5 text-[12px] font-medium text-[#1d1d1f]"
               >
+                <Server className="h-3 w-3 text-[#aeaeb2]" />
                 {svc}
               </span>
             ))}
@@ -136,48 +181,82 @@ export default function IncidentDetailPage() {
 
       {/* Request Traces */}
       {incident.request_traces && incident.request_traces.length > 0 && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 overflow-hidden">
-          <div className="border-b border-slate-700 px-4 py-3">
-            <h3 className="text-sm font-medium text-slate-400">
+        <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className="flex items-center gap-2 border-b border-[#f2f2f7] px-5 py-3.5">
+            <GitBranch className="h-4 w-4 text-[#aeaeb2]" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
               Request Traces ({incident.request_traces.length})
             </h3>
           </div>
-          <div className="divide-y divide-slate-700/50">
+          <div className="divide-y divide-[#f2f2f7]">
             {incident.request_traces.map((trace, ti) => (
-              <div key={ti} className="p-4">
-                <p className="mb-2 font-mono text-xs text-slate-500">
+              <div key={ti} className="p-5">
+                <p className="mb-3 font-mono text-[11px] text-[#aeaeb2]">
                   trace_id: {trace.trace_id}
                 </p>
-                <div className="space-y-1">
-                  {trace.spans.map((span, si) => (
-                    <div
-                      key={si}
-                      className="flex items-center gap-3 rounded-lg bg-slate-900/50 px-3 py-2"
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          span.status === "OK" || span.status === "200"
-                            ? "bg-green-500"
-                            : "bg-red-500"
-                        }`}
-                      />
-                      <span className="text-xs font-medium text-slate-300">
-                        {span.service}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {span.operation}
-                      </span>
-                      <span className="ml-auto font-mono text-xs text-slate-400">
-                        {span.duration_ms}ms
-                      </span>
-                      <span
-                        className={`text-xs ${span.error ? "text-red-400" : "text-green-400"}`}
+                {trace.logs && trace.logs.length > 0 && (
+                  <div className="space-y-1.5">
+                    {trace.logs.map((log, li) => (
+                      <div
+                        key={li}
+                        className="flex items-center gap-3 rounded-xl bg-[#fafafa] px-3.5 py-2.5"
                       >
-                        {span.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            log.level === "ERROR" || log.level === "FATAL"
+                              ? "bg-red-500"
+                              : log.level === "WARN"
+                                ? "bg-amber-400"
+                                : "bg-emerald-500"
+                          }`}
+                        />
+                        <span className="text-[12px] font-medium text-[#6e6e73]">
+                          {log.service}
+                        </span>
+                        <span className="flex-1 truncate text-[12px] text-[#aeaeb2]">
+                          {log.message}
+                        </span>
+                        {log.duration_ms != null && log.duration_ms > 0 && (
+                          <span className="font-mono text-[11px] text-[#aeaeb2]">
+                            {log.duration_ms}ms
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {trace.spans && trace.spans.length > 0 && (
+                  <div className="space-y-1.5">
+                    {trace.spans.map((span, si) => (
+                      <div
+                        key={si}
+                        className="flex items-center gap-3 rounded-xl bg-[#fafafa] px-3.5 py-2.5"
+                      >
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            span.status === "OK" || span.status === "200"
+                              ? "bg-emerald-500"
+                              : "bg-red-500"
+                          }`}
+                        />
+                        <span className="text-[12px] font-medium text-[#1d1d1f]">
+                          {span.service}
+                        </span>
+                        <span className="text-[12px] text-[#aeaeb2]">
+                          {span.operation}
+                        </span>
+                        <span className="ml-auto font-mono text-[11px] text-[#aeaeb2]">
+                          {span.duration_ms}ms
+                        </span>
+                        <span
+                          className={`text-[12px] font-medium ${span.error ? "text-red-500" : "text-emerald-500"}`}
+                        >
+                          {span.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -186,19 +265,26 @@ export default function IncidentDetailPage() {
 
       {/* Timeline */}
       {incident.timeline && incident.timeline.length > 0 && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <h3 className="mb-3 text-sm font-medium text-slate-400">Timeline</h3>
-          <div className="relative border-l border-slate-700 pl-6 space-y-4">
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <h3 className="mb-5 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            Timeline
+          </h3>
+          <div className="relative border-l-2 border-[#e5e5ea] pl-6 space-y-5">
             {incident.timeline.map((entry, i) => (
               <div key={i} className="relative">
-                <div className="absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 border-slate-700 bg-slate-600" />
-                <p className="text-xs text-slate-500">
-                  {new Date(entry.timestamp).toLocaleString()} ·{" "}
-                  {entry.actor}
+                <div className="absolute -left-[29px] top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-[#e5e5ea] bg-white">
+                  <div className="h-1.5 w-1.5 rounded-full bg-[#FF5722]" />
+                </div>
+                <p className="text-[11px] text-[#aeaeb2]">
+                  {new Date(entry.timestamp).toLocaleString()} · {entry.actor}
                 </p>
-                <p className="text-sm text-slate-300">{entry.action}</p>
+                <p className="mt-0.5 text-[14px] font-medium text-[#1d1d1f]">
+                  {entry.action}
+                </p>
                 {entry.note && (
-                  <p className="mt-0.5 text-xs text-slate-500">{entry.note}</p>
+                  <p className="mt-0.5 text-[12px] text-[#6e6e73]">
+                    {entry.note}
+                  </p>
                 )}
               </div>
             ))}
@@ -212,16 +298,21 @@ export default function IncidentDetailPage() {
 function getAvailableActions(state: string) {
   switch (state) {
     case "triggered":
+    case "identified":
       return [
         {
           action: "acknowledge",
           label: "Acknowledge",
-          className: "bg-yellow-600 text-white hover:bg-yellow-700",
+          icon: Eye,
+          className:
+            "bg-amber-500 text-white shadow-sm shadow-amber-500/20 hover:bg-amber-400",
         },
         {
           action: "resolve",
           label: "Resolve",
-          className: "bg-green-600 text-white hover:bg-green-700",
+          icon: CheckCircle2,
+          className:
+            "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20 hover:bg-emerald-400",
         },
       ];
     case "acknowledged":
@@ -229,20 +320,27 @@ function getAvailableActions(state: string) {
         {
           action: "investigate",
           label: "Start Investigation",
-          className: "bg-blue-600 text-white hover:bg-blue-700",
+          icon: Search,
+          className:
+            "bg-[#FF5722] text-white shadow-sm shadow-orange-500/20 hover:bg-[#E64A19]",
         },
         {
           action: "resolve",
           label: "Resolve",
-          className: "bg-green-600 text-white hover:bg-green-700",
+          icon: CheckCircle2,
+          className:
+            "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20 hover:bg-emerald-400",
         },
       ];
     case "investigating":
+    case "mitigated":
       return [
         {
           action: "resolve",
           label: "Resolve",
-          className: "bg-green-600 text-white hover:bg-green-700",
+          icon: CheckCircle2,
+          className:
+            "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20 hover:bg-emerald-400",
         },
       ];
     default:

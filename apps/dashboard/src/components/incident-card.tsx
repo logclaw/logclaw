@@ -3,41 +3,59 @@
 import Link from "next/link";
 import { severityColor, stateColor, timeAgo } from "@/lib/utils";
 import type { Incident } from "@/lib/api";
+import { ChevronRight, GitBranch, Clock, User } from "lucide-react";
 
 export default function IncidentCard({ incident }: { incident: Incident }) {
   return (
     <Link
       href={`/incidents/${incident.id}`}
-      className="block rounded-xl border border-slate-700 bg-slate-800/50 p-4 transition hover:border-slate-600 hover:bg-slate-800"
+      className="card-hover group block rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mb-2.5 flex items-center gap-2">
             <span
-              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${severityColor(incident.severity)}`}
+              className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${severityColor(incident.severity)}`}
             >
               {incident.severity}
             </span>
             <span
-              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${stateColor(incident.state)}`}
+              className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${stateColor(incident.state)}`}
             >
               {incident.state}
             </span>
+            {incident.priority && (
+              <span className="rounded-md bg-[#f5f5f7] px-1.5 py-0.5 text-[10px] font-medium text-[#aeaeb2]">
+                {incident.priority}
+              </span>
+            )}
           </div>
-          <h4 className="truncate text-sm font-medium text-slate-200">
+          <h4 className="truncate text-[14px] font-semibold text-[#1d1d1f] group-hover:text-[#FF5722] transition-colors">
             {incident.title}
           </h4>
-          <p className="mt-1 text-xs text-slate-500">
-            {incident.service} · {timeAgo(incident.created_at)}
-            {incident.assigned_to && ` · ${incident.assigned_to}`}
-          </p>
+          <div className="mt-2 flex items-center gap-3 text-[12px] text-[#aeaeb2]">
+            <span className="font-medium text-[#6e6e73]">{incident.service}</span>
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {timeAgo(incident.created_at)}
+            </span>
+            {incident.assigned_to && (
+              <span className="flex items-center gap-1">
+                <User className="h-3 w-3" />
+                {incident.assigned_to}
+              </span>
+            )}
+          </div>
         </div>
-        {incident.request_traces && incident.request_traces.length > 0 && (
-          <span className="shrink-0 rounded bg-slate-700 px-2 py-1 text-[10px] text-slate-400">
-            {incident.request_traces.length} trace
-            {incident.request_traces.length > 1 ? "s" : ""}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {incident.request_traces && incident.request_traces.length > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-[#f5f5f7] px-2.5 py-1 text-[10px] font-medium text-[#6e6e73]">
+              <GitBranch className="h-3 w-3" />
+              {incident.request_traces.length}
+            </span>
+          )}
+          <ChevronRight className="h-4 w-4 text-[#d1d1d6] transition-all group-hover:translate-x-0.5 group-hover:text-[#FF5722]" />
+        </div>
       </div>
     </Link>
   );

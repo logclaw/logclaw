@@ -2,80 +2,121 @@
 
 import { useEffect, useState } from "react";
 import { checkServiceHealth, type ServiceHealth } from "@/lib/api";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  HelpCircle,
+  RefreshCw,
+  Loader2,
+  Activity,
+} from "lucide-react";
 
 export default function ServiceHealthPanel() {
   const [services, setServices] = useState<ServiceHealth[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const refresh = () => {
+    setLoading(true);
     checkServiceHealth()
       .then(setServices)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refresh();
   }, []);
 
-  const statusIcon = (s: ServiceHealth["status"]) => {
-    switch (s) {
+  const StatusIcon = ({ status }: { status: ServiceHealth["status"] }) => {
+    switch (status) {
       case "healthy":
-        return "🟢";
+        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
       case "degraded":
-        return "🟡";
+        return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       case "down":
-        return "🔴";
+        return <XCircle className="h-4 w-4 text-red-500" />;
       default:
-        return "⚪";
+        return <HelpCircle className="h-4 w-4 text-[#aeaeb2]" />;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6 text-center text-slate-500">
-        Checking service health...
-      </div>
-    );
-  }
+  const statusBg = (status: ServiceHealth["status"]) => {
+    switch (status) {
+      case "healthy": return "bg-emerald-50";
+      case "degraded": return "bg-amber-50";
+      case "down": return "bg-red-50";
+      default: return "bg-gray-50";
+    }
+  };
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-800/50 overflow-hidden">
-      <div className="border-b border-slate-700 px-4 py-3">
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-          Integration Status
-        </h3>
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-[#aeaeb2]" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            Integration Status
+          </h3>
+        </div>
+        <button
+          onClick={refresh}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded-full bg-[#f5f5f7] px-3 py-1.5 text-[11px] font-medium text-[#6e6e73] transition-all hover:bg-[#e5e5ea] disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+          Refresh
+        </button>
       </div>
-      <div className="divide-y divide-slate-700/50">
-        {services.map((svc) => (
-          <div
-            key={svc.name}
-            className="flex items-center justify-between px-4 py-3"
-          >
-            <div className="flex items-center gap-3">
-              <span>{statusIcon(svc.status)}</span>
-              <div>
-                <p className="text-sm font-medium text-slate-300">
-                  {svc.name}
-                </p>
-                <p className="text-xs text-slate-500">{svc.url}</p>
+      <div className="divide-y divide-[#f2f2f7]">
+        {loading && services.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-[#aeaeb2]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Checking services...
+          </div>
+        ) : (
+          services.map((svc) => (
+            <div
+              key={svc.name}
+              className="flex items-center justify-between px-5 py-3 transition-colors duration-200 hover:bg-[#fafafa]"
+            >
+              <div className="flex items-center gap-3">
+                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${statusBg(svc.status)}`}>
+                  <StatusIcon status={svc.status} />
+                </div>
+                <div>
+                  <p className="text-[13px] font-medium text-[#1d1d1f]">
+                    {svc.name}
+                  </p>
+                  <p className="font-mono text-[10px] text-[#aeaeb2]">
+                    {svc.url}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {svc.latencyMs !== undefined && (
+                  <span className="font-mono text-[11px] text-[#aeaeb2]">
+                    {svc.latencyMs}ms
+                  </span>
+                )}
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${
+                    svc.status === "healthy"
+                      ? "bg-emerald-50 text-emerald-600"
+                      : svc.status === "degraded"
+                        ? "bg-amber-50 text-amber-600"
+                        : "bg-red-50 text-red-500"
+                  }`}
+                >
+                  {svc.status}
+                </span>
               </div>
             </div>
-            <div className="text-right">
-              <span
-                className={`text-xs font-medium ${
-                  svc.status === "healthy"
-                    ? "text-green-400"
-                    : svc.status === "degraded"
-                      ? "text-yellow-400"
-                      : "text-red-400"
-                }`}
-              >
-                {svc.status}
-              </span>
-              {svc.latencyMs !== undefined && (
-                <p className="text-[10px] text-slate-500">
-                  {svc.latencyMs}ms
-                </p>
-              )}
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
