@@ -40,10 +40,23 @@ ZAMMAD_API_TOKEN           ?= dev-zammad-token
 ZAMMAD_ADMIN_EMAIL         ?= admin@logclaw.local
 ZAMMAD_ADMIN_PASSWORD      ?= admin
 
+# ── Docker image variables ─────────────────────────────────────────────────
+REGISTRY       ?= ghcr.io/logclaw
+DASHBOARD_IMG  := $(REGISTRY)/dashboard
+BRIDGE_IMG     := $(REGISTRY)/bridge
+DASHBOARD_VER  := 2.0.0
+BRIDGE_VER     := 1.0.0
+GIT_SHA        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+PLATFORM       ?= linux/amd64,linux/arm64
+
 .PHONY: help up down restart status ports kill-ports nuke \
         deps lint lint-umbrella validate-schema template template-diff \
         kind-create kind-delete install-operators create-dev-secrets install uninstall \
-        dashboard test ct-install package push clean
+        dashboard test ct-install package push clean \
+        build-dashboard build-bridge build-all \
+        push-dashboard push-bridge push-all \
+        scan-dashboard scan-bridge scan-all \
+        kind-load-dashboard kind-load-bridge kind-load-all
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Quick-start targets
@@ -300,3 +313,69 @@ push: ## Push charts to OCI registry (requires HELM_REGISTRY)
 clean: ## Remove build artifacts
 	rm -rf dist/
 	find $(CHARTS_DIR) -name "Chart.lock" -delete 2>/dev/null || true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Docker image targets
+# ═══════════════════════════════════════════════════════════════════════════════
+
+build-dashboard: ## Build dashboard Docker image (multi-arch)
+	docker buildx build apps/dashboard \
+		--platform $(PLATFORM) \
+		-t $(DASHBOARD_IMG):$(DASHBOARD_VER) \
+		-t $(DASHBOARD_IMG):sha-$(GIT_SHA) \
+		-t $(DASHBOARD_IMG):latest \
+		--load
+	@echo "✓ Built $(DASHBOARD_IMG):$(DASHBOARD_VER)"
+
+build-bridge: ## Build bridge Docker image (multi-arch)
+	docker buildx build apps/bridge \
+		--platform $(PLATFORM) \
+		-t $(BRIDGE_IMG):$(BRIDGE_VER) \
+		-t $(BRIDGE_IMG):sha-$(GIT_SHA) \
+		-t $(BRIDGE_IMG):latest \
+		--load
+	@echo "✓ Built $(BRIDGE_IMG):$(BRIDGE_VER)"
+
+build-all: build-dashboard build-bridge ## Build all Docker images
+
+push-dashboard: ## Build + push dashboard to GHCR
+	docker buildx build apps/dashboard \
+		--platform $(PLATFORM) \
+		-t $(DASHBOARD_IMG):$(DASHBOARD_VER) \
+		-t $(DASHBOARD_IMG):sha-$(GIT_SHA) \
+		-t $(DASHBOARD_IMG):latest \
+		--push
+	@echo "✓ Pushed $(DASHBOARD_IMG):$(DASHBOARD_VER)"
+
+push-bridge: ## Build + push bridge to GHCR
+	docker buildx build apps/bridge \
+		--platform $(PLATFORM) \
+		-t $(BRIDGE_IMG):$(BRIDGE_VER) \
+		-t $(BRIDGE_IMG):sha-$(GIT_SHA) \
+		-t $(BRIDGE_IMG):latest \
+		--push
+	@echo "✓ Pushed $(BRIDGE_IMG):$(BRIDGE_VER)"
+
+push-all: push-dashboard push-bridge ## Build + push all images to GHCR
+
+scan-dashboard: build-dashboard ## Scan dashboard image for vulnerabilities
+	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(DASHBOARD_IMG):latest
+
+scan-bridge: build-bridge ## Scan bridge image for vulnerabilities
+	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(BRIDGE_IMG):latest
+
+scan-all: scan-dashboard scan-bridge ## Scan all images
+
+kind-load-dashboard: ## Load dashboard image into Kind cluster
+	docker save $(DASHBOARD_IMG):latest | \
+		docker exec -i $(KIND_CLUSTER)-control-plane \
+		ctr -n k8s.io images import --all-platforms -
+	@echo "✓ Loaded $(DASHBOARD_IMG):latest into Kind"
+
+kind-load-bridge: ## Load bridge image into Kind cluster
+	docker save $(BRIDGE_IMG):latest | \
+		docker exec -i $(KIND_CLUSTER)-control-plane \
+		ctr -n k8s.io images import --all-platforms -
+	@echo "✓ Loaded $(BRIDGE_IMG):latest into Kind"
+
+kind-load-all: kind-load-dashboard kind-load-bridge ## Load all images into Kind
