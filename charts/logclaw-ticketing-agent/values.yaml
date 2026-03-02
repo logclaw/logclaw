@@ -75,19 +75,6 @@ config:
       medium: "P3"
       low: "P4"
 
-  # ── Zammad in-cluster ITSM ────────────────────────────────────────────────────
-  # Requires logclaw-zammad chart to be deployed in the same namespace.
-  zammad:
-    enabled: false
-    endpoint: ""                   # auto-resolved to in-cluster FQDN when empty
-    groupName: "SRE Incidents"
-    # apiToken comes from ExternalSecret: ZAMMAD_API_TOKEN
-    priorityMapping:
-      critical: "1 high"
-      high: "2 normal"
-      medium: "3 normal"
-      low: "4 low"
-
   # ── Slack Incoming Webhook ────────────────────────────────────────────────────
   # Notification-only — does not create actionable tickets.
   slack:

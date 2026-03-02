@@ -16,6 +16,3 @@ global:
     enabled: true
   llm:
     provider: "disabled"
-
-zammad:
-  enabled: false

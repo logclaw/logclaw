@@ -51,7 +51,3 @@ dependencies:
     version: "0.1.0"
     repository: "file://.."
     condition: ticketingAgent.enabled
-  - name: logclaw-zammad
-    version: "0.1.0"
-    repository: "file://.."
-    condition: zammad.enabled

@@ -111,14 +111,6 @@ http://logclaw-ticketing-agent-{{ $tenantId }}.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
-Resolve zammadEndpoint — Zammad ITSM service.
-*/}}
-{{- define "logclaw-dashboard.zammadEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-zammad-{{ $tenantId }}-zammad.{{ .Release.Namespace }}.svc:3000
-{{- end }}
-
-{{/*
 Resolve bridgeEndpoint — LogClaw Bridge service.
 */}}
 {{- define "logclaw-dashboard.bridgeEndpoint" -}}

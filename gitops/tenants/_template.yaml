@@ -81,11 +81,6 @@ logclaw-ticketing-agent:
       enabled: false
       # team: "sre-team"
 
-    # Zammad in-cluster ITSM — zero data egress; requires zammad.enabled: true below
-    zammad:
-      enabled: false
-      # groupName: "SRE Incidents"
-
     # Slack Incoming Webhook — for real-time team notifications
     slack:
       enabled: false
@@ -102,10 +97,6 @@ logclaw-ticketing-agent:
 
     anomaly:
       minimumScore: 0.85
-
-# ── In-cluster Zammad ITSM deployment (required if config.zammad.enabled: true) ─
-zammad:
-  enabled: false    # Set true to deploy Zammad server in this tenant namespace
 
 # ── Chart-specific overrides (uncomment and adjust as needed) ────────────────
 # logclaw-kafka:

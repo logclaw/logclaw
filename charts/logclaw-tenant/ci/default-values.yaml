@@ -25,7 +25,3 @@ global:
     enforce: "restricted"
     audit: "restricted"
     warn: "restricted"
-
-# Disable all sub-components for standalone tenant chart testing
-zammad:
-  enabled: false

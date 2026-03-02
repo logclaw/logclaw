@@ -24,8 +24,7 @@ LogClaw Stack (per tenant, namespace-isolated)
 ├── logclaw-ml-engine       Feast Feature Store + KServe/TorchServe + Ollama
 ├── logclaw-airflow         Apache Airflow (git-sync DAGs)
 ├── logclaw-ticketing-agent RCA microservice → PagerDuty / Jira / ServiceNow /
-│                           OpsGenie / Zammad / Slack  (any combination)
-├── logclaw-zammad          In-cluster ITSM (zero-egress ticketing alternative)
+│                           OpsGenie / Slack  (any combination)
 └── logclaw-platform        ESO SecretStore, cert-manager, RBAC baseline
 ```
 
@@ -70,7 +69,8 @@ helm install logclaw-acme charts/logclaw-tenant \
 ```
 apps/
 ├── dashboard/                # Next.js 16 AI Command Center (TypeScript + Tailwind CSS)
-└── bridge/                   # Python ETL bridge (Kafka→OpenSearch, anomaly detection)
+├── bridge/                   # Python ETL bridge (Kafka→OpenSearch, anomaly detection)
+└── ticketing-agent/          # Python ticketing agent (Kafka consumer → incident management)
 
 charts/
 ├── logclaw-tenant/           # Umbrella chart — single install entry point
@@ -83,8 +83,7 @@ charts/
 ├── logclaw-flink/            # Flink ETL + enrichment + anomaly jobs
 ├── logclaw-ml-engine/        # Feast + KServe/TorchServe + Ollama
 ├── logclaw-airflow/          # Apache Airflow
-├── logclaw-ticketing-agent/  # Multi-platform incident ticketing
-└── logclaw-zammad/           # In-cluster ITSM (zero-egress option)
+└── logclaw-ticketing-agent/  # Multi-platform incident ticketing
 
 operators/                    # Cluster-level operator bootstrap (once per cluster)
 ├── strimzi/                  # strimzi-kafka-operator 0.50.1
@@ -107,7 +106,7 @@ docs/                         # Architecture, onboarding, values reference
 ## Key Features
 
 ### Multi-Platform Ticketing
-The `logclaw-ticketing-agent` supports **6 independently-toggleable platforms** simultaneously:
+The `logclaw-ticketing-agent` supports **5 independently-toggleable platforms** simultaneously:
 
 | Platform | Type | Egress |
 |---|---|---|
@@ -116,12 +115,11 @@ The `logclaw-ticketing-agent` supports **6 independently-toggleable platforms** 
 | ServiceNow | SaaS | External HTTPS |
 | OpsGenie | SaaS | External HTTPS |
 | Slack | SaaS | External HTTPS |
-| Zammad | In-cluster | Zero external egress |
 
 Per-severity routing (`critical → PagerDuty`, `medium → Jira`, etc.) is configurable via `config.routing.*`.
 
 ### Air-Gapped Mode
-When only **Zammad + Ollama** are enabled, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped.
+When only **Ollama** is used as the LLM provider and no external ticketing platforms are enabled, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped.
 
 ### LLM Provider Abstraction
 ```yaml
@@ -158,7 +156,6 @@ global:
 | External Secrets Operator | 0.10.3 |
 | cert-manager | v1.16.1 |
 | Apache Airflow | 2.9.2 (chart 1.14.0) |
-| Zammad | 12.4.1 |
 | Vector.dev | 0.38.0 |
 | KServe | 0.13.0 |
 | Feast | 0.40.1 |

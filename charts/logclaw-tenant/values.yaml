@@ -108,6 +108,3 @@ airflow:
 
 ticketingAgent:
   enabled: true
-
-zammad:
-  enabled: false                # opt-in: deploy in-cluster Zammad ITSM (replaces PD + Jira)

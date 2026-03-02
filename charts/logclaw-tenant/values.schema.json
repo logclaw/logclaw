@@ -258,14 +258,6 @@
           "type": "boolean"
         }
       }
-    },
-    "zammad": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
-      }
     }
   }
 }

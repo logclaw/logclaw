@@ -52,7 +52,7 @@ spec:
           protocol: TCP
     {{- if eq $needsExternal "true" }}
     # External HTTPS — PagerDuty, Jira, ServiceNow, OpsGenie, Slack, or cloud LLM APIs
-    # Applies when any external platform is enabled; zero egress when only Zammad + Ollama used.
+    # Applies when any external platform is enabled; zero egress when only Ollama used.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -72,15 +72,5 @@ spec:
               app.kubernetes.io/component: ollama
       ports:
         - port: 11434
-          protocol: TCP
-    {{- end }}
-    {{- if .Values.config.zammad.enabled }}
-    # Zammad in-cluster ITSM (port 3000) — no external internet egress required
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: zammad
-      ports:
-        - port: 3000
           protocol: TCP
     {{- end }}

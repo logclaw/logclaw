@@ -80,8 +80,6 @@ spec:
               value: {{ include "logclaw-dashboard.vectorEndpoint" . | quote }}
             - name: TICKETING_ENDPOINT
               value: {{ include "logclaw-dashboard.ticketingEndpoint" . | quote }}
-            - name: ZAMMAD_ENDPOINT
-              value: {{ include "logclaw-dashboard.zammadEndpoint" . | quote }}
             - name: BRIDGE_ENDPOINT
               value: {{ include "logclaw-dashboard.bridgeEndpoint" . | quote }}
             - name: FEAST_ENDPOINT

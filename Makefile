@@ -21,7 +21,6 @@ KIND_CLUSTER  := logclaw-dev
 
 # ── Port defaults (override in .env) ─────────────────────────────────────────
 PORT_DASHBOARD ?= 3333
-PORT_ZAMMAD    ?= 3000
 PORT_OPENSEARCH ?= 9200
 PORT_INGESTION ?= 8080
 PORT_TICKETING ?= 8081
@@ -36,9 +35,6 @@ AIRFLOW_FERNET_KEY         ?= ZGV2LWZlcm5ldC1rZXktMTIzNDU2Nzg5MGFiY2RlZj0=
 AIRFLOW_WEBSERVER_SECRET   ?= dev-webserver-secret
 AIRFLOW_POSTGRES_PASSWORD  ?= postgres
 KAFKA_SASL_PASSWORD        ?= dev-kafka-password
-ZAMMAD_API_TOKEN           ?= dev-zammad-token
-ZAMMAD_ADMIN_EMAIL         ?= admin@logclaw.local
-ZAMMAD_ADMIN_PASSWORD      ?= admin
 
 # ── Docker image variables ─────────────────────────────────────────────────
 REGISTRY       ?= ghcr.io/logclaw
@@ -142,7 +138,6 @@ status: ## 📊 Show pod status, services, and endpoints
 	@echo "  Ingestion:  http://localhost:$(PORT_INGESTION)"
 	@echo "  OpenSearch: http://localhost:$(PORT_OPENSEARCH)"
 	@echo "  Airflow:    http://localhost:$(PORT_AIRFLOW)"
-	@echo "  Zammad:     http://localhost:$(PORT_ZAMMAD)"
 	@echo ""
 	@echo "── Environment ───────────────────────────────────────────────"
 	@echo "  TENANT_ID=$(TENANT_ID)"
@@ -151,7 +146,6 @@ status: ## 📊 Show pod status, services, and endpoints
 	@echo "  REDIS_EXTERNAL=$(REDIS_EXTERNAL)"
 	@echo "  POSTGRES_EXTERNAL=$(POSTGRES_EXTERNAL)"
 	@echo "  LLM_PROVIDER=$(LLM_PROVIDER)"
-	@echo "  ZAMMAD_ENABLED=$(ZAMMAD_ENABLED)"
 
 ports: kill-ports ## 🔌 Start all port-forwards
 	@echo "Starting port-forwards..."
@@ -161,9 +155,6 @@ ports: kill-ports ## 🔌 Start all port-forwards
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-ingestion-$(TENANT_ID) $(PORT_INGESTION):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-opensearch-$(TENANT_ID) $(PORT_OPENSEARCH):9200 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-airflow-$(TENANT_ID)-webserver $(PORT_AIRFLOW):8080 >/dev/null 2>&1 &
-	@if [ "$(ZAMMAD_ENABLED)" = "true" ]; then \
-		kubectl -n $(NAMESPACE) port-forward svc/logclaw-zammad-$(TENANT_ID)-zammad $(PORT_ZAMMAD):3000 >/dev/null 2>&1 & \
-	fi
 	@sleep 2
 	@echo "✓ Port-forwards active"
 
@@ -214,12 +205,6 @@ create-dev-secrets: ## Create K8s secrets (reads credentials from .env)
 		--namespace $(NAMESPACE) \
 		--from-literal=KAFKA_SASL_PASSWORD=$(KAFKA_SASL_PASSWORD) \
 		--from-literal=OPENSEARCH_PASSWORD=$(OPENSEARCH_ADMIN_PASSWORD) \
-		--from-literal=ZAMMAD_API_TOKEN=$(ZAMMAD_API_TOKEN) \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@kubectl create secret generic logclaw-zammad-$(TENANT_ID)-credentials \
-		--namespace $(NAMESPACE) \
-		--from-literal=admin-email=$(ZAMMAD_ADMIN_EMAIL) \
-		--from-literal=admin-password=$(ZAMMAD_ADMIN_PASSWORD) \
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "✓ Secrets created in $(NAMESPACE)"
 

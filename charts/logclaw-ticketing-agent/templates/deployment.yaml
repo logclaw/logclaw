@@ -136,13 +136,6 @@ spec:
               value: {{ .Values.config.opsgenie.apiUrl | quote }}
             - name: OPSGENIE_TEAM
               value: {{ .Values.config.opsgenie.team | quote }}
-            # ── Zammad (in-cluster ITSM) ──────────────────────────────────────
-            - name: ZAMMAD_ENABLED
-              value: {{ .Values.config.zammad.enabled | quote }}
-            - name: ZAMMAD_ENDPOINT
-              value: {{ include "logclaw-ticketing-agent.zammadEndpoint" . | quote }}
-            - name: ZAMMAD_GROUP_NAME
-              value: {{ .Values.config.zammad.groupName | quote }}
             # ── Slack Webhook ─────────────────────────────────────────────────
             - name: SLACK_ENABLED
               value: {{ .Values.config.slack.enabled | quote }}

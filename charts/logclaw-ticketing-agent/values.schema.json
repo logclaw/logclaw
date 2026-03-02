@@ -77,26 +77,6 @@
             "priorityMapping": { "type": "object", "additionalProperties": { "type": "string" } }
           }
         },
-        "zammad": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Zammad in-cluster ITSM integration.",
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "endpoint": { "type": "string", "description": "Override Zammad URL; auto-resolved when empty." },
-            "groupName": { "type": "string" },
-            "priorityMapping": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "critical": { "type": "string" },
-                "high": { "type": "string" },
-                "medium": { "type": "string" },
-                "low": { "type": "string" }
-              }
-            }
-          }
-        },
         "slack": {
           "type": "object",
           "additionalProperties": false,
