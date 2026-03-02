@@ -1,12 +1,104 @@
-# LogClaw — Helm Chart Monorepo
+# LogClaw — AI-Powered Log Intelligence Platform
 
 <p align="left">
   <img src="https://img.shields.io/badge/helm-3.x-blue?logo=helm" />
   <img src="https://img.shields.io/badge/kubernetes-1.27%2B-blue?logo=kubernetes" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" />
+  <a href="https://github.com/logclaw/logclaw/pkgs/container/dashboard"><img src="https://img.shields.io/badge/ghcr.io-public-brightgreen?logo=github" /></a>
 </p>
 
-Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log intelligence platform with real-time anomaly detection, multi-platform incident ticketing, and GitOps-native multi-tenancy.
+AI-powered log intelligence platform with real-time anomaly detection, multi-platform incident ticketing, and GitOps-native multi-tenancy. Ships logs through Kafka → OpenSearch, detects anomalies with ML, and auto-creates incidents in PagerDuty / Jira / ServiceNow / OpsGenie / Slack.
+
+---
+
+## Quick Start (3 commands)
+
+### Prerequisites
+
+| Tool | Install |
+|------|---------|
+| [Docker](https://docs.docker.com/get-docker/) | `brew install --cask docker` or [OrbStack](https://orbstack.dev) |
+| [Kind](https://kind.sigs.k8s.io/) | `brew install kind` |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | `brew install kubectl` |
+| [Helm](https://helm.sh/) + plugins | `brew install helm` |
+| [Helmfile](https://github.com/helmfile/helmfile) | `brew install helmfile` |
+
+```bash
+# Install Helm plugins (one-time)
+helm plugin install https://github.com/databus23/helm-diff
+```
+
+### Run LogClaw
+
+```bash
+git clone https://github.com/logclaw/logclaw.git
+cd logclaw
+cp .env.dev .env
+make up
+```
+
+That's it. `make up` handles everything:
+
+1. Creates a local [Kind](https://kind.sigs.k8s.io/) Kubernetes cluster
+2. Installs operators (Strimzi Kafka, Flink, OpenSearch, cert-manager, ESO)
+3. Generates dev secrets
+4. Deploys the full stack via Helmfile
+5. Sets up port-forwarding
+6. Opens the dashboard in your browser
+
+**First run takes ~15 minutes** (downloading images). Subsequent runs are faster.
+
+### Access the stack
+
+Once `make up` finishes:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Dashboard** | [localhost:3333](http://localhost:3333) | AI Command Center — incidents, pipeline health, log ingestion |
+| **Bridge API** | [localhost:8083](http://localhost:8083) | ETL health (`/health`, `/metrics`) |
+| **Airflow** | [localhost:8082](http://localhost:8082) | DAG management (login: `admin` / `admin`) |
+| **OpenSearch** | [localhost:9200](http://localhost:9200) | Log search & analytics API |
+| **Ticketing Agent** | [localhost:8081](http://localhost:8081) | Incident management health |
+| **Vector Ingest** | [localhost:8080](http://localhost:8080) | `POST` JSON logs here |
+
+### Smoke test — send a log through the pipeline
+
+```bash
+# Send a test log: HTTP → Vector → Kafka → Bridge → OpenSearch
+curl -X POST http://localhost:8080 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Payment failed: timeout","level":"ERROR","service":"payment-api"}'
+
+# Check it landed in OpenSearch
+curl -s 'http://localhost:9200/logclaw-logs-*/_search?size=1' | python3 -m json.tool
+```
+
+### Stop / restart / destroy
+
+```bash
+make down      # Stop services (keeps cluster)
+make restart   # Clean restart
+make nuke      # Delete everything including Kind cluster
+make status    # Show pod status and endpoints
+```
+
+---
+
+## Docker Images (Public)
+
+All images are public on GitHub Container Registry — no authentication needed:
+
+```bash
+docker pull ghcr.io/logclaw/dashboard:latest        # Next.js AI Command Center
+docker pull ghcr.io/logclaw/bridge:latest            # Kafka→OpenSearch ETL + anomaly detection
+docker pull ghcr.io/logclaw/ticketing-agent:latest   # Multi-platform incident management
+```
+
+| Image | Tags | Architectures |
+|-------|------|---------------|
+| `ghcr.io/logclaw/dashboard` | `2.0.0`, `latest`, `sha-*` | `amd64`, `arm64` |
+| `ghcr.io/logclaw/bridge` | `1.0.0`, `latest`, `sha-*` | `amd64`, `arm64` |
+| `ghcr.io/logclaw/ticketing-agent` | `1.0.0`, `latest`, `sha-*` | `amd64`, `arm64` |
 
 ---
 
@@ -30,36 +122,18 @@ LogClaw Stack (per tenant, namespace-isolated)
 
 All charts are wired together by the **`logclaw-tenant` umbrella chart** — a single `helm install` deploys the full stack for one tenant.
 
----
+### Data flow
 
-## Quick Start
-
-### Prerequisites
-
-One-time cluster setup (operators, run once per cluster):
-
-```bash
-helmfile -f helmfile.d/00-operators.yaml apply
 ```
-
-### Onboard a new tenant
-
-1. Copy the template:
-   ```bash
-   cp gitops/tenants/_template.yaml gitops/tenants/tenant-<id>.yaml
-   ```
-
-2. Fill in the required values (`tenantId`, `tier`, `cloudProvider`, secret store config).
-
-3. Commit and push — ArgoCD will detect the new file and deploy the full stack in ~30 minutes.
-
-### Manual install (dev/staging)
-
-```bash
-helm install logclaw-acme charts/logclaw-tenant \
-  --namespace logclaw-acme \
-  --create-namespace \
-  -f gitops/tenants/tenant-acme.yaml
+Your services → Vector (DaemonSet) → Kafka (raw-logs)
+                                        ↓
+                              Bridge (ETL + anomaly detection)
+                                        ↓
+                                    OpenSearch ← Dashboard (queries)
+                                        ↓
+                              Kafka (anomaly-events)
+                                        ↓
+                              Ticketing Agent → PagerDuty / Jira / Slack / ...
 ```
 
 ---
@@ -86,19 +160,8 @@ charts/
 └── logclaw-ticketing-agent/  # Multi-platform incident ticketing
 
 operators/                    # Cluster-level operator bootstrap (once per cluster)
-├── strimzi/                  # strimzi-kafka-operator 0.50.1
-├── flink-operator/           # flink-kubernetes-operator 1.9.0
-├── opensearch-operator/      # opensearch-operator 2.6.1
-├── eso/                      # external-secrets 0.10.3
-└── cert-manager/             # cert-manager v1.16.1
-
-gitops/
-├── argocd/                   # ApplicationSet + AppProject for multi-tenant GitOps
-└── tenants/                  # Per-tenant value files (_template.yaml + examples)
-
+gitops/                       # ArgoCD ApplicationSet + per-tenant value files
 helmfile.d/                   # Ordered helmfile releases (00-operators → 80-ticketing)
-tests/                        # Helm chart tests + integration test pods
-docs/                         # Architecture, onboarding, values reference
 ```
 
 ---
@@ -106,22 +169,22 @@ docs/                         # Architecture, onboarding, values reference
 ## Key Features
 
 ### Multi-Platform Ticketing
-The `logclaw-ticketing-agent` supports **5 independently-toggleable platforms** simultaneously:
 
-| Platform | Type | Egress |
-|---|---|---|
-| PagerDuty | SaaS | External HTTPS |
-| Jira | SaaS | External HTTPS |
-| ServiceNow | SaaS | External HTTPS |
-| OpsGenie | SaaS | External HTTPS |
-| Slack | SaaS | External HTTPS |
+5 independently-toggleable platforms with per-severity routing:
 
-Per-severity routing (`critical → PagerDuty`, `medium → Jira`, etc.) is configurable via `config.routing.*`.
+```yaml
+# Example: critical → PagerDuty + Slack, medium → Jira only
+config:
+  routing:
+    critical: ["pagerduty", "slack"]
+    high: ["jira", "slack"]
+    medium: ["jira"]
+```
 
-### Air-Gapped Mode
-When only **Ollama** is used as the LLM provider and no external ticketing platforms are enabled, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped.
+Supported: **PagerDuty** · **Jira** · **ServiceNow** · **OpsGenie** · **Slack**
 
 ### LLM Provider Abstraction
+
 ```yaml
 global:
   llm:
@@ -129,7 +192,8 @@ global:
     model: llama3.2:8b
 ```
 
-### Multi-Cloud Secret Management
+### Multi-Cloud Secrets
+
 ```yaml
 global:
   secretStore:
@@ -137,45 +201,22 @@ global:
 ```
 
 ### Tiered Deployments
+
 ```yaml
 global:
   tier: ha   # standard | ha | ultra-ha
 ```
 
----
+### Air-Gapped Mode
 
-## Component Versions
-
-| Component | Version |
-|---|---|
-| **Dashboard** | Next.js 16 / React 19 / Tailwind CSS 4 |
-| **Bridge (ETL)** | Python 3 (FastAPI) |
-| Apache Kafka (Strimzi) | 4.1.1 (Strimzi 0.50.1) |
-| Apache Flink | 1.19.0 |
-| OpenSearch | 2.14.0 |
-| External Secrets Operator | 0.10.3 |
-| cert-manager | v1.16.1 |
-| Apache Airflow | 2.9.2 (chart 1.14.0) |
-| Vector.dev | 0.38.0 |
-| KServe | 0.13.0 |
-| Feast | 0.40.1 |
+When only Ollama is used as the LLM provider and no external ticketing platforms are enabled, the NetworkPolicy enforces **zero external egress** — fully air-gapped.
 
 ---
 
-## Running Locally
+## Detailed Setup Guide
 
-### Prerequisites
-
-Install the required tools:
-
-```bash
-# Homebrew (macOS)
-brew install helm helmfile kind kubectl
-
-# Helm plugins
-helm plugin install https://github.com/databus23/helm-diff
-helm plugin install https://github.com/helm-unittest/helm-unittest
-```
+<details>
+<summary><b>Step-by-step manual setup (if you don't want to use <code>make up</code>)</b></summary>
 
 ### 1 — Create a local Kubernetes cluster
 
@@ -183,14 +224,9 @@ helm plugin install https://github.com/helm-unittest/helm-unittest
 make kind-create
 ```
 
-This spins up a [kind](https://kind.sigs.k8s.io/) cluster named `logclaw-dev`, installs cert-manager CRDs, and labels the control-plane node with a topology zone (required by `topologySpreadConstraints`).
+Creates a Kind cluster named `logclaw-dev`, installs cert-manager CRDs, and labels the node for topology scheduling.
 
-Verify:
-```bash
-kubectl cluster-info --context kind-logclaw-dev
-```
-
-### 2 — Install cluster-level operators (once per cluster)
+### 2 — Install operators (once per cluster)
 
 ```bash
 make install-operators
@@ -199,76 +235,24 @@ make install-operators
 Installs into dedicated namespaces:
 
 | Operator | Namespace |
-|---|---|
+|----------|-----------|
 | Strimzi Kafka 0.50.1 | `strimzi-system` |
-| Flink Kubernetes Operator 1.9.0 | `flink-system` |
+| Flink Operator 1.9.0 | `flink-system` |
 | External Secrets | `external-secrets` |
 | cert-manager | `cert-manager` |
 | OpenSearch Operator | `opensearch-operator-system` |
 
-Wait for all operator pods to be ready:
-```bash
-kubectl get pods -n strimzi-system -w
-kubectl get pods -n flink-system -w
-kubectl get pods -n external-secrets -w
-kubectl get pods -n cert-manager -w
-kubectl get pods -n opensearch-operator-system -w
-```
-
-> **Important:** After installing Strimzi, ensure the CRDs match the operator version. Helm does not auto-upgrade CRDs. If you see entity operator errors about missing `kafka.strimzi.io/v1` resources, run:
-> ```bash
-> kubectl apply -f https://github.com/strimzi/strimzi-kafka-operator/releases/download/0.50.1/strimzi-crds-0.50.1.yaml \
->   --server-side --force-conflicts
-> ```
-
-### 3 — Install the full tenant stack
+### 3 — Deploy the tenant stack
 
 ```bash
 make install TENANT_ID=dev-local STORAGE_CLASS=standard
 ```
 
-This will:
-1. Create the `logclaw-dev-local` namespace
-2. Generate dev secrets (OpenSearch, Airflow, Redis, Kafka credentials)
-3. Run `helmfile apply` deploying all charts in dependency order
+Creates namespace, generates dev secrets, deploys all charts via Helmfile. Expect ~15 minutes on first run.
 
-On a typical laptop (~16 GB RAM) expect:
+### 4 — Run Airflow DB migrations (if needed)
 
-| Time | Milestone |
-|---|---|
-| T+2 min | Namespace, RBAC, NetworkPolicies, secrets created |
-| T+5 min | Kafka single-node KRaft cluster ready |
-| T+8 min | OpenSearch 3-node cluster green |
-| T+12 min | Vector ingestion pipeline connected to Kafka |
-| T+15 min | Airflow scheduler + webserver running |
-| T+18 min | Full stack operational (13 pods) |
-
-Check progress:
-```bash
-watch kubectl get pods -n logclaw-dev-local
-```
-
-#### What runs locally vs. production
-
-The local dev environment uses `ci/default-values.yaml` overrides to run without cloud-only CRDs:
-
-| Component | Local Dev | Production |
-|---|---|---|
-| Dashboard | Next.js standalone, proxies to cluster services | Same image, env vars point to in-cluster services |
-| Bridge | Single replica, polls Kafka + indexes to OpenSearch | Multi-replica with Kafka consumer groups |
-| Kafka | Single-node KRaft, plain listener (port 9092) | Multi-broker, TLS + SCRAM-SHA-512 |
-| OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
-| Flink | Operator + CRDs installed, jobs **disabled** (no app JARs) | FlinkDeployment CRDs (ETL + enrichment + anomaly) |
-| ML Engine (Feast) | Runs with local file registry | Redis online store + S3 offline |
-| ML Engine (KServe) | **Skipped** (no KServe CRD) | InferenceService for anomaly model |
-| Airflow | `apache/airflow:2.9.2`, bundled PostgreSQL | Custom image, external PostgreSQL |
-| Ticketing Agent | Kafka consumer, creates incidents from anomaly events | Same + multi-platform routing (PagerDuty, Jira, etc.) |
-| VPA | **Skipped** (no VPA CRD) | VerticalPodAutoscaler recommendations |
-| Secrets | `make create-dev-secrets` (static) | ESO ExternalSecrets (auto-refresh) |
-
-### 4 — Run Airflow DB migrations
-
-The first time Airflow is installed, the scheduler and webserver wait for database migrations. If you deployed with `--no-hooks` or helmfile timed out, run migrations manually:
+If Airflow pods are stuck in `Init:0/1`:
 
 ```bash
 kubectl run airflow-migrate --restart=Never \
@@ -277,56 +261,13 @@ kubectl run airflow-migrate --restart=Never \
   --env="AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@logclaw-airflow-dev-local-postgresql.logclaw-dev-local:5432/postgres?sslmode=disable" \
   --command -- airflow db migrate
 
-# Wait for completion
 kubectl wait --for=condition=Ready=false pod/airflow-migrate \
   -n logclaw-dev-local --timeout=120s 2>/dev/null || true
-
-# Clean up
 kubectl delete pod airflow-migrate -n logclaw-dev-local
-
-# Restart pods waiting for migrations
-kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=scheduler
-kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=webserver
+kubectl delete pods -n logclaw-dev-local -l tier=airflow
 ```
 
-### 5 — Verify the stack
-
-```bash
-# All pods should be Running
-kubectl get pods -n logclaw-dev-local
-
-# Expected: 13 pods, all 1/1 or 2/2 Running
-#   logclaw-dashboard-dev-local-...                             1/1  Running
-#   logclaw-bridge-dev-local-...                                1/1  Running
-#   logclaw-kafka-dev-local-combined-0                          1/1  Running
-#   logclaw-kafka-dev-local-entity-operator-...                 2/2  Running
-#   opensearch-dev-local-0                                      1/1  Running
-#   logclaw-ingestion-dev-local-...                             1/1  Running
-#   logclaw-ml-engine-dev-local-feast-server-...                1/1  Running
-#   logclaw-airflow-dev-local-postgresql-0                      1/1  Running
-#   logclaw-airflow-dev-local-scheduler-...                     2/2  Running
-#   logclaw-airflow-dev-local-webserver-...                     1/1  Running
-#   logclaw-airflow-dev-local-triggerer-0                       2/2  Running
-#   logclaw-airflow-dev-local-statsd-...                        1/1  Running
-#   logclaw-ticketing-agent-dev-local-...                       1/1  Running
-
-# Kafka cluster health
-kubectl -n logclaw-dev-local get kafka -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'
-# → True
-
-# OpenSearch cluster health
-kubectl -n logclaw-dev-local exec opensearch-dev-local-0 -- \
-  curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
-# → "status": "yellow" (single-node dev mode)
-
-# Helm releases
-helm list -n logclaw-dev-local
-# → All 8 releases should be "deployed"
-```
-
-### 6 — Create the Airflow admin user
-
-The Airflow chart does **not** auto-create a login user. Run this once after the first install:
+### 5 — Create the Airflow admin user
 
 ```bash
 kubectl -n logclaw-dev-local exec deploy/logclaw-airflow-dev-local-webserver -- \
@@ -336,138 +277,125 @@ kubectl -n logclaw-dev-local exec deploy/logclaw-airflow-dev-local-webserver -- 
     --role Admin --email admin@logclaw.local
 ```
 
-### 7 — Open all services (port-forwarding)
+### 6 — Port-forward all services
 
-All services run inside the kind cluster. Run this **one block** to expose everything to your machine:
-
-```bash
-# Forward all LogClaw services to localhost
-kubectl -n logclaw-dev-local port-forward svc/logclaw-dashboard-dev-local 3333:3000 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-bridge-dev-local 8083:8080 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-kafka-dev-local-kafka-bootstrap 9092:9092 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 18080:8080 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567 &
-kubectl -n logclaw-dev-local port-forward svc/logclaw-ticketing-agent-dev-local 18081:8080 &
-echo "All services forwarded — stop with: kill %1 %2 %3 %4 %5 %6 %7 %8 %9"
-```
-
-Once running, your services are at:
-
-| Service | URL | What you get |
-|---|---|---|
-| **Dashboard** | [http://localhost:3333](http://localhost:3333) | AI Command Center — pipeline monitoring, incidents, log ingestion |
-| **Bridge** | [http://localhost:8083](http://localhost:8083) | ETL metrics & health (`/health`, `/metrics`) |
-| **Airflow** | [http://localhost:8080](http://localhost:8080) | DAG management UI (login: `admin` / `admin`) |
-| **OpenSearch** | [http://localhost:9200](http://localhost:9200) | Log search & analytics API |
-| **Kafka** | `localhost:9092` | Message broker (PLAIN, no auth) |
-| **Vector — ingest** | `POST` [http://localhost:18080](http://localhost:18080) | Send JSON logs here |
-| **Vector — admin** | [http://localhost:8686/health](http://localhost:8686/health) | Pipeline health & topology |
-| **Feast** | [http://localhost:6567](http://localhost:6567) | ML feature server |
-| **Ticketing Agent** | [http://localhost:18081](http://localhost:18081) | Incident management health |
-
-#### Default credentials
-
-| Service | Username | Password | Notes |
-|---|---|---|---|
-| **Airflow** | `admin` | `admin` | Created in Step 6 above |
-| **OpenSearch** | — | — | Security plugin disabled in dev; no auth needed |
-| **Kafka (PLAIN)** | — | — | Port 9092, anonymous access |
-| **Kafka (TLS)** | `admin` | `dev-kafka-password` | Port 9093, SCRAM-SHA-512 |
-| **Airflow PostgreSQL** | `postgres` | `postgres` | Internal DB, port 5432 |
-| **OpenSearch (secret)** | `admin` | `admin` | Stored in `opensearch-admin-credentials` secret |
-| **Ticketing Agent** | — | — | Reads creds from `logclaw-ticketing-agent-dev-local-credentials` |
-| **Redis (ML Engine)** | — | `dev-redis-password` | Internal, no external port |
-
-> All credentials are dev-only placeholders created by `make create-dev-secrets`.
-> Production uses External Secrets Operator to pull from AWS Secrets Manager / GCP Secret Manager / Vault.
-
-Or use the Makefile shortcut to forward all services and open the dashboard:
 ```bash
 make ports      # Forward all services
 make dashboard  # Forward + open browser
 ```
 
-Quick smoke test after port-forwarding:
+### 7 — Verify the stack
 
 ```bash
-# Dashboard (AI Command Center)
-open http://localhost:3333
-
-# Airflow UI
-open http://localhost:8080
-
-# OpenSearch cluster health
-curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
-
-# Kafka topics
-kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
-  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-
-# Vector health
-curl -s http://localhost:8686/health
-
-# Send a test log through the pipeline
-curl -X POST http://localhost:18080 \
-  -H "Content-Type: application/json" \
-  -d '{"message":"hello from logclaw","level":"INFO","service":"test"}'
+kubectl get pods -n logclaw-dev-local          # All pods Running
+helm list -n logclaw-dev-local                 # All releases deployed
+curl -s http://localhost:9200/_cluster/health   # OpenSearch health
 ```
 
-### 8 — End-to-end pipeline test
+</details>
 
-Send test logs through the full pipeline and verify each step.
+---
+
+## What Runs Locally vs. Production
+
+| Component | Local Dev | Production |
+|-----------|-----------|------------|
+| Dashboard | Next.js standalone (GHCR image) | Same image, env vars point to in-cluster services |
+| Bridge | Single replica, polls Kafka | Multi-replica with consumer groups |
+| Kafka | Single-node KRaft, plain listener | Multi-broker, TLS + SCRAM-SHA-512 |
+| OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
+| Flink | Operator installed, jobs **disabled** | FlinkDeployment CRDs (ETL + enrichment) |
+| ML Engine | Feast with local file registry | Redis online store + S3 offline |
+| KServe | **Skipped** (no CRD) | InferenceService for anomaly model |
+| Airflow | Bundled PostgreSQL | Custom image, external PostgreSQL |
+| Secrets | Static dev secrets (`make create-dev-secrets`) | ESO (auto-refresh from AWS/GCP/Vault) |
+
+---
+
+## Default Dev Credentials
+
+| Service | Username | Password |
+|---------|----------|----------|
+| Airflow | `admin` | `admin` |
+| OpenSearch | — | — (security disabled in dev) |
+| Kafka (PLAIN) | — | — (port 9092, no auth) |
+| Kafka (TLS) | `admin` | `dev-kafka-password` |
+| PostgreSQL | `postgres` | `postgres` |
+| Redis | — | `dev-redis-password` |
+
+> All credentials are dev-only placeholders. Production uses External Secrets Operator.
+
+---
+
+## Dashboard
+
+The LogClaw Dashboard is a **Next.js 16** web app that surfaces what the AI SRE found — incidents, anomalies, and pipeline health — so operators focus on action, not scrolling through raw logs.
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Overview — stat cards, pipeline flow, recent incidents, log charts |
+| `/incidents` | Incident list with severity/state filters and search |
+| `/incidents/:id` | Incident detail — timeline, traces, affected services |
+| `/ingestion` | Drag-and-drop log upload with format validation |
+| `/settings` | Service health, environment info, API reference |
+
+### Running the dashboard outside the cluster
 
 ```bash
-# Step 1: Send logs via HTTP → Vector
-curl -X POST http://localhost:18080 \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Payment failed: timeout", "level": "ERROR", "service": "payment-api"}'
+cd apps/dashboard
+npm install
+npm run dev          # http://localhost:3000 (hot-reload)
+```
 
-# Step 2: Verify logs landed in Kafka (raw-logs topic)
+With `make ports` running in another terminal, the dashboard auto-connects to all cluster services via fallback URLs.
+
+---
+
+## End-to-End Pipeline Test
+
+```bash
+# 1. Send a log via HTTP → Vector → Kafka → Bridge → OpenSearch
+curl -X POST http://localhost:8080 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Payment failed: timeout","level":"ERROR","service":"payment-api"}'
+
+# 2. Verify it landed in Kafka
 kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
   bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
   --topic raw-logs --from-beginning --max-messages 5 --timeout-ms 10000
 
-# Step 3: Check OpenSearch for indexed logs
-curl -s 'http://localhost:9200/logclaw-logs-*/_search' \
-  -H "Content-Type: application/json" \
-  -d '{"size":5,"query":{"match_all":{}},"sort":[{"ingest_timestamp":{"order":"desc"}}]}' \
-  | python3 -m json.tool
+# 3. Check OpenSearch
+curl -s 'http://localhost:9200/logclaw-logs-*/_search?size=5' | python3 -m json.tool
 
-# Step 4: Produce an anomaly event (simulates ML engine output)
+# 4. Simulate an anomaly event (triggers ticketing agent)
 kubectl -n logclaw-dev-local exec -i logclaw-kafka-dev-local-combined-0 -- \
   bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic anomaly-events <<'EOF'
 {"anomaly_id":"ANO-001","service":"payment-api","score":0.92,"severity":"critical","message":"Error rate spike to 15%"}
 EOF
-
-# Step 5: Verify anomaly event in topic
-kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
-  bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
-  --topic anomaly-events --from-beginning --max-messages 5 --timeout-ms 10000
 ```
 
-> **Note:** In local dev, the Bridge handles Kafka → OpenSearch ETL, anomaly detection, and
-> lifecycle tracking. Logs flow HTTP → Vector → Kafka → Bridge → OpenSearch automatically.
-> The ticketing agent consumes anomaly events from Kafka and creates incidents.
+---
 
-### 9 — Tear down
+## Development
 
 ```bash
-# Remove just the tenant stack
-make uninstall TENANT_ID=dev-local
-
-# Remove everything including the kind cluster
-make kind-delete
+make lint              # Lint all Helm charts
+make template          # Dry-run render (no cluster needed)
+make validate-schema   # Validate values against JSON schemas
+make test              # Helm test against installed release
+make build-all         # Build all Docker images locally
+make push-all          # Build + push all images to GHCR
+make scan-all          # Trivy vulnerability scan
 ```
 
-### Troubleshooting
+---
+
+## Troubleshooting
 
 <details>
 <summary><b>Strimzi entity operator CrashLoopBackOff</b></summary>
 
-The entity operator fails with `kafkausers` CRD at `kafka.strimzi.io/v1` not found. This happens when Helm installed older CRDs and didn't upgrade them:
+The entity operator fails with `kafkausers` CRD not found. Helm doesn't auto-upgrade CRDs:
 
 ```bash
 kubectl apply -f https://github.com/strimzi/strimzi-kafka-operator/releases/download/0.50.1/strimzi-crds-0.50.1.yaml \
@@ -479,7 +407,7 @@ kubectl rollout restart deployment -n strimzi-system strimzi-cluster-operator
 <details>
 <summary><b>Airflow webserver OOMKilled</b></summary>
 
-The Airflow webserver needs at least 1Gi memory. The `ci/default-values.yaml` sets the limit to 2Gi. If you see OOMKilled, check that you're using the CI values file:
+Needs at least 1Gi memory. Check CI values are applied:
 
 ```bash
 helm get values logclaw-airflow-dev-local -n logclaw-dev-local | grep -A3 memory
@@ -487,50 +415,19 @@ helm get values logclaw-airflow-dev-local -n logclaw-dev-local | grep -A3 memory
 </details>
 
 <details>
-<summary><b>Airflow scheduler/webserver stuck in Init:0/1</b></summary>
+<summary><b>Airflow scheduler stuck in Init:0/1</b></summary>
 
-These pods wait for DB migrations via an init container. See [Step 4](#4--run-airflow-db-migrations) to run migrations manually.
-</details>
-
-<details>
-<summary><b>OpenSearch authentication failed</b></summary>
-
-The dev secrets use `admin:admin` credentials. If you see authentication errors, verify the secret matches:
-
-```bash
-kubectl get secret opensearch-admin-credentials -n logclaw-dev-local \
-  -o jsonpath='{.data.password}' | base64 -d
-# Should output: admin
-```
-
-To reset: `make create-dev-secrets TENANT_ID=dev-local`
-</details>
-
-<details>
-<summary><b>Pods stuck in Pending (topology spread)</b></summary>
-
-All charts use `topologySpreadConstraints` with zone-based scheduling. Kind nodes need the zone label:
-
-```bash
-kubectl label node logclaw-dev-control-plane topology.kubernetes.io/zone=zone-a --overwrite
-```
-
-`make kind-create` does this automatically.
+Waiting for DB migrations. See [Step 4](#step-by-step-manual-setup-if-you-dont-want-to-use-make-up) in the detailed setup guide.
 </details>
 
 <details>
 <summary><b>OpenSearch cluster_manager_not_discovered_exception</b></summary>
 
-The Opster operator creates a temporary bootstrap pod for initial cluster formation. With single-replica master pools (dev mode), the bootstrap creates a 2-node voting config then deletes itself, leaving the single master without quorum.
-
-**Fix:** Deploy a standalone single-node OpenSearch bypassing the Opster operator:
+The Opster operator's bootstrap pod causes quorum issues with single-replica dev mode. Deploy a standalone single-node:
 
 ```bash
-# Delete the operator-managed cluster
 kubectl delete opensearchcluster logclaw-opensearch-dev-local -n logclaw-dev-local
 kubectl delete pvc -n logclaw-dev-local -l opster.io/opensearch-cluster=logclaw-opensearch-dev-local
-
-# Deploy standalone single-node (see gitops/tenants/tenant-dev-local.yaml for the manifest)
 kubectl apply -f - <<'EOF'
 apiVersion: apps/v1
 kind: StatefulSet
@@ -541,12 +438,10 @@ spec:
   serviceName: logclaw-opensearch-dev-local
   replicas: 1
   selector:
-    matchLabels:
-      app: opensearch-dev-local
+    matchLabels: { app: opensearch-dev-local }
   template:
     metadata:
-      labels:
-        app: opensearch-dev-local
+      labels: { app: opensearch-dev-local }
     spec:
       initContainers:
         - name: sysctl
@@ -560,10 +455,8 @@ spec:
             - { name: discovery.type, value: single-node }
             - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
             - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
-            - { name: cluster.name, value: logclaw-opensearch-dev-local }
           ports:
             - { containerPort: 9200, name: http }
-            - { containerPort: 9300, name: transport }
           volumeMounts:
             - { name: data, mountPath: /usr/share/opensearch/data }
   volumeClaimTemplates:
@@ -576,9 +469,19 @@ EOF
 </details>
 
 <details>
-<summary><b>Vector ingestion not connecting to Kafka</b></summary>
+<summary><b>Pods stuck in Pending (topology spread)</b></summary>
 
-Local dev uses a plain (no TLS, no auth) Kafka listener on port 9092. Verify the listener exists:
+Kind nodes need a zone label. `make kind-create` does this automatically, but if you see issues:
+
+```bash
+kubectl label node logclaw-dev-control-plane topology.kubernetes.io/zone=zone-a --overwrite
+```
+</details>
+
+<details>
+<summary><b>Vector not connecting to Kafka</b></summary>
+
+Local dev uses a plain Kafka listener (no TLS). Verify it exists:
 
 ```bash
 kubectl -n logclaw-dev-local get kafka logclaw-kafka-dev-local \
@@ -589,110 +492,46 @@ kubectl -n logclaw-dev-local get kafka logclaw-kafka-dev-local \
 
 ---
 
-## Dashboard (AI Command Center)
+## Component Versions
 
-The LogClaw Dashboard is a **Next.js 16** web application that replaces traditional log-browsing UIs. Instead of showing raw logs, it surfaces what the AI SRE found — incidents, anomalies, and pipeline health — so operators focus on action, not scrolling.
-
-### Pages
-
-| Route | Purpose |
-|---|---|
-| `/` | Overview — stat cards, pipeline flow with throughput, recent incidents, log distribution charts |
-| `/incidents` | Incident list with severity/state filters, search, and drill-down |
-| `/incidents/:id` | Incident detail — timeline, traces, affected services, state transitions |
-| `/ingestion` | Drag-and-drop log upload with validation (format, gibberish detection) |
-| `/settings` | Service health panel, environment info, Bridge health JSON, API endpoint reference |
-
-### Architecture
-
-The dashboard runs as a standalone Next.js server. All backend calls go through **API route handlers** that act as reverse proxies — the browser never talks to internal services directly:
-
-```
-Browser → Next.js /api/opensearch/*  → OpenSearch (port 9200)
-        → Next.js /api/vector/*      → Vector (port 8080)
-        → Next.js /api/ticketing/*   → Ticketing Agent (port 8080)
-        → Next.js /api/bridge/*      → Bridge (port 8080)
-        → Next.js /api/feast/*       → Feast (port 6566)
-        → Next.js /api/airflow/*     → Airflow (port 8080)
-```
-
-Backend URLs are configured via environment variables at **runtime** (not build time), keeping the Docker image portable across environments.
-
-### Running locally (outside the cluster)
-
-```bash
-cd apps/dashboard
-
-# Install dependencies
-npm install
-
-# Start the dev server (hot-reload on http://localhost:3000)
-npm run dev
-```
-
-The dev server uses fallback URLs for each backend service, matching the Makefile port-forward defaults:
-
-| Env Var | Fallback | What it reaches |
-|---|---|---|
-| `OPENSEARCH_ENDPOINT` | `http://localhost:9200` | OpenSearch |
-| `VECTOR_ENDPOINT` | `http://localhost:18080` | Vector ingest |
-| `TICKETING_ENDPOINT` | `http://localhost:18081` | Ticketing agent |
-| `BRIDGE_ENDPOINT` | `http://localhost:8080` | Bridge ETL |
-| `FEAST_ENDPOINT` | `http://localhost:6566` | Feast feature server |
-| `AIRFLOW_ENDPOINT` | `http://localhost:28080` | Airflow webserver |
-
-So with `make ports` running in one terminal and `npm run dev` in another, the dashboard connects to all cluster services automatically.
-
-### Building the Docker image
-
-```bash
-cd apps/dashboard
-
-# Build the image
-docker build -t logclaw-dashboard:latest .
-
-# Load into Kind cluster
-docker save logclaw-dashboard:latest | \
-  docker exec -i logclaw-dev-control-plane \
-  ctr -n k8s.io images import --all-platforms -
-
-# Restart the dashboard pod to pick up the new image
-kubectl -n logclaw-dev-local delete pod -l app.kubernetes.io/name=logclaw-dashboard
-```
-
-The Dockerfile uses a multi-stage build (deps → build → production) with `output: "standalone"` for minimal image size (~130 MB).
+| Component | Version |
+|-----------|---------|
+| **Dashboard** | Next.js 16 / React 19 / Tailwind CSS 4 |
+| **Bridge (ETL)** | Python 3 (FastAPI) |
+| **Ticketing Agent** | Python 3 (Kafka consumer) |
+| Apache Kafka (Strimzi) | 4.1.1 (Strimzi 0.50.1) |
+| Apache Flink | 1.19.0 |
+| OpenSearch | 2.14.0 |
+| External Secrets Operator | 0.10.3 |
+| cert-manager | v1.16.1 |
+| Apache Airflow | 2.9.2 (chart 1.14.0) |
+| Vector.dev | 0.38.0 |
+| KServe | 0.13.0 |
+| Feast | 0.40.1 |
 
 ---
 
-## Development
+## Production Deployment (GitOps)
+
+### Onboard a new tenant
+
+1. Copy the template:
+   ```bash
+   cp gitops/tenants/_template.yaml gitops/tenants/tenant-<id>.yaml
+   ```
+
+2. Fill in the required values (`tenantId`, `tier`, `cloudProvider`, secret store config).
+
+3. Commit and push — ArgoCD detects the new file and deploys the full stack in ~30 minutes.
+
+### Manual install
 
 ```bash
-# Lint all charts
-make lint
-
-# Render umbrella chart templates (dry-run, no cluster needed)
-make template TENANT_ID=ci-test
-
-# Diff what would change on an already-installed release
-make template-diff TENANT_ID=dev-local
-
-# Validate values against JSON schemas
-make validate-schema
-
-# Package charts as .tgz
-make package
-
-# Push to OCI registry
-make push HELM_REGISTRY=oci://ghcr.io/logclaw/charts
+helm install logclaw-acme charts/logclaw-tenant \
+  --namespace logclaw-acme \
+  --create-namespace \
+  -f gitops/tenants/tenant-acme.yaml
 ```
-
----
-
-## Docs
-
-- [Architecture](docs/architecture.md)
-- [Onboarding a new tenant](docs/onboarding.md)
-- [Values reference](docs/values-reference.md)
 
 ---
 
