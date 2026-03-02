@@ -1,4 +1,7 @@
 FROM node:22-alpine AS base
+LABEL org.opencontainers.image.source="https://github.com/logclaw/logclaw"
+LABEL org.opencontainers.image.description="LogClaw AI Command Center — Next.js dashboard"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # --- Dependencies ---
 FROM base AS deps
