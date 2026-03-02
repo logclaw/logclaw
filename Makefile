@@ -140,7 +140,7 @@ status: ## 📊 Show pod status, services, and endpoints
 
 ports: kill-ports ## 🔌 Start all port-forwards
 	@echo "Starting port-forwards..."
-	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-dashboard-$(TENANT_ID) $(PORT_DASHBOARD):3333 >/dev/null 2>&1 &
+	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-dashboard-$(TENANT_ID) $(PORT_DASHBOARD):3000 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-ticketing-agent-$(TENANT_ID) $(PORT_TICKETING):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-bridge-$(TENANT_ID) $(PORT_BRIDGE):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-ingestion-$(TENANT_ID) $(PORT_INGESTION):8080 >/dev/null 2>&1 &

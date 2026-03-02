@@ -15,6 +15,8 @@ Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log i
 ```
 LogClaw Stack (per tenant, namespace-isolated)
 │
+├── logclaw-dashboard       AI Command Center — Next.js web UI
+├── logclaw-bridge          Kafka→OpenSearch ETL, anomaly detection, Prometheus metrics
 ├── logclaw-ingestion       Vector.dev DaemonSet + PrivateLink TLS receiver
 ├── logclaw-kafka           Strimzi Kafka 3-broker KRaft + MirrorMaker2
 ├── logclaw-flink           ETL + enrichment + anomaly scoring (FlinkDeployments)
@@ -66,8 +68,14 @@ helm install logclaw-acme charts/logclaw-tenant \
 ## Repository Layout
 
 ```
+apps/
+├── dashboard/                # Next.js 16 AI Command Center (TypeScript + Tailwind CSS)
+└── bridge/                   # Python ETL bridge (Kafka→OpenSearch, anomaly detection)
+
 charts/
 ├── logclaw-tenant/           # Umbrella chart — single install entry point
+├── logclaw-dashboard/        # Dashboard Helm chart (Next.js standalone)
+├── logclaw-bridge/           # Bridge Helm chart (Python ETL service)
 ├── logclaw-platform/         # ESO SecretStore, cert-manager, RBAC
 ├── logclaw-kafka/            # Strimzi Kafka + KafkaConnect + MirrorMaker2
 ├── logclaw-ingestion/        # Vector.dev DaemonSet + PrivateLink receiver
@@ -142,6 +150,8 @@ global:
 
 | Component | Version |
 |---|---|
+| **Dashboard** | Next.js 16 / React 19 / Tailwind CSS 4 |
+| **Bridge (ETL)** | Python 3 (FastAPI) |
 | Apache Kafka (Strimzi) | 4.1.1 (Strimzi 0.50.1) |
 | Apache Flink | 1.19.0 |
 | OpenSearch | 2.14.0 |
@@ -247,13 +257,15 @@ The local dev environment uses `ci/default-values.yaml` overrides to run without
 
 | Component | Local Dev | Production |
 |---|---|---|
+| Dashboard | Next.js standalone, proxies to cluster services | Same image, env vars point to in-cluster services |
+| Bridge | Single replica, polls Kafka + indexes to OpenSearch | Multi-replica with Kafka consumer groups |
 | Kafka | Single-node KRaft, plain listener (port 9092) | Multi-broker, TLS + SCRAM-SHA-512 |
 | OpenSearch | 3 single-replica pools | Multi-replica with zone spread |
 | Flink | Operator + CRDs installed, jobs **disabled** (no app JARs) | FlinkDeployment CRDs (ETL + enrichment + anomaly) |
 | ML Engine (Feast) | Runs with local file registry | Redis online store + S3 offline |
 | ML Engine (KServe) | **Skipped** (no KServe CRD) | InferenceService for anomaly model |
 | Airflow | `apache/airflow:2.9.2`, bundled PostgreSQL | Custom image, external PostgreSQL |
-| Ticketing Agent | Python HTTP placeholder | Real agent with Kafka consumer |
+| Ticketing Agent | Kafka consumer, creates incidents from anomaly events | Same + multi-platform routing (PagerDuty, Jira, etc.) |
 | VPA | **Skipped** (no VPA CRD) | VerticalPodAutoscaler recommendations |
 | Secrets | `make create-dev-secrets` (static) | ESO ExternalSecrets (auto-refresh) |
 
@@ -286,7 +298,9 @@ kubectl delete pods -n logclaw-dev-local -l tier=airflow -l component=webserver
 # All pods should be Running
 kubectl get pods -n logclaw-dev-local
 
-# Expected: 11 pods, all 1/1 or 2/2 Running
+# Expected: 13 pods, all 1/1 or 2/2 Running
+#   logclaw-dashboard-dev-local-...                             1/1  Running
+#   logclaw-bridge-dev-local-...                                1/1  Running
 #   logclaw-kafka-dev-local-combined-0                          1/1  Running
 #   logclaw-kafka-dev-local-entity-operator-...                 2/2  Running
 #   opensearch-dev-local-0                                      1/1  Running
@@ -331,6 +345,8 @@ All services run inside the kind cluster. Run this **one block** to expose every
 
 ```bash
 # Forward all LogClaw services to localhost
+kubectl -n logclaw-dev-local port-forward svc/logclaw-dashboard-dev-local 3333:3000 &
+kubectl -n logclaw-dev-local port-forward svc/logclaw-bridge-dev-local 8083:8080 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-airflow-dev-local-webserver 8080:8080 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-opensearch-dev-local 9200:9200 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-kafka-dev-local-kafka-bootstrap 9092:9092 &
@@ -338,13 +354,15 @@ kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 18080:
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ingestion-dev-local 8686:8686 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ml-engine-dev-local-feast-server 6567:6567 &
 kubectl -n logclaw-dev-local port-forward svc/logclaw-ticketing-agent-dev-local 18081:8080 &
-echo "All services forwarded — stop with: kill %1 %2 %3 %4 %5 %6 %7"
+echo "All services forwarded — stop with: kill %1 %2 %3 %4 %5 %6 %7 %8 %9"
 ```
 
 Once running, your services are at:
 
 | Service | URL | What you get |
 |---|---|---|
+| **Dashboard** | [http://localhost:3333](http://localhost:3333) | AI Command Center — pipeline monitoring, incidents, log ingestion |
+| **Bridge** | [http://localhost:8083](http://localhost:8083) | ETL metrics & health (`/health`, `/metrics`) |
 | **Airflow** | [http://localhost:8080](http://localhost:8080) | DAG management UI (login: `admin` / `admin`) |
 | **OpenSearch** | [http://localhost:9200](http://localhost:9200) | Log search & analytics API |
 | **Kafka** | `localhost:9092` | Message broker (PLAIN, no auth) |
@@ -369,9 +387,18 @@ Once running, your services are at:
 > All credentials are dev-only placeholders created by `make create-dev-secrets`.
 > Production uses External Secrets Operator to pull from AWS Secrets Manager / GCP Secret Manager / Vault.
 
+Or use the Makefile shortcut to forward all services and open the dashboard:
+```bash
+make ports      # Forward all services
+make dashboard  # Forward + open browser
+```
+
 Quick smoke test after port-forwarding:
 
 ```bash
+# Dashboard (AI Command Center)
+open http://localhost:3333
+
 # Airflow UI
 open http://localhost:8080
 
@@ -424,9 +451,9 @@ kubectl -n logclaw-dev-local exec logclaw-kafka-dev-local-combined-0 -- \
   --topic anomaly-events --from-beginning --max-messages 5 --timeout-ms 10000
 ```
 
-> **Note:** In local dev, the Kafka → OpenSearch bridge (Flink) and the ticketing agent are stubs.
-> Logs flow from HTTP → Vector → Kafka automatically. To test OpenSearch indexing, use the
-> bulk API directly or wait for the Flink operator to be installed.
+> **Note:** In local dev, the Bridge handles Kafka → OpenSearch ETL, anomaly detection, and
+> lifecycle tracking. Logs flow HTTP → Vector → Kafka → Bridge → OpenSearch automatically.
+> The ticketing agent consumes anomaly events from Kafka and creates incidents.
 
 ### 9 — Tear down
 
@@ -562,6 +589,81 @@ kubectl -n logclaw-dev-local get kafka logclaw-kafka-dev-local \
 # Should include: plain
 ```
 </details>
+
+---
+
+## Dashboard (AI Command Center)
+
+The LogClaw Dashboard is a **Next.js 16** web application that replaces traditional log-browsing UIs. Instead of showing raw logs, it surfaces what the AI SRE found — incidents, anomalies, and pipeline health — so operators focus on action, not scrolling.
+
+### Pages
+
+| Route | Purpose |
+|---|---|
+| `/` | Overview — stat cards, pipeline flow with throughput, recent incidents, log distribution charts |
+| `/incidents` | Incident list with severity/state filters, search, and drill-down |
+| `/incidents/:id` | Incident detail — timeline, traces, affected services, state transitions |
+| `/ingestion` | Drag-and-drop log upload with validation (format, gibberish detection) |
+| `/settings` | Service health panel, environment info, Bridge health JSON, API endpoint reference |
+
+### Architecture
+
+The dashboard runs as a standalone Next.js server. All backend calls go through **API route handlers** that act as reverse proxies — the browser never talks to internal services directly:
+
+```
+Browser → Next.js /api/opensearch/*  → OpenSearch (port 9200)
+        → Next.js /api/vector/*      → Vector (port 8080)
+        → Next.js /api/ticketing/*   → Ticketing Agent (port 8080)
+        → Next.js /api/bridge/*      → Bridge (port 8080)
+        → Next.js /api/feast/*       → Feast (port 6566)
+        → Next.js /api/airflow/*     → Airflow (port 8080)
+```
+
+Backend URLs are configured via environment variables at **runtime** (not build time), keeping the Docker image portable across environments.
+
+### Running locally (outside the cluster)
+
+```bash
+cd apps/dashboard
+
+# Install dependencies
+npm install
+
+# Start the dev server (hot-reload on http://localhost:3000)
+npm run dev
+```
+
+The dev server uses fallback URLs for each backend service, matching the Makefile port-forward defaults:
+
+| Env Var | Fallback | What it reaches |
+|---|---|---|
+| `OPENSEARCH_ENDPOINT` | `http://localhost:9200` | OpenSearch |
+| `VECTOR_ENDPOINT` | `http://localhost:18080` | Vector ingest |
+| `TICKETING_ENDPOINT` | `http://localhost:18081` | Ticketing agent |
+| `BRIDGE_ENDPOINT` | `http://localhost:8080` | Bridge ETL |
+| `FEAST_ENDPOINT` | `http://localhost:6566` | Feast feature server |
+| `AIRFLOW_ENDPOINT` | `http://localhost:28080` | Airflow webserver |
+
+So with `make ports` running in one terminal and `npm run dev` in another, the dashboard connects to all cluster services automatically.
+
+### Building the Docker image
+
+```bash
+cd apps/dashboard
+
+# Build the image
+docker build -t logclaw-dashboard:latest .
+
+# Load into Kind cluster
+docker save logclaw-dashboard:latest | \
+  docker exec -i logclaw-dev-control-plane \
+  ctr -n k8s.io images import --all-platforms -
+
+# Restart the dashboard pod to pick up the new image
+kubectl -n logclaw-dev-local delete pod -l app.kubernetes.io/name=logclaw-dashboard
+```
+
+The Dockerfile uses a multi-stage build (deps → build → production) with `output: "standalone"` for minimal image size (~130 MB).
 
 ---
 
