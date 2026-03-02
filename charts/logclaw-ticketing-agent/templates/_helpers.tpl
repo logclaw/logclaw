@@ -136,10 +136,17 @@ Name of the ExternalSecret-managed secret.
 {{- end }}
 
 {{/*
-Name of the ConfigMap.
+Name of the ConfigMap (YAML config).
 */}}
 {{- define "logclaw-ticketing-agent.configMapName" -}}
 {{- printf "%s-config" (include "logclaw-ticketing-agent.fullname" .) }}
+{{- end }}
+
+{{/*
+Name of the App ConfigMap (Python code).
+*/}}
+{{- define "logclaw-ticketing-agent.configMapAppName" -}}
+{{- printf "%s-app" (include "logclaw-ticketing-agent.fullname" .) }}
 {{- end }}
 
 {{/*

@@ -156,6 +156,9 @@ spec:
             - secretRef:
                 name: {{ include "logclaw-ticketing-agent.fullname" . }}-credentials
           volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             - name: config
@@ -168,6 +171,9 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        - name: app
+          configMap:
+            name: {{ include "logclaw-ticketing-agent.configMapAppName" . }}
         - name: tmp
           emptyDir: {}
         - name: config
