@@ -378,6 +378,119 @@ export async function uploadLogs(logs: object[]): Promise<{ accepted: number }> 
   return { accepted: logs.length };
 }
 
+// ── Runtime Configuration types ─────────────────────────────
+
+export interface PlatformConfig {
+  enabled: boolean;
+  [key: string]: unknown; // platform-specific fields (baseUrl, apiToken, etc.)
+}
+
+export interface RoutingRules {
+  critical: string[];
+  high: string[];
+  medium: string[];
+  low: string[];
+}
+
+export interface AnomalyConfig {
+  minimumScore: number;
+  deduplicationWindowMinutes: number;
+  contextWindowMinutes: number;
+  maxContextLogLines: number;
+}
+
+export interface LlmConfig {
+  provider: "ollama" | "claude" | "openai" | "vllm" | "disabled";
+  model: string;
+  endpoint: string;
+}
+
+export interface TicketingConfig {
+  platforms: Record<string, PlatformConfig>;
+  routing: RoutingRules;
+  anomaly: AnomalyConfig;
+  llm: LlmConfig;
+}
+
+export interface BridgeConfig {
+  zscoreThreshold: number;
+  windowSeconds: number;
+  bulkSize: number;
+  bulkIntervalSeconds: number;
+}
+
+// ── Runtime Configuration API ───────────────────────────────
+
+export async function fetchTicketingConfig(): Promise<TicketingConfig> {
+  const res = await fetch("/api/ticketing/api/v1/config");
+  if (!res.ok) throw new Error(`Config ${res.status}`);
+  return res.json();
+}
+
+export async function updateRouting(routing: Partial<RoutingRules>): Promise<RoutingRules> {
+  const res = await fetch("/api/ticketing/api/v1/config/routing", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(routing),
+  });
+  if (!res.ok) throw new Error(`Routing ${res.status}`);
+  return res.json();
+}
+
+export async function updatePlatforms(
+  platforms: Record<string, Partial<PlatformConfig>>,
+): Promise<Record<string, PlatformConfig>> {
+  const res = await fetch("/api/ticketing/api/v1/config/platforms", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(platforms),
+  });
+  if (!res.ok) throw new Error(`Platforms ${res.status}`);
+  return res.json();
+}
+
+export async function updateAnomalyConfig(
+  anomaly: Partial<AnomalyConfig>,
+): Promise<AnomalyConfig> {
+  const res = await fetch("/api/ticketing/api/v1/config/anomaly", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(anomaly),
+  });
+  if (!res.ok) throw new Error(`Anomaly ${res.status}`);
+  return res.json();
+}
+
+export async function updateLlmConfig(
+  llm: Partial<LlmConfig>,
+): Promise<LlmConfig> {
+  const res = await fetch("/api/ticketing/api/v1/config/llm", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(llm),
+  });
+  if (!res.ok) throw new Error(`LLM ${res.status}`);
+  return res.json();
+}
+
+export async function fetchBridgeConfig(): Promise<BridgeConfig> {
+  const res = await fetch("/api/bridge/config");
+  if (!res.ok) throw new Error(`Bridge config ${res.status}`);
+  return res.json();
+}
+
+export async function updateBridgeConfig(
+  patch: Partial<BridgeConfig>,
+): Promise<BridgeConfig> {
+  const res = await fetch("/api/bridge/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Bridge config ${res.status}`);
+  return res.json();
+}
+
 // ── Health helpers ──────────────────────────────────────────
 
 export interface ServiceHealth {

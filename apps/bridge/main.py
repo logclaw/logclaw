@@ -31,18 +31,44 @@ from opensearchpy import OpenSearch, helpers as os_helpers
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# ── Infrastructure (immutable — require restart) ────────────────────────
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
 KAFKA_TOPIC_RAW = os.environ.get("KAFKA_TOPIC_RAW", "raw-logs")
 KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
 KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
 OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
 TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
-ANOMALY_ZSCORE_THRESHOLD = float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0"))
-ANOMALY_WINDOW_SECONDS = int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300"))
-BULK_SIZE = int(os.environ.get("OPENSEARCH_BULK_SIZE", "500"))
-BULK_INTERVAL = float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5"))
 
 BUCKET_WIDTH = 10  # seconds per sliding-window bucket
+
+# ── Runtime config (mutable via API) ────────────────────────────────────
+_bridge_config_lock = threading.Lock()
+_bridge_config = {
+    "zscoreThreshold": float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0")),
+    "windowSeconds": int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300")),
+    "bulkSize": int(os.environ.get("OPENSEARCH_BULK_SIZE", "500")),
+    "bulkIntervalSeconds": float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5")),
+}
+
+
+def get_bridge_config() -> dict:
+    with _bridge_config_lock:
+        return dict(_bridge_config)
+
+
+def update_bridge_config(patch: dict) -> dict:
+    valid_keys = {"zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds"}
+    with _bridge_config_lock:
+        for k, v in patch.items():
+            if k not in valid_keys:
+                continue
+            if k == "zscoreThreshold":
+                _bridge_config[k] = float(v)
+            elif k in ("windowSeconds", "bulkSize"):
+                _bridge_config[k] = int(v)
+            elif k == "bulkIntervalSeconds":
+                _bridge_config[k] = float(v)
+        return dict(_bridge_config)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -208,7 +234,8 @@ def anomaly_detector_loop():
         log.info("Anomaly detector ready")
 
         # service_name -> deque of (bucket_ts, SlidingWindowBucket)
-        windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=ANOMALY_WINDOW_SECONDS // BUCKET_WIDTH))
+        cfg = get_bridge_config()
+        windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=cfg["windowSeconds"] // BUCKET_WIDTH))
 
         while not shutdown_event.is_set():
             try:
@@ -233,6 +260,7 @@ def anomaly_detector_loop():
 
 
 def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
+    cfg = get_bridge_config()
     service = doc.get("service", "unknown")
     level = doc.get("level", "INFO").upper()
     is_error = level in ("ERROR", "FATAL", "CRITICAL")
@@ -250,8 +278,8 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
     if is_error:
         current_bucket.error_count += 1
 
-    # Prune expired buckets
-    cutoff = now_ts - ANOMALY_WINDOW_SECONDS
+    # Prune expired buckets (use runtime windowSeconds)
+    cutoff = now_ts - cfg["windowSeconds"]
     while window and window[0][0] < cutoff:
         window.popleft()
 
@@ -277,7 +305,7 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
     current_rate = rates[-1]
     z_score = (current_rate - mean) / std
 
-    if z_score < ANOMALY_ZSCORE_THRESHOLD:
+    if z_score < cfg["zscoreThreshold"]:
         return
 
     # Determine severity
@@ -329,9 +357,10 @@ def _classify_zscore(z: float) -> tuple[str, float]:
 # ---------------------------------------------------------------------------
 def opensearch_indexer_loop():
     """Bulk-index enriched logs and anomaly events into OpenSearch."""
+    cfg = get_bridge_config()
     log.info(
         "OpenSearch indexer starting (group=logclaw-bridge-indexer, topic=%s, bulk_size=%d, interval=%.1fs)",
-        KAFKA_TOPIC_ENRICHED, BULK_SIZE, BULK_INTERVAL,
+        KAFKA_TOPIC_ENRICHED, cfg["bulkSize"], cfg["bulkIntervalSeconds"],
     )
     consumer = None
     os_client = None
@@ -369,9 +398,10 @@ def opensearch_indexer_loop():
                     except IndexError:
                         break
 
-                # Flush on size or interval
+                # Flush on size or interval (use runtime config)
+                cfg = get_bridge_config()
                 elapsed = time.time() - last_flush
-                if len(buffer) >= BULK_SIZE or (buffer and elapsed >= BULK_INTERVAL):
+                if len(buffer) >= cfg["bulkSize"] or (buffer and elapsed >= cfg["bulkIntervalSeconds"]):
                     _flush_bulk(os_client, buffer)
                     buffer = []
                     last_flush = time.time()
@@ -412,8 +442,15 @@ def _flush_bulk(client: OpenSearch, actions: list[dict]):
 # HTTP Health Server
 # ---------------------------------------------------------------------------
 class HealthHandler(BaseHTTPRequestHandler):
-    """Minimal HTTP handler for /health, /ready, and /metrics."""
+    """HTTP handler for /health, /ready, /metrics, and /config."""
 
+    # ── CORS preflight ──────────────────────────────────────────────
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors_headers()
+        self.end_headers()
+
+    # ── GET ──────────────────────────────────────────────────────────
     def do_GET(self):
         if self.path == "/health":
             self._respond_json(200, {
@@ -436,14 +473,37 @@ class HealthHandler(BaseHTTPRequestHandler):
                 })
         elif self.path == "/metrics":
             self._respond_metrics()
+        elif self.path == "/config":
+            self._respond_json(200, get_bridge_config())
         else:
             self._respond_json(404, {"error": "not found"})
+
+    # ── PATCH ────────────────────────────────────────────────────────
+    def do_PATCH(self):
+        if self.path == "/config":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+                updated = update_bridge_config(body)
+                log.info("Bridge config updated via API: %s", updated)
+                self._respond_json(200, updated)
+            except (json.JSONDecodeError, ValueError) as e:
+                self._respond_json(400, {"error": str(e)})
+        else:
+            self._respond_json(404, {"error": "not found"})
+
+    # ── Helpers ──────────────────────────────────────────────────────
+    def _cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _respond_json(self, code: int, body: dict):
         payload = json.dumps(body).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(payload)
 
@@ -463,6 +523,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(payload)
 
@@ -487,6 +548,7 @@ def _close_safely(resource, name: str):
 # Main entry-point
 # ---------------------------------------------------------------------------
 def main():
+    cfg = get_bridge_config()
     log.info("=" * 60)
     log.info("LogClaw Bridge Service starting")
     log.info("  KAFKA_BROKERS          = %s", KAFKA_BROKERS)
@@ -495,10 +557,10 @@ def main():
     log.info("  KAFKA_TOPIC_ANOMALIES  = %s", KAFKA_TOPIC_ANOMALIES)
     log.info("  OPENSEARCH_ENDPOINT    = %s", OPENSEARCH_ENDPOINT)
     log.info("  TENANT_ID              = %s", TENANT_ID)
-    log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", ANOMALY_ZSCORE_THRESHOLD)
-    log.info("  ANOMALY_WINDOW_SECONDS = %d", ANOMALY_WINDOW_SECONDS)
-    log.info("  OPENSEARCH_BULK_SIZE   = %d", BULK_SIZE)
-    log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", BULK_INTERVAL)
+    log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", cfg["zscoreThreshold"])
+    log.info("  ANOMALY_WINDOW_SECONDS = %d", cfg["windowSeconds"])
+    log.info("  OPENSEARCH_BULK_SIZE   = %d", cfg["bulkSize"])
+    log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", cfg["bulkIntervalSeconds"])
     log.info("=" * 60)
 
     # Validate required env vars
