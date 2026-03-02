@@ -1,29 +1,27 @@
-# CI test values for logclaw-dashboard chart
+# CI test values for logclaw-dashboard chart (Next.js)
 replicaCount: 1
 
 image:
-  repository: "python"
-  tag: "3.12-slim"
+  repository: "ghcr.io/logclaw/dashboard"
+  tag: "latest"
 
-# Dev mode: run as root (python:3.12-slim has no user 1000)
+# Next.js standalone runs as uid 1001
 securityContext:
-  runAsNonRoot: false
-  runAsUser: 0
-  fsGroup: 0
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
 
-command:
-  - /bin/sh
-  - -c
-  - |
-    exec python -u /app/server.py
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
 
 resources:
   requests:
-    cpu: "50m"
-    memory: "64Mi"
-  limits:
-    cpu: "200m"
+    cpu: "100m"
     memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
 
 global:
   tenantId: "dev-local"
