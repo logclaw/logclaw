@@ -24,6 +24,7 @@ data:
     import json
     import logging
     import os
+    import re
     import signal
     import sys
     import threading
@@ -53,6 +54,22 @@ data:
 
     BUCKET_WIDTH = 10  # seconds per sliding-window bucket
 
+    # Request Lifecycle Tracker configuration (OTel-only)
+    LIFECYCLE_TIMEOUT = int(os.environ.get("LIFECYCLE_TIMEOUT_SECONDS", "30"))
+    MAX_PENDING_REQUESTS = int(os.environ.get("MAX_PENDING_REQUESTS", "10000"))
+    LIFECYCLE_CLEANUP_INTERVAL = 5  # seconds between cleanup sweeps
+
+    # OTel trace context fields — the ONLY correlation fields LogClaw supports.
+    # Enterprises must instrument with OpenTelemetry (the CNCF standard).
+    OTEL_TRACE_ID_FIELDS = ["trace_id", "traceId", "TraceId", "otelTraceID"]
+    OTEL_SPAN_ID_FIELDS = ["span_id", "spanId", "SpanId", "otelSpanID"]
+
+    # OTel semantic conventions for enrichment
+    SERVICE_FIELDS = ["service", "service.name"]
+    ENDPOINT_FIELDS = ["endpoint", "http.route", "http.url", "url.path"]
+    STATUS_CODE_FIELDS = ["http.status_code", "http.response.status_code"]
+    ERROR_TYPE_FIELDS = ["error.type", "exception.type"]
+
     # ---------------------------------------------------------------------------
     # Logging
     # ---------------------------------------------------------------------------
@@ -81,6 +98,9 @@ data:
         "indexer_indexed": 0,
         "indexer_bulk_requests": 0,
         "indexer_errors": 0,
+        "lifecycle_tracked": 0,
+        "lifecycle_completed": 0,
+        "lifecycle_errors_detected": 0,
     }
 
     # Readiness flags per consumer group
@@ -202,8 +222,277 @@ data:
             self.total_count = 0
 
 
+    def _extract_first(doc, fields):
+        """Extract the first non-empty value from a list of OTel field names."""
+        for f in fields:
+            val = doc.get(f)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+        return None
+
+
+    class RequestLifecycle:
+        """Tracks a single request by OTel trace_id as it flows through services."""
+        __slots__ = ("trace_id", "logs", "services", "span_ids", "first_seen",
+                     "last_seen", "has_error", "max_level", "error_service",
+                     "error_message", "endpoint", "status_code", "error_type")
+
+        def __init__(self, trace_id):
+            self.trace_id = trace_id
+            self.logs = []
+            self.services = []
+            self.span_ids = []
+            self.first_seen = time.time()
+            self.last_seen = time.time()
+            self.has_error = False
+            self.max_level = "INFO"
+            self.error_service = None
+            self.error_message = None
+            self.endpoint = None
+            self.status_code = None
+            self.error_type = None
+
+        def add_log(self, doc, span_id=None):
+            if len(self.logs) < 50:  # cap log entries per lifecycle
+                self.logs.append(doc)
+            self.last_seen = time.time()
+            if span_id and span_id not in self.span_ids:
+                self.span_ids.append(span_id)
+            service = _extract_first(doc, SERVICE_FIELDS) or "unknown"
+            if service not in self.services:
+                self.services.append(service)
+            if not self.endpoint:
+                self.endpoint = _extract_first(doc, ENDPOINT_FIELDS)
+            # Track HTTP status code from OTel semantic conventions
+            status = _extract_first(doc, STATUS_CODE_FIELDS)
+            if status:
+                try:
+                    code = int(status)
+                    if code >= 400:
+                        self.status_code = code
+                except (ValueError, TypeError):
+                    pass
+            # Track error state from log level
+            level = doc.get("level", "INFO").upper()
+            if level in ("ERROR", "FATAL", "CRITICAL"):
+                self.has_error = True
+                self.error_service = service
+                self.error_message = doc.get("message", "")
+                if not self.error_type:
+                    self.error_type = _extract_first(doc, ERROR_TYPE_FIELDS)
+                if level == "FATAL":
+                    self.max_level = "FATAL"
+                elif level == "CRITICAL" and self.max_level != "FATAL":
+                    self.max_level = "CRITICAL"
+                elif self.max_level not in ("FATAL", "CRITICAL"):
+                    self.max_level = level
+            # Also flag as error if HTTP status >= 500
+            elif self.status_code and self.status_code >= 500 and not self.has_error:
+                self.has_error = True
+                self.error_service = service
+                self.error_message = doc.get("message", "")
+
+
+    class RequestLifecycleTracker:
+        """Tracks request lifecycles using OTel trace context and emits rich
+        anomaly events when errors are detected in a request's journey.
+
+        OTel-only: only looks for trace_id/span_id fields and W3C traceparent.
+        Enterprises must instrument with OpenTelemetry (CNCF standard).
+        """
+
+        def __init__(self, producer, max_pending=None, timeout=None):
+            self.pending = {}  # trace_id -> RequestLifecycle
+            self.producer = producer
+            self.max_pending = max_pending or MAX_PENDING_REQUESTS
+            self.timeout = timeout or LIFECYCLE_TIMEOUT
+            self.last_cleanup = time.time()
+
+        def _extract_otel_context(self, doc):
+            """Extract OTel trace_id and span_id from a log record.
+
+            Supports:
+              - Direct fields: trace_id, traceId, TraceId, otelTraceID
+              - W3C traceparent: 00-{trace_id}-{span_id}-{flags}
+
+            Returns (trace_id, span_id) or (None, None).
+            """
+            trace_id = _extract_first(doc, OTEL_TRACE_ID_FIELDS)
+            span_id = _extract_first(doc, OTEL_SPAN_ID_FIELDS)
+
+            # Try W3C traceparent header if direct fields not found
+            if not trace_id:
+                traceparent = doc.get("traceparent") or doc.get("traceParent")
+                if traceparent:
+                    parts = str(traceparent).split("-")
+                    if len(parts) >= 3:
+                        trace_id = parts[1]
+                        if not span_id:
+                            span_id = parts[2]
+
+            return trace_id, span_id
+
+        def process_record(self, doc):
+            """Process a single enriched log record through OTel lifecycle tracking."""
+            trace_id, span_id = self._extract_otel_context(doc)
+            if not trace_id:
+                return  # No OTel trace context — skip lifecycle tracking
+
+            metrics["lifecycle_tracked"] += 1
+
+            if trace_id in self.pending:
+                self.pending[trace_id].add_log(doc, span_id)
+            else:
+                if len(self.pending) >= self.max_pending:
+                    # LRU eviction: finalize oldest lifecycle to prevent unbounded memory
+                    oldest_key = min(self.pending,
+                                     key=lambda k: self.pending[k].first_seen)
+                    self._finalize(oldest_key)
+                lifecycle = RequestLifecycle(trace_id)
+                lifecycle.add_log(doc, span_id)
+                self.pending[trace_id] = lifecycle
+
+        def cleanup(self):
+            """Finalize timed-out lifecycles."""
+            now = time.time()
+            if now - self.last_cleanup < LIFECYCLE_CLEANUP_INTERVAL:
+                return
+            self.last_cleanup = now
+            expired = [tid for tid, lc in self.pending.items()
+                       if now - lc.last_seen > self.timeout]
+            for tid in expired:
+                self._finalize(tid)
+
+        def _finalize(self, trace_id):
+            """Finalize a lifecycle. If it has errors, emit a rich anomaly event."""
+            lifecycle = self.pending.pop(trace_id, None)
+            if not lifecycle:
+                return
+
+            metrics["lifecycle_completed"] += 1
+
+            if not lifecycle.has_error:
+                return  # No errors in this request, nothing to report
+            if len(lifecycle.logs) < 2:
+                return  # Single log is not a meaningful lifecycle
+
+            metrics["lifecycle_errors_detected"] += 1
+
+            # Sort logs chronologically
+            lifecycle.logs.sort(key=lambda l: l.get("timestamp", ""))
+
+            severity = "critical" if lifecycle.max_level == "FATAL" else "high"
+            anomaly_score = 0.95 if lifecycle.max_level == "FATAL" else 0.85
+
+            error_type = self._classify_error(lifecycle)
+            primary_service = lifecycle.error_service or lifecycle.services[-1]
+            endpoint = lifecycle.endpoint or "unknown"
+
+            # Build title matching the TICK-1247 format
+            title_parts = []
+            if endpoint and endpoint != "unknown":
+                title_parts.append(endpoint)
+            if lifecycle.status_code:
+                title_parts.append("{} Error".format(lifecycle.status_code))
+            title_parts.append("{} {}".format(primary_service, error_type))
+            title = " \u2014 ".join(title_parts)
+
+            # Build request trace with OTel span context
+            request_trace = []
+            prev_ts = None
+            for entry in lifecycle.logs:
+                ts = entry.get("timestamp", "")
+                duration_ms = (entry.get("duration_ms")
+                               or entry.get("response_time_ms") or 0)
+                if not duration_ms and prev_ts and ts:
+                    try:
+                        t1 = datetime.fromisoformat(prev_ts.replace("Z", "+00:00"))
+                        t2 = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        duration_ms = max(0, int((t2 - t1).total_seconds() * 1000))
+                    except Exception:
+                        duration_ms = 0
+                request_trace.append({
+                    "timestamp": ts,
+                    "service": _extract_first(entry, SERVICE_FIELDS) or "unknown",
+                    "level": entry.get("level", "INFO"),
+                    "message": entry.get("message", ""),
+                    "span_id": _extract_first(entry, OTEL_SPAN_ID_FIELDS) or "",
+                    "duration_ms": duration_ms,
+                    "host": entry.get("host", ""),
+                    "endpoint": _extract_first(entry, ENDPOINT_FIELDS) or "",
+                    "raw_log": json.dumps(entry),
+                })
+                prev_ts = ts
+
+            # Root cause: last ERROR/FATAL log message
+            error_logs = [l for l in lifecycle.logs
+                          if l.get("level", "").upper() in ("ERROR", "FATAL", "CRITICAL")]
+            root_cause = (error_logs[-1].get("message", "Unknown error")
+                          if error_logs else "Unknown error")
+
+            anomaly_event = {
+                "event_id": str(uuid.uuid4()),
+                "timestamp": _now_iso(),
+                "tenant_id": TENANT_ID,
+                "anomaly_type": "request_failure",
+                "severity": severity,
+                "service": primary_service,
+                "title": title,
+                "description": root_cause[:200],
+                "trace_id": lifecycle.trace_id,
+                "span_ids": lifecycle.span_ids,
+                "request_flow": lifecycle.services,
+                "affected_services": list(set(lifecycle.services)),
+                "request_trace": request_trace,
+                "root_cause": root_cause,
+                "error_message": lifecycle.error_message or "",
+                "endpoint": endpoint,
+                "status_code": lifecycle.status_code,
+                "error_type": lifecycle.error_type or error_type,
+                "anomaly_score": round(anomaly_score, 2),
+                "status": "open",
+                "environment": TENANT_ID,
+            }
+
+            self.producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
+            anomaly_queue.append(anomaly_event)
+            metrics["anomaly_detected"] += 1
+            log.info(
+                "Request failure detected: trace_id=%s service=%s severity=%s flow=%s",
+                trace_id, primary_service, severity,
+                " -> ".join(lifecycle.services),
+            )
+
+        def _classify_error(self, lifecycle):
+            """Extract error type from lifecycle context using OTel conventions."""
+            # Prefer OTel error.type / exception.type
+            if lifecycle.error_type:
+                return lifecycle.error_type
+            msg = (lifecycle.error_message or "").lower()
+            if "timeout" in msg:
+                return "Timeout"
+            if "connection refused" in msg or "connection reset" in msg:
+                return "Connection Refused"
+            if "pool exhausted" in msg:
+                return "Connection Pool Exhausted"
+            if "circuit breaker" in msg:
+                return "Circuit Breaker Open"
+            if "out of memory" in msg or "oom" in msg:
+                return "OOM"
+            if "ssl" in msg or "tls" in msg or "certificate" in msg:
+                return "SSL Error"
+            if lifecycle.status_code:
+                return "{} Error".format(lifecycle.status_code)
+            return "Error"
+
+
     def anomaly_detector_loop():
-        """Track per-service error rates and emit anomaly events on z-score spikes."""
+        """Track per-service error rates (z-score) AND request lifecycles (OTel).
+
+        Runs BOTH detectors on every enriched log record:
+          1. Z-score rate detector — aggregate error rate spikes per service
+          2. OTel lifecycle tracker — individual request failure detection
+        """
         log.info("Anomaly detector starting (group=logclaw-bridge-anomaly, topic=%s)", KAFKA_TOPIC_ENRICHED)
         consumer = None
         producer = None
@@ -211,9 +500,10 @@ data:
             consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-anomaly")
             producer = _make_producer()
             ready_flags["anomaly"].set()
-            log.info("Anomaly detector ready")
+            log.info("Anomaly detector ready (z-score + OTel lifecycle tracker)")
 
             windows = defaultdict(lambda: deque(maxlen=ANOMALY_WINDOW_SECONDS // BUCKET_WIDTH))
+            lifecycle_tracker = RequestLifecycleTracker(producer)
 
             while not shutdown_event.is_set():
                 try:
@@ -222,10 +512,17 @@ data:
                         for msg in messages:
                             metrics["anomaly_consumed"] += 1
                             try:
+                                # Detector 1: z-score error rate spikes
                                 _process_anomaly_record(msg.value, windows, producer)
+                                # Detector 2: OTel request lifecycle failures
+                                lifecycle_tracker.process_record(msg.value)
                             except Exception:
                                 metrics["anomaly_errors"] += 1
                                 log.exception("Anomaly processing error")
+
+                    # Periodic lifecycle cleanup (finalize timed-out traces)
+                    lifecycle_tracker.cleanup()
+
                 except Exception:
                     if not shutdown_event.is_set():
                         metrics["anomaly_errors"] += 1
@@ -495,6 +792,9 @@ data:
         log.info("  ANOMALY_WINDOW_SECONDS = %d", ANOMALY_WINDOW_SECONDS)
         log.info("  OPENSEARCH_BULK_SIZE   = %d", BULK_SIZE)
         log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", BULK_INTERVAL)
+        log.info("  LIFECYCLE_TIMEOUT      = %ds", LIFECYCLE_TIMEOUT)
+        log.info("  MAX_PENDING_REQUESTS   = %d", MAX_PENDING_REQUESTS)
+        log.info("  OTel trace fields      = %s", OTEL_TRACE_ID_FIELDS)
         log.info("=" * 60)
 
         if not os.environ.get("KAFKA_BROKERS"):

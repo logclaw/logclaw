@@ -34,7 +34,7 @@ resources:
     memory: "128Mi"
   limits:
     cpu: "500m"
-    memory: "256Mi"
+    memory: "384Mi"
 
 livenessProbe:
   httpGet:
@@ -58,6 +58,9 @@ config:
   anomaly:
     zscoreThreshold: 2.0
     windowSeconds: 300
+  lifecycle:
+    timeoutSeconds: 30
+    maxPendingRequests: 10000
   opensearch:
     bulkSize: 500
     bulkIntervalSeconds: 5

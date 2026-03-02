@@ -16,6 +16,9 @@ global:
 
 # ── Chart-specific overrides for minimal local footprint ───────────────────────
 opensearch:
+  # Use standalone StatefulSet (bypasses Opster CRD bootstrap race condition)
+  devMode:
+    enabled: true
   masters:
     replicas: 1
     diskSize: "5Gi"
