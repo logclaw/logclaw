@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: "Image to build (dashboard, bridge, or all)"
+        description: "Image to build (dashboard, bridge, ticketing-agent, or all)"
         required: false
         default: "all"
 
@@ -34,6 +34,7 @@ jobs:
     outputs:
       dashboard: ${{ steps.filter.outputs.dashboard }}
       bridge: ${{ steps.filter.outputs.bridge }}
+      ticketing-agent: ${{ steps.filter.outputs.ticketing-agent }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -44,6 +45,8 @@ jobs:
               - 'apps/dashboard/**'
             bridge:
               - 'apps/bridge/**'
+            ticketing-agent:
+              - 'apps/ticketing-agent/**'
 
   # ── Build matrix ───────────────────────────────────────────────
   build:
@@ -63,12 +66,16 @@ jobs:
           - image: bridge
             context: apps/bridge
             app-version: "1.0.0"
+          - image: ticketing-agent
+            context: apps/ticketing-agent
+            app-version: "1.0.0"
 
     # Skip if nothing changed (unless manual dispatch or tag)
     if: |
       github.event_name == 'workflow_dispatch' ||
       (matrix.image == 'dashboard' && needs.changes.outputs.dashboard == 'true') ||
-      (matrix.image == 'bridge' && needs.changes.outputs.bridge == 'true')
+      (matrix.image == 'bridge' && needs.changes.outputs.bridge == 'true') ||
+      (matrix.image == 'ticketing-agent' && needs.changes.outputs.ticketing-agent == 'true')
 
     steps:
       - uses: actions/checkout@v4

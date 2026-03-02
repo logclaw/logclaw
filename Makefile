@@ -42,10 +42,12 @@ ZAMMAD_ADMIN_PASSWORD      ?= admin
 
 # ── Docker image variables ─────────────────────────────────────────────────
 REGISTRY       ?= ghcr.io/logclaw
-DASHBOARD_IMG  := $(REGISTRY)/dashboard
-BRIDGE_IMG     := $(REGISTRY)/bridge
-DASHBOARD_VER  := 2.0.0
-BRIDGE_VER     := 1.0.0
+DASHBOARD_IMG       := $(REGISTRY)/dashboard
+BRIDGE_IMG          := $(REGISTRY)/bridge
+TICKETING_AGENT_IMG := $(REGISTRY)/ticketing-agent
+DASHBOARD_VER       := 2.0.0
+BRIDGE_VER          := 1.0.0
+TICKETING_AGENT_VER := 1.0.0
 GIT_SHA        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 PLATFORM       ?= linux/amd64,linux/arm64
 
@@ -53,10 +55,10 @@ PLATFORM       ?= linux/amd64,linux/arm64
         deps lint lint-umbrella validate-schema template template-diff \
         kind-create kind-delete install-operators create-dev-secrets install uninstall \
         dashboard test ct-install package push clean \
-        build-dashboard build-bridge build-all \
-        push-dashboard push-bridge push-all \
-        scan-dashboard scan-bridge scan-all \
-        kind-load-dashboard kind-load-bridge kind-load-all
+        build-dashboard build-bridge build-ticketing-agent build-all \
+        push-dashboard push-bridge push-ticketing-agent push-all \
+        scan-dashboard scan-bridge scan-ticketing-agent scan-all \
+        kind-load-dashboard kind-load-bridge kind-load-ticketing-agent kind-load-all
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Quick-start targets
@@ -336,7 +338,16 @@ build-bridge: ## Build bridge Docker image (multi-arch)
 		--load
 	@echo "✓ Built $(BRIDGE_IMG):$(BRIDGE_VER)"
 
-build-all: build-dashboard build-bridge ## Build all Docker images
+build-ticketing-agent: ## Build ticketing-agent Docker image (multi-arch)
+	docker buildx build apps/ticketing-agent \
+		--platform $(PLATFORM) \
+		-t $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER) \
+		-t $(TICKETING_AGENT_IMG):sha-$(GIT_SHA) \
+		-t $(TICKETING_AGENT_IMG):latest \
+		--load
+	@echo "✓ Built $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER)"
+
+build-all: build-dashboard build-bridge build-ticketing-agent ## Build all Docker images
 
 push-dashboard: ## Build + push dashboard to GHCR
 	docker buildx build apps/dashboard \
@@ -356,7 +367,16 @@ push-bridge: ## Build + push bridge to GHCR
 		--push
 	@echo "✓ Pushed $(BRIDGE_IMG):$(BRIDGE_VER)"
 
-push-all: push-dashboard push-bridge ## Build + push all images to GHCR
+push-ticketing-agent: ## Build + push ticketing-agent to GHCR
+	docker buildx build apps/ticketing-agent \
+		--platform $(PLATFORM) \
+		-t $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER) \
+		-t $(TICKETING_AGENT_IMG):sha-$(GIT_SHA) \
+		-t $(TICKETING_AGENT_IMG):latest \
+		--push
+	@echo "✓ Pushed $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER)"
+
+push-all: push-dashboard push-bridge push-ticketing-agent ## Build + push all images to GHCR
 
 scan-dashboard: build-dashboard ## Scan dashboard image for vulnerabilities
 	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(DASHBOARD_IMG):latest
@@ -364,7 +384,10 @@ scan-dashboard: build-dashboard ## Scan dashboard image for vulnerabilities
 scan-bridge: build-bridge ## Scan bridge image for vulnerabilities
 	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(BRIDGE_IMG):latest
 
-scan-all: scan-dashboard scan-bridge ## Scan all images
+scan-ticketing-agent: build-ticketing-agent ## Scan ticketing-agent image for vulnerabilities
+	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(TICKETING_AGENT_IMG):latest
+
+scan-all: scan-dashboard scan-bridge scan-ticketing-agent ## Scan all images
 
 kind-load-dashboard: ## Load dashboard image into Kind cluster
 	docker save $(DASHBOARD_IMG):latest | \
@@ -378,4 +401,10 @@ kind-load-bridge: ## Load bridge image into Kind cluster
 		ctr -n k8s.io images import --all-platforms -
 	@echo "✓ Loaded $(BRIDGE_IMG):latest into Kind"
 
-kind-load-all: kind-load-dashboard kind-load-bridge ## Load all images into Kind
+kind-load-ticketing-agent: ## Load ticketing-agent image into Kind cluster
+	docker save $(TICKETING_AGENT_IMG):latest | \
+		docker exec -i $(KIND_CLUSTER)-control-plane \
+		ctr -n k8s.io images import --all-platforms -
+	@echo "✓ Loaded $(TICKETING_AGENT_IMG):latest into Kind"
+
+kind-load-all: kind-load-dashboard kind-load-bridge kind-load-ticketing-agent ## Load all images into Kind
