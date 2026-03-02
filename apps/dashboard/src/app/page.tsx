@@ -1,45 +1,68 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import StatCard from "@/components/stat-card";
 import PipelineFlow from "@/components/pipeline-flow";
 import BarChart from "@/components/bar-chart";
-import LogTable from "@/components/log-table";
 import {
   fetchPipelineStats,
-  fetchRecentLogs,
-  fetchErrorLogs,
-  fetchAnomalies,
+  fetchPipelineThroughput,
+  fetchIncidents,
   type PipelineStats,
-  type LogEntry,
-  type Anomaly,
+  type PipelineThroughput,
+  type Incident,
 } from "@/lib/api";
-import { formatNumber, severityColor, timeAgo } from "@/lib/utils";
+import {
+  formatNumber,
+  severityColor,
+  stateColor,
+  timeAgo,
+  formatDuration,
+} from "@/lib/utils";
+import {
+  BarChart3,
+  AlertOctagon,
+  Server,
+  Zap,
+  AlertCircle,
+  RefreshCw,
+  ShieldAlert,
+  ChevronRight,
+  Clock,
+  User,
+  ArrowRight,
+  ExternalLink,
+  Database,
+} from "lucide-react";
 
 const REFRESH_MS = 15_000;
 
 export default function OverviewPage() {
   const [stats, setStats] = useState<PipelineStats | null>(null);
-  const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
-  const [errorLogs, setErrorLogs] = useState<LogEntry[]>([]);
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [throughput, setThroughput] = useState<PipelineThroughput | null>(null);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [incidentTotal, setIncidentTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = async () => {
+    setRefreshing(true);
     try {
-      const [s, recent, errors, anom] = await Promise.all([
+      const [s, tp, incRes] = await Promise.all([
         fetchPipelineStats(),
-        fetchRecentLogs(100),
-        fetchErrorLogs(50),
-        fetchAnomalies(20),
+        fetchPipelineThroughput(),
+        fetchIncidents({ limit: 5 }),
       ]);
       setStats(s);
-      setRecentLogs(recent);
-      setErrorLogs(errors);
-      setAnomalies(anom);
+      setThroughput(tp);
+      setIncidents(incRes.incidents);
+      setIncidentTotal(incRes.total);
       setError(null);
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -55,12 +78,12 @@ export default function OverviewPage() {
         value,
         color:
           label === "ERROR" || label === "FATAL"
-            ? "bg-red-500"
+            ? "bg-red-400"
             : label === "WARN" || label === "WARNING"
-              ? "bg-yellow-500"
+              ? "bg-amber-400"
               : label === "INFO"
                 ? "bg-blue-500"
-                : "bg-green-500",
+                : "bg-emerald-500",
       }))
     : [];
 
@@ -74,48 +97,157 @@ export default function OverviewPage() {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-lg bg-red-900/30 px-4 py-3 text-sm text-red-300">
-          ⚠️ {error}
+        <div className="animate-fade-in flex items-center gap-2.5 rounded-xl bg-red-50 px-4 py-3.5 text-[13px] font-medium text-red-500">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
         </div>
       )}
 
+      {/* Header */}
+      <div className="animate-fade-in-up flex items-center justify-between">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+            Overview
+          </h1>
+          <p className="text-[13px] text-[#6e6e73]">
+            Your AI SRE is watching. Here&apos;s what it found.
+          </p>
+        </div>
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          className="flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[12px] font-medium text-[#6e6e73] shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] transition-all hover:shadow-md disabled:opacity-50"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+          Refresh
+        </button>
+      </div>
+
       {/* Stats row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="stagger-children grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          icon="📊"
+          icon={<BarChart3 className="h-5 w-5" />}
           label="Total Logs (24h)"
-          value={stats ? formatNumber(stats.totalLogs) : "—"}
-          color="text-blue-400"
+          value={stats ? formatNumber(stats.totalLogs) : "\u2014"}
+          color="text-[#FF5722]"
           trend="24h"
         />
         <StatCard
-          icon="🔴"
+          icon={<AlertOctagon className="h-5 w-5" />}
           label="Error Rate"
-          value={stats ? `${stats.errorRate.toFixed(1)}%` : "—"}
+          value={stats ? `${stats.errorRate.toFixed(1)}%` : "\u2014"}
           color={
-            stats && stats.errorRate > 5 ? "text-red-400" : "text-green-400"
+            stats && stats.errorRate > 5 ? "text-red-500" : "text-emerald-500"
           }
         />
         <StatCard
-          icon="🏢"
+          icon={<Server className="h-5 w-5" />}
           label="Services"
-          value={stats?.serviceCount ?? "—"}
-          color="text-purple-400"
+          value={stats?.serviceCount ?? "\u2014"}
+          color="text-purple-500"
         />
         <StatCard
-          icon="⚡"
+          icon={<Zap className="h-5 w-5" />}
           label="Anomalies (24h)"
-          value={stats ? formatNumber(stats.anomalyCount) : "—"}
+          value={stats ? formatNumber(stats.anomalyCount) : "\u2014"}
           color={
             stats && stats.anomalyCount > 0
-              ? "text-orange-400"
-              : "text-green-400"
+              ? "text-orange-500"
+              : "text-emerald-500"
           }
         />
       </div>
 
-      {/* Pipeline flow */}
-      <PipelineFlow />
+      {/* Pipeline flow with throughput */}
+      <PipelineFlow throughput={throughput} />
+
+      {/* Active Incidents — the most actionable section */}
+      <div className="animate-fade-in-up overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-red-500" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+              Recent Incidents
+            </h3>
+            {incidentTotal > 0 && (
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-500">
+                {incidentTotal}
+              </span>
+            )}
+          </div>
+          <Link
+            href="/incidents"
+            className="flex items-center gap-1 text-[12px] font-medium text-[#FF5722] transition-colors hover:text-[#E64A19]"
+          >
+            View all
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        {incidents.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <ShieldAlert className="mx-auto mb-2 h-8 w-8 text-emerald-300" />
+            <p className="text-[13px] font-medium text-[#6e6e73]">
+              No incidents detected
+            </p>
+            <p className="mt-1 text-[12px] text-[#aeaeb2]">
+              Your AI SRE is monitoring — you&apos;ll see incidents here when
+              anomalies are escalated
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#f2f2f7]">
+            {incidents.slice(0, 5).map((inc) => (
+              <Link
+                key={inc.id}
+                href={`/incidents/${inc.id}`}
+                className="group flex items-center justify-between px-5 py-3.5 transition-colors duration-150 hover:bg-[#fafafa]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${severityColor(inc.severity)}`}
+                    >
+                      {inc.severity}
+                    </span>
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${stateColor(inc.state)}`}
+                    >
+                      {inc.state}
+                    </span>
+                  </div>
+                  <p className="truncate text-[13px] font-semibold text-[#1d1d1f] group-hover:text-[#FF5722] transition-colors">
+                    {inc.title}
+                  </p>
+                  <div className="mt-1 flex items-center gap-3 text-[11px] text-[#aeaeb2]">
+                    <span className="font-medium text-[#6e6e73]">
+                      {inc.service}
+                    </span>
+                    <span className="flex items-center gap-0.5">
+                      <Clock className="h-3 w-3" />
+                      {timeAgo(inc.created_at)}
+                    </span>
+                    {inc.assigned_to && (
+                      <span className="flex items-center gap-0.5">
+                        <User className="h-3 w-3" />
+                        {inc.assigned_to}
+                      </span>
+                    )}
+                    {inc.mttr_seconds && (
+                      <span className="font-mono text-[#FF5722]">
+                        MTTR: {formatDuration(inc.mttr_seconds)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-[#d1d1d6] transition-all group-hover:translate-x-0.5 group-hover:text-[#FF5722]" />
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Charts row */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -123,47 +255,38 @@ export default function OverviewPage() {
         <BarChart title="Top Services by Volume" data={serviceData} />
       </div>
 
-      {/* Anomalies */}
-      {anomalies.length > 0 && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 overflow-hidden">
-          <div className="border-b border-slate-700 px-4 py-3">
-            <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-              Recent Anomalies
-            </h3>
+      {/* Log Explorer banner — nudge to OpenSearch Dashboards */}
+      <div className="animate-fade-in-up rounded-2xl border border-[#f2f2f7] bg-gradient-to-r from-[#fafafa] to-white px-5 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f5f5f7]">
+              <Database className="h-4.5 w-4.5 text-[#6e6e73]" />
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold text-[#1d1d1f]">
+                Need to explore raw logs?
+              </p>
+              <p className="text-[12px] text-[#6e6e73]">
+                Launch OpenSearch Dashboards for full-text search, filtering, and
+                visualizations
+              </p>
+            </div>
           </div>
-          <div className="divide-y divide-slate-700/50">
-            {anomalies.slice(0, 5).map((a, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between px-4 py-3"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${severityColor(a._source.severity)}`}
-                  >
-                    {a._source.severity}
-                  </span>
-                  <span className="text-sm text-slate-300">
-                    {a._source.service}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-mono text-slate-400">
-                    z={a._source.z_score.toFixed(2)}
-                  </span>
-                  <p className="text-[10px] text-slate-500">
-                    {timeAgo(a._source.timestamp)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <a
+            href={
+              (typeof window !== "undefined" &&
+                (window as any).__OPENSEARCH_DASHBOARDS_URL) ||
+              "/api/opensearch/_dashboards"
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-full bg-[#f5f5f7] px-4 py-2 text-[12px] font-medium text-[#6e6e73] transition-all hover:bg-[#e5e5ea] hover:text-[#1d1d1f]"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open Log Explorer
+          </a>
         </div>
-      )}
-
-      {/* Log tables */}
-      <LogTable title="Error Logs" logs={errorLogs} maxRows={20} />
-      <LogTable title="Recent Logs" logs={recentLogs} maxRows={50} />
+      </div>
     </div>
   );
 }

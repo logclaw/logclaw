@@ -1,6 +1,6 @@
 /* ──────────────────────────────────────────────────────────────
    LogClaw Dashboard – API client
-   All fetches go through Next.js rewrites (/api/*) to avoid CORS.
+   All fetches go through Next.js API route handlers (/api/*).
    ────────────────────────────────────────────────────────────── */
 
 export interface LogEntry {
@@ -21,9 +21,14 @@ export interface Anomaly {
     timestamp: string;
     service: string;
     severity: string;
-    error_rate: number;
+    anomaly_score: number;
     z_score: number;
-    window_seconds: number;
+    anomaly_type?: string;
+    title?: string;
+    description?: string;
+    trace_id?: string;
+    error_rate?: number;
+    window_seconds?: number;
     message?: string;
   };
 }
@@ -32,7 +37,7 @@ export interface Incident {
   id: string;
   title: string;
   severity: "critical" | "high" | "medium" | "low";
-  state: "triggered" | "acknowledged" | "investigating" | "resolved";
+  state: string;
   service: string;
   created_at: string;
   updated_at: string;
@@ -42,11 +47,18 @@ export interface Incident {
   request_traces?: RequestTrace[];
   timeline?: TimelineEntry[];
   mttr_seconds?: number;
+  priority?: string;
+  anomaly_score?: number;
+  impact?: string;
+  root_cause?: string;
+  tags?: string[];
 }
 
 export interface RequestTrace {
   trace_id: string;
-  spans: TraceSpan[];
+  spans?: TraceSpan[];
+  span_ids?: string[];
+  logs?: TraceLog[];
 }
 
 export interface TraceSpan {
@@ -55,6 +67,15 @@ export interface TraceSpan {
   status: string;
   duration_ms: number;
   error?: string;
+}
+
+export interface TraceLog {
+  timestamp: string;
+  service: string;
+  level: string;
+  message: string;
+  span_id?: string;
+  duration_ms?: number;
 }
 
 export interface TimelineEntry {
@@ -93,19 +114,23 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
   const [logsRes, anomalyRes] = await Promise.all([
+    // Logs: `timestamp` field is NOT indexed (mapping: dynamic=false),
+    // so we use match_all instead of range. Fields `level` and `service`
+    // are direct keyword types (no .keyword sub-field).
     osQuery<any>("logclaw-logs-*", {
       size: 0,
-      query: { range: { timestamp: { gte: dayAgo, lte: now } } },
+      query: { match_all: {} },
       aggs: {
-        levels: { terms: { field: "level.keyword", size: 10 } },
-        services: { terms: { field: "service.keyword", size: 20 } },
+        levels: { terms: { field: "level", size: 10 } },
+        services: { terms: { field: "service", size: 20 } },
         error_count: {
           filter: {
-            terms: { "level.keyword": ["ERROR", "FATAL", "CRITICAL"] },
+            terms: { level: ["ERROR", "FATAL", "CRITICAL"] },
           },
         },
       },
     }),
+    // Anomalies: `timestamp` IS indexed here, so range filter works.
     osQuery<any>("logclaw-anomalies-*", {
       size: 0,
       query: { range: { timestamp: { gte: dayAgo, lte: now } } },
@@ -133,9 +158,11 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
 }
 
 export async function fetchRecentLogs(limit = 100): Promise<LogEntry[]> {
+  // Sort by _doc desc (insertion order ≈ chronological) because the
+  // `timestamp` field is not indexed in the logs mapping.
   const res = await osQuery<any>("logclaw-logs-*", {
     size: limit,
-    sort: [{ timestamp: "desc" }],
+    sort: [{ _doc: "desc" }],
     query: { match_all: {} },
   });
   return res.hits?.hits ?? [];
@@ -144,9 +171,9 @@ export async function fetchRecentLogs(limit = 100): Promise<LogEntry[]> {
 export async function fetchErrorLogs(limit = 50): Promise<LogEntry[]> {
   const res = await osQuery<any>("logclaw-logs-*", {
     size: limit,
-    sort: [{ timestamp: "desc" }],
+    sort: [{ _doc: "desc" }],
     query: {
-      terms: { "level.keyword": ["ERROR", "FATAL", "CRITICAL"] },
+      terms: { level: ["ERROR", "FATAL", "CRITICAL"] },
     },
   });
   return res.hits?.hits ?? [];
@@ -179,15 +206,18 @@ export async function fetchIncidents(params?: {
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.offset) q.set("offset", String(params.offset));
 
-  const res = await fetch(`/api/ticketing/incidents?${q}`);
+  const res = await fetch(`/api/ticketing/api/incidents?${q}`);
   if (!res.ok) throw new Error(`Ticketing ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  const incidents: Incident[] = body.data ?? body.incidents ?? [];
+  return { incidents, total: body.total ?? incidents.length };
 }
 
 export async function fetchIncident(id: string): Promise<Incident> {
-  const res = await fetch(`/api/ticketing/incidents/${id}`);
+  const res = await fetch(`/api/ticketing/api/incidents/${id}`);
   if (!res.ok) throw new Error(`Incident ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  return body.data ?? body;
 }
 
 export async function transitionIncident(
@@ -195,19 +225,151 @@ export async function transitionIncident(
   action: string,
   payload?: object,
 ): Promise<Incident> {
-  const res = await fetch(`/api/ticketing/incidents/${id}/${action}`, {
+  const res = await fetch(`/api/ticketing/api/incidents/${id}/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload ?? {}),
   });
   if (!res.ok) throw new Error(`Transition ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  return body.data ?? body;
+}
+
+// ── Pipeline throughput ─────────────────────────────────────
+
+export interface PipelineThroughput {
+  // ── Data Pipeline ──
+  ingestCount: number;
+  streamCount: number;
+  processCount: number;
+  processErrors: number;
+  indexCount: number;
+  indexSizeBytes: number;
+  logsSizeBytes: number;
+  anomaliesSizeBytes: number;
+
+  // ── AI & Operations ──
+  detectCount: number;
+  enrichCount: number;
+  lifecycleTracked: number;
+  lifecycleCompleted: number;
+  incidentCount: number;
+
+  // ── Service health (up/degraded/down) ──
+  airflowStatus: "healthy" | "degraded" | "down";
+  airflowScheduler: string;
+  feastStatus: "healthy" | "degraded" | "down";
+  ticketingStatus: "healthy" | "degraded" | "down";
+}
+
+/**
+ * Fetch pipeline throughput from Bridge metrics, OpenSearch stats,
+ * Airflow health, Feast health, and Ticketing incident count.
+ */
+export async function fetchPipelineThroughput(): Promise<PipelineThroughput> {
+  const [metricsText, indicesJson, airflowHealth, feastRes, ticketingRes] =
+    await Promise.all([
+      fetch("/api/bridge/metrics")
+        .then((r) => (r.ok ? r.text() : ""))
+        .catch(() => ""),
+      fetch("/api/opensearch/_cat/indices?format=json")
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch("/api/airflow/health", { signal: AbortSignal.timeout(3000) })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+      fetch("/api/feast/health", { signal: AbortSignal.timeout(3000) })
+        .then((r) => ({ ok: r.ok, status: r.status }))
+        .catch(() => ({ ok: false, status: 0 })),
+      fetch("/api/ticketing/api/incidents?limit=0", {
+        signal: AbortSignal.timeout(3000),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]);
+
+  // Parse Prometheus text format
+  const metric = (name: string): number => {
+    const m = metricsText.match(
+      new RegExp(`^${name}\\s+(\\d+(?:\\.\\d+)?)`, "m"),
+    );
+    return m ? parseFloat(m[1]) : 0;
+  };
+
+  const etlConsumed = metric("logclaw_bridge_etl_consumed_total");
+  const etlProduced = metric("logclaw_bridge_etl_produced_total");
+  const anomalyDetected = metric("logclaw_bridge_anomaly_detected_total");
+  const indexerIndexed = metric("logclaw_bridge_indexer_indexed_total");
+  const indexerErrors = metric("logclaw_bridge_indexer_errors_total");
+  const lifecycleTracked = metric("logclaw_bridge_lifecycle_tracked_total");
+  const lifecycleCompleted = metric("logclaw_bridge_lifecycle_completed_total");
+
+  // Parse OpenSearch _cat/indices JSON
+  const { parseOsSize } = await import("@/lib/utils");
+  let logsSizeBytes = 0;
+  let anomaliesSizeBytes = 0;
+  let logsDocCount = 0;
+  let anomaliesDocCount = 0;
+
+  for (const idx of indicesJson as any[]) {
+    const name = idx.index as string;
+    if (name.startsWith("logclaw-logs-")) {
+      logsDocCount += parseInt(idx["docs.count"] ?? "0", 10);
+      logsSizeBytes += parseOsSize(idx["store.size"] ?? "0b");
+    } else if (name.startsWith("logclaw-anomalies-")) {
+      anomaliesDocCount += parseInt(idx["docs.count"] ?? "0", 10);
+      anomaliesSizeBytes += parseOsSize(idx["store.size"] ?? "0b");
+    }
+  }
+
+  // Airflow health
+  const schedulerStatus = airflowHealth?.scheduler?.status;
+  const airflowStatus: "healthy" | "degraded" | "down" = airflowHealth
+    ? schedulerStatus === "healthy"
+      ? "healthy"
+      : "degraded"
+    : "down";
+
+  // Feast health
+  const feastStatus: "healthy" | "degraded" | "down" = feastRes.ok
+    ? "healthy"
+    : feastRes.status > 0
+      ? "degraded"
+      : "down";
+
+  // Ticketing
+  const incidentCount = ticketingRes?.total ?? ticketingRes?.data?.length ?? 0;
+  const ticketingStatus: "healthy" | "degraded" | "down" = ticketingRes
+    ? "healthy"
+    : "down";
+
+  return {
+    ingestCount: etlConsumed || logsDocCount,
+    streamCount: etlConsumed || logsDocCount,
+    processCount: etlProduced || logsDocCount,
+    processErrors: indexerErrors,
+    indexCount: indexerIndexed || logsDocCount + anomaliesDocCount,
+    indexSizeBytes: logsSizeBytes + anomaliesSizeBytes,
+    logsSizeBytes,
+    anomaliesSizeBytes,
+    detectCount: anomalyDetected || anomaliesDocCount,
+    enrichCount: etlProduced || logsDocCount,
+    lifecycleTracked,
+    lifecycleCompleted,
+    incidentCount,
+    airflowStatus,
+    airflowScheduler: schedulerStatus ?? "unknown",
+    feastStatus,
+    ticketingStatus,
+  };
 }
 
 // ── Ingestion helpers ───────────────────────────────────────
 
 export async function uploadLogs(logs: object[]): Promise<{ accepted: number }> {
-  const res = await fetch("/api/vector/", {
+  // NOTE: No trailing slash — Next.js 308-redirects /api/vector/ → /api/vector
+  // which loses the POST body.
+  const res = await fetch("/api/vector", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(logs),
@@ -225,11 +387,16 @@ export interface ServiceHealth {
   latencyMs?: number;
 }
 
+/**
+ * Check health of all integrated services.
+ * Some services (like Vector) only accept POST on their HTTP source,
+ * returning 405 on GET — we treat 405 as "healthy" (service is alive).
+ */
 export async function checkServiceHealth(): Promise<ServiceHealth[]> {
   const services = [
-    { name: "OpenSearch", url: "/api/opensearch/" },
-    { name: "Vector (Ingestion)", url: "/api/vector/health" },
-    { name: "Ticketing Agent", url: "/api/ticketing/health" },
+    { name: "OpenSearch", url: "/api/opensearch/_cluster/health" },
+    { name: "Vector (Ingestion)", url: "/api/vector", acceptCodes: [200, 405] },
+    { name: "Ticketing Agent", url: "/api/ticketing/api/incidents?limit=1" },
     { name: "Bridge", url: "/api/bridge/health" },
     { name: "Feast (ML)", url: "/api/feast/health" },
     { name: "Airflow", url: "/api/airflow/health" },
@@ -238,15 +405,24 @@ export async function checkServiceHealth(): Promise<ServiceHealth[]> {
   return Promise.all(
     services.map(async (svc) => {
       const start = Date.now();
+      const acceptCodes = (svc as any).acceptCodes ?? [200];
       try {
         const res = await fetch(svc.url, { signal: AbortSignal.timeout(5000) });
+        const isHealthy =
+          res.ok || acceptCodes.includes(res.status);
         return {
-          ...svc,
-          status: res.ok ? "healthy" : "degraded",
+          name: svc.name,
+          url: svc.url,
+          status: isHealthy ? "healthy" : "degraded",
           latencyMs: Date.now() - start,
         } as ServiceHealth;
       } catch {
-        return { ...svc, status: "down" as const, latencyMs: Date.now() - start };
+        return {
+          name: svc.name,
+          url: svc.url,
+          status: "down" as const,
+          latencyMs: Date.now() - start,
+        };
       }
     }),
   );

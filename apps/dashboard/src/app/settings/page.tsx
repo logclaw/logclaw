@@ -2,6 +2,14 @@
 
 import ServiceHealthPanel from "@/components/service-health";
 import { useState } from "react";
+import {
+  Settings,
+  Info,
+  Server,
+  RefreshCw,
+  Loader2,
+  Globe,
+} from "lucide-react";
 
 export default function SettingsPage() {
   const [healthJson, setHealthJson] = useState<string | null>(null);
@@ -22,29 +30,45 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-slate-200">Settings</h1>
+      {/* Header */}
+      <div className="animate-fade-in-up flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f5f5f7]">
+          <Settings className="h-5 w-5 text-[#6e6e73]" />
+        </div>
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+            Settings
+          </h1>
+          <p className="text-[13px] text-[#6e6e73]">
+            System configuration and health
+          </p>
+        </div>
+      </div>
 
       {/* Service health */}
       <ServiceHealthPanel />
 
       {/* Environment */}
-      <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-        <h3 className="mb-3 text-sm font-medium text-slate-400 uppercase tracking-wider">
-          Environment
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2">
+      <div className="animate-fade-in-up rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="mb-4 flex items-center gap-2">
+          <Info className="h-4 w-4 text-[#aeaeb2]" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            Environment
+          </h3>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
           {[
             { label: "Tenant ID", value: process.env.NEXT_PUBLIC_TENANT_ID || "dev-local" },
             { label: "Dashboard Version", value: "2.0.0 (Next.js)" },
-            { label: "API Proxy", value: "Next.js rewrites" },
+            { label: "API Proxy", value: "Route Handlers" },
             { label: "Refresh Interval", value: "15s" },
           ].map((item) => (
             <div
               key={item.label}
-              className="flex items-center justify-between rounded-lg bg-slate-900/50 px-3 py-2"
+              className="flex items-center justify-between rounded-xl bg-[#fafafa] px-4 py-3"
             >
-              <span className="text-xs text-slate-500">{item.label}</span>
-              <span className="font-mono text-xs text-slate-300">
+              <span className="text-[12px] text-[#6e6e73]">{item.label}</span>
+              <span className="font-mono text-[12px] font-medium text-[#1d1d1f]">
                 {item.value}
               </span>
             </div>
@@ -53,37 +77,48 @@ export default function SettingsPage() {
       </div>
 
       {/* System health JSON */}
-      <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-            System Health (Bridge)
-          </h3>
+      <div className="animate-fade-in-up rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4 text-[#aeaeb2]" />
+            <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+              System Health (Bridge)
+            </h3>
+          </div>
           <button
             onClick={fetchSystemHealth}
             disabled={loadingHealth}
-            className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-600 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-full bg-[#f5f5f7] px-3 py-1.5 text-[11px] font-medium text-[#6e6e73] transition-all hover:bg-[#e5e5ea] disabled:opacity-50"
           >
-            {loadingHealth ? "Loading..." : "Fetch Health"}
+            {loadingHealth ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+            Fetch Health
           </button>
         </div>
         {healthJson && (
-          <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-400 font-mono">
+          <pre className="overflow-x-auto rounded-xl bg-[#1d1d1f] p-4 text-[12px] text-[#aeaeb2] font-mono">
             {healthJson}
           </pre>
         )}
       </div>
 
       {/* API Schema */}
-      <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-        <h3 className="mb-3 text-sm font-medium text-slate-400 uppercase tracking-wider">
-          API Endpoints
-        </h3>
-        <div className="space-y-2">
+      <div className="animate-fade-in-up rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="mb-4 flex items-center gap-2">
+          <Globe className="h-4 w-4 text-[#aeaeb2]" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            API Endpoints
+          </h3>
+        </div>
+        <div className="space-y-1.5">
           {[
             { method: "GET", path: "/api/opensearch/_cat/indices", desc: "List all indices" },
             { method: "POST", path: "/api/vector/", desc: "Ingest logs via Vector" },
-            { method: "GET", path: "/api/ticketing/incidents", desc: "List incidents" },
-            { method: "POST", path: "/api/ticketing/incidents/:id/:action", desc: "Transition incident" },
+            { method: "GET", path: "/api/ticketing/api/incidents", desc: "List incidents" },
+            { method: "POST", path: "/api/ticketing/api/incidents/:id/:action", desc: "Transition incident" },
             { method: "GET", path: "/api/bridge/health", desc: "Bridge health" },
             { method: "GET", path: "/api/bridge/metrics", desc: "Prometheus metrics" },
             { method: "GET", path: "/api/feast/health", desc: "ML feature server health" },
@@ -91,21 +126,21 @@ export default function SettingsPage() {
           ].map((ep) => (
             <div
               key={ep.path}
-              className="flex items-center gap-3 rounded-lg bg-slate-900/50 px-3 py-2"
+              className="flex items-center gap-3 rounded-xl bg-[#fafafa] px-4 py-2.5"
             >
               <span
-                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
                   ep.method === "GET"
-                    ? "bg-green-900/50 text-green-400"
-                    : "bg-blue-900/50 text-blue-400"
+                    ? "bg-emerald-50 text-emerald-600"
+                    : "bg-blue-50 text-[#FF5722]"
                 }`}
               >
                 {ep.method}
               </span>
-              <span className="flex-1 font-mono text-xs text-slate-300">
+              <span className="flex-1 font-mono text-[12px] text-[#1d1d1f]">
                 {ep.path}
               </span>
-              <span className="text-xs text-slate-500">{ep.desc}</span>
+              <span className="text-[12px] text-[#aeaeb2]">{ep.desc}</span>
             </div>
           ))}
         </div>

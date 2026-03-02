@@ -2,58 +2,84 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  LayoutDashboard,
+  ShieldAlert,
+  Upload,
+  Settings,
+} from "lucide-react";
 
 const links = [
-  { href: "/", label: "Overview", icon: "📊" },
-  { href: "/incidents", label: "Incidents", icon: "🚨" },
-  { href: "/ingestion", label: "Ingestion", icon: "📥" },
-  { href: "/settings", label: "Settings", icon: "⚙️" },
+  { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/incidents", label: "Incidents", icon: ShieldAlert },
+  { href: "/ingestion", label: "Ingestion", icon: Upload },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+function LogClawLogo() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 40 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      {/* Claw marks (3 strokes) */}
+      <path d="M8 8 L28 32" stroke="#FF5722" strokeWidth="3.5" strokeLinecap="round" />
+      <path d="M14 6 L30 28" stroke="#FF5722" strokeWidth="3.5" strokeLinecap="round" />
+      <path d="M20 4 L32 24" stroke="#FF5722" strokeWidth="3.5" strokeLinecap="round" />
+      {/* Log line accent */}
+      <path d="M6 34 L34 34" stroke="#1d1d1f" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
 
 export default function Nav() {
   const path = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-700 bg-slate-900/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
-        {/* Brand */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-lg">
-          <span className="text-2xl">🐾</span>
-          <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+    <header className="glass sticky top-0 z-50 border-b border-black/[0.06]">
+      <div className="mx-auto flex h-12 max-w-[1200px] items-center gap-8 px-6">
+        <Link href="/" className="flex items-center gap-2.5">
+          <LogClawLogo />
+          <span className="text-[15px] font-semibold tracking-tight text-[#1d1d1f]">
             LogClaw
           </span>
         </Link>
 
-        {/* Navigation */}
-        <nav className="flex gap-1">
+        <nav className="flex items-center gap-1">
           {links.map((l) => {
             const active =
               l.href === "/" ? path === "/" : path.startsWith(l.href);
+            const Icon = l.icon;
             return (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition
+                className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all duration-200
                   ${
                     active
-                      ? "bg-blue-600/20 text-blue-400"
-                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                      ? "bg-[#FF5722] text-white shadow-sm shadow-[#FF5722]/20"
+                      : "text-[#6e6e73] hover:bg-black/[0.04] hover:text-[#1d1d1f]"
                   }`}
               >
-                <span>{l.icon}</span>
+                <Icon className="h-3.5 w-3.5" />
                 {l.label}
               </Link>
             );
           })}
         </nav>
 
-        {/* Status indicator */}
-        <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-          </span>
-          Pipeline Active
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </span>
+            Pipeline Active
+          </div>
         </div>
       </div>
     </header>
