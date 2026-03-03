@@ -86,6 +86,8 @@ spec:
               value: {{ include "logclaw-dashboard.feastEndpoint" . | quote }}
             - name: AIRFLOW_ENDPOINT
               value: {{ include "logclaw-dashboard.airflowEndpoint" . | quote }}
+            - name: AGENT_ENDPOINT
+              value: {{ include "logclaw-dashboard.agentEndpoint" . | quote }}
           volumeMounts:
             - name: nextjs-cache
               mountPath: /app/.next/cache

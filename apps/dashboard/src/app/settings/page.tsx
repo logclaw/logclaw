@@ -7,6 +7,7 @@ import RoutingRulesPanel from "@/components/routing-rules";
 import AnomalyConfigPanel from "@/components/anomaly-config";
 import LlmConfigPanel from "@/components/llm-config";
 import InfrastructurePanel from "@/components/infrastructure-panel";
+import InfraHealthPanel from "@/components/infra-health";
 import {
   fetchTicketingConfig,
   fetchBridgeConfig,
@@ -150,8 +151,9 @@ export default function SettingsPage() {
 
       {/* Health */}
       {!loading && activeTab === "health" && (
-        <div className="animate-fade-in-up">
+        <div className="animate-fade-in-up space-y-6">
           <ServiceHealthPanel />
+          <InfraHealthPanel />
         </div>
       )}
 
@@ -224,6 +226,9 @@ export default function SettingsPage() {
                 { method: "PATCH", path: "/api/bridge/config", desc: "Update bridge config" },
                 { method: "GET", path: "/api/feast/health", desc: "ML feature server health" },
                 { method: "GET", path: "/api/airflow/health", desc: "Airflow scheduler health" },
+                { method: "GET", path: "/api/agent/health", desc: "Agent liveness" },
+                { method: "GET", path: "/api/agent/ready", desc: "Agent readiness" },
+                { method: "GET", path: "/api/agent/metrics", desc: "Infrastructure metrics" },
               ].map((ep) => (
                 <div
                   key={`${ep.method}-${ep.path}`}

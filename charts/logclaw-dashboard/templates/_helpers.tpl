@@ -133,3 +133,11 @@ Resolve airflowEndpoint — Apache Airflow webserver.
 {{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
 http://logclaw-airflow-{{ $tenantId }}-webserver.{{ .Release.Namespace }}.svc:8080
 {{- end }}
+
+{{/*
+Resolve agentEndpoint — LogClaw infrastructure health agent.
+*/}}
+{{- define "logclaw-dashboard.agentEndpoint" -}}
+{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
+http://logclaw-agent-{{ $tenantId }}-logclaw-agent.{{ .Release.Namespace }}.svc:8080
+{{- end }}

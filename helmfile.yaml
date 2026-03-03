@@ -29,4 +29,5 @@ helmfiles:
   - path: helmfile.d/60-ml-engine.yaml.gotmpl
   - path: helmfile.d/70-airflow.yaml.gotmpl
   - path: helmfile.d/80-ticketing-agent.yaml.gotmpl
+  - path: helmfile.d/85-agent.yaml.gotmpl
   - path: helmfile.d/90-dashboard.yaml.gotmpl

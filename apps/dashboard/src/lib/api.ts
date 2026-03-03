@@ -528,6 +528,23 @@ export const PLATFORM_REQUIRED_FIELDS: Record<string, string[]> = {
   slack: ["webhookUrl"],
 };
 
+// ── Agent (infrastructure health) helpers ────────────────────
+
+export interface AgentMetrics {
+  tenantId: string;
+  collectedAt: string;
+  kafkaLag: Record<string, number>;
+  flinkJobs: { name: string; state: string; restarts: number }[];
+  osHealth: { status: string; numberOfNodes: number; numberOfDataNodes: number };
+  esoStatus: { name: string; ready: boolean; lastSync: string }[];
+}
+
+export async function fetchAgentMetrics(): Promise<AgentMetrics> {
+  const res = await fetch("/api/agent/metrics", { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error("Agent unreachable");
+  return res.json();
+}
+
 // ── Health helpers ──────────────────────────────────────────
 
 export interface ServiceHealth {
@@ -550,6 +567,7 @@ export async function checkServiceHealth(): Promise<ServiceHealth[]> {
     { name: "Bridge", url: "/api/bridge/health" },
     { name: "Feast (ML)", url: "/api/feast/health" },
     { name: "Airflow", url: "/api/airflow/health" },
+    { name: "Agent", url: "/api/agent/health" },
   ];
 
   return Promise.all(

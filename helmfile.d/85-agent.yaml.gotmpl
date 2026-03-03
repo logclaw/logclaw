@@ -1,0 +1,9 @@
+releases:
+  - name: logclaw-agent-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ../charts/logclaw-agent
+    values:
+      - ../charts/logclaw-agent/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}

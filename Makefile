@@ -25,6 +25,7 @@ PORT_OPENSEARCH ?= 9200
 PORT_INGESTION ?= 8080
 PORT_TICKETING ?= 8081
 PORT_BRIDGE    ?= 8083
+PORT_AGENT     ?= 8084
 PORT_AIRFLOW   ?= 8082
 
 # ── Credential defaults (override in .env) ───────────────────────────────────
@@ -41,9 +42,11 @@ REGISTRY       ?= ghcr.io/logclaw
 DASHBOARD_IMG       := $(REGISTRY)/dashboard
 BRIDGE_IMG          := $(REGISTRY)/bridge
 TICKETING_AGENT_IMG := $(REGISTRY)/ticketing-agent
+AGENT_IMG           := $(REGISTRY)/agent
 DASHBOARD_VER       := 2.0.0
 BRIDGE_VER          := 1.0.0
 TICKETING_AGENT_VER := 1.0.0
+AGENT_VER           := 0.1.0
 GIT_SHA        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 PLATFORM       ?= linux/amd64,linux/arm64
 
@@ -51,10 +54,10 @@ PLATFORM       ?= linux/amd64,linux/arm64
         deps lint lint-umbrella validate-schema template template-diff \
         kind-create kind-delete install-operators create-dev-secrets install uninstall \
         dashboard test ct-install package push clean \
-        build-dashboard build-bridge build-ticketing-agent build-all \
-        push-dashboard push-bridge push-ticketing-agent push-all \
-        scan-dashboard scan-bridge scan-ticketing-agent scan-all \
-        kind-load-dashboard kind-load-bridge kind-load-ticketing-agent kind-load-all
+        build-dashboard build-bridge build-ticketing-agent build-agent build-all \
+        push-dashboard push-bridge push-ticketing-agent push-agent push-all \
+        scan-dashboard scan-bridge scan-ticketing-agent scan-agent scan-all \
+        kind-load-dashboard kind-load-bridge kind-load-ticketing-agent kind-load-agent kind-load-all
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Quick-start targets
@@ -135,6 +138,7 @@ status: ## 📊 Show pod status, services, and endpoints
 	@echo "  Dashboard:  http://localhost:$(PORT_DASHBOARD)"
 	@echo "  Ticketing:  http://localhost:$(PORT_TICKETING)"
 	@echo "  Bridge:     http://localhost:$(PORT_BRIDGE)"
+	@echo "  Agent:      http://localhost:$(PORT_AGENT)"
 	@echo "  Ingestion:  http://localhost:$(PORT_INGESTION)"
 	@echo "  OpenSearch: http://localhost:$(PORT_OPENSEARCH)"
 	@echo "  Airflow:    http://localhost:$(PORT_AIRFLOW)"
@@ -154,6 +158,7 @@ ports: kill-ports ## 🔌 Start all port-forwards
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-bridge-$(TENANT_ID) $(PORT_BRIDGE):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-ingestion-$(TENANT_ID) $(PORT_INGESTION):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-opensearch-$(TENANT_ID) $(PORT_OPENSEARCH):9200 >/dev/null 2>&1 &
+	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-agent-$(TENANT_ID)-logclaw-agent $(PORT_AGENT):8080 >/dev/null 2>&1 &
 	@kubectl -n $(NAMESPACE) port-forward svc/logclaw-airflow-$(TENANT_ID)-webserver $(PORT_AIRFLOW):8080 >/dev/null 2>&1 &
 	@sleep 2
 	@echo "✓ Port-forwards active"
@@ -332,7 +337,16 @@ build-ticketing-agent: ## Build ticketing-agent Docker image (multi-arch)
 		--load
 	@echo "✓ Built $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER)"
 
-build-all: build-dashboard build-bridge build-ticketing-agent ## Build all Docker images
+build-agent: ## Build agent Docker image (multi-arch)
+	docker buildx build apps/agent \
+		--platform $(PLATFORM) \
+		-t $(AGENT_IMG):$(AGENT_VER) \
+		-t $(AGENT_IMG):sha-$(GIT_SHA) \
+		-t $(AGENT_IMG):latest \
+		--load
+	@echo "✓ Built $(AGENT_IMG):$(AGENT_VER)"
+
+build-all: build-dashboard build-bridge build-ticketing-agent build-agent ## Build all Docker images
 
 push-dashboard: ## Build + push dashboard to GHCR
 	docker buildx build apps/dashboard \
@@ -361,7 +375,16 @@ push-ticketing-agent: ## Build + push ticketing-agent to GHCR
 		--push
 	@echo "✓ Pushed $(TICKETING_AGENT_IMG):$(TICKETING_AGENT_VER)"
 
-push-all: push-dashboard push-bridge push-ticketing-agent ## Build + push all images to GHCR
+push-agent: ## Build + push agent to GHCR
+	docker buildx build apps/agent \
+		--platform $(PLATFORM) \
+		-t $(AGENT_IMG):$(AGENT_VER) \
+		-t $(AGENT_IMG):sha-$(GIT_SHA) \
+		-t $(AGENT_IMG):latest \
+		--push
+	@echo "✓ Pushed $(AGENT_IMG):$(AGENT_VER)"
+
+push-all: push-dashboard push-bridge push-ticketing-agent push-agent ## Build + push all images to GHCR
 
 scan-dashboard: build-dashboard ## Scan dashboard image for vulnerabilities
 	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(DASHBOARD_IMG):latest
@@ -372,7 +395,10 @@ scan-bridge: build-bridge ## Scan bridge image for vulnerabilities
 scan-ticketing-agent: build-ticketing-agent ## Scan ticketing-agent image for vulnerabilities
 	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(TICKETING_AGENT_IMG):latest
 
-scan-all: scan-dashboard scan-bridge scan-ticketing-agent ## Scan all images
+scan-agent: build-agent ## Scan agent image for vulnerabilities
+	trivy image --severity CRITICAL,HIGH --ignore-unfixed $(AGENT_IMG):latest
+
+scan-all: scan-dashboard scan-bridge scan-ticketing-agent scan-agent ## Scan all images
 
 kind-load-dashboard: ## Load dashboard image into Kind cluster
 	docker save $(DASHBOARD_IMG):latest | \
@@ -392,4 +418,10 @@ kind-load-ticketing-agent: ## Load ticketing-agent image into Kind cluster
 		ctr -n k8s.io images import --all-platforms -
 	@echo "✓ Loaded $(TICKETING_AGENT_IMG):latest into Kind"
 
-kind-load-all: kind-load-dashboard kind-load-bridge kind-load-ticketing-agent ## Load all images into Kind
+kind-load-agent: ## Load agent image into Kind cluster
+	docker save $(AGENT_IMG):latest | \
+		docker exec -i $(KIND_CLUSTER)-control-plane \
+		ctr -n k8s.io images import --all-platforms -
+	@echo "✓ Loaded $(AGENT_IMG):latest into Kind"
+
+kind-load-all: kind-load-dashboard kind-load-bridge kind-load-ticketing-agent kind-load-agent ## Load all images into Kind

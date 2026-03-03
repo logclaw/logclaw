@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "logclaw-agent.fullname" . }}
+  labels:
+    {{- include "logclaw-agent.labels" . | nindent 4 }}
+rules:
+  # Strimzi Kafka CRs
+  - apiGroups: ["kafka.strimzi.io"]
+    resources: ["kafkas"]
+    verbs: ["get", "list", "watch"]
+  # Flink Operator CRs
+  - apiGroups: ["flink.apache.org"]
+    resources: ["flinkdeployments"]
+    verbs: ["get", "list", "watch"]
+  # OpenSearch Operator CRs
+  - apiGroups: ["opensearch.opster.io"]
+    resources: ["opensearchclusters"]
+    verbs: ["get", "list", "watch"]
+  # External Secrets Operator CRs
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch"]
