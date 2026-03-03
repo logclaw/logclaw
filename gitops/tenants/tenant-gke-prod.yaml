@@ -1,0 +1,205 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LogClaw — GKE Production Deployment
+# Full-stack production config on Google Kubernetes Engine.
+# All components enabled, right-sized for ~50 customers with growth path.
+#
+# Deploy:  GCP_PROJECT_ID=<your-project> ./scripts/setup-gke.sh
+# Tear down: GCP_PROJECT_ID=<your-project> ./scripts/setup-gke.sh --teardown
+# ─────────────────────────────────────────────────────────────────────────────
+
+tenantId: "gke-prod"
+clusterServer: ""
+
+global:
+  tenantName: "LogClaw Production"
+  storageClass: "standard-rwo"                    # GKE default SSD-backed StorageClass
+  storageClassHighThroughput: "standard-rwo"      # pd-ssd equivalent for Kafka/OpenSearch
+  tier: "standard"                                 # Single replicas — scale to "ha" at ~100 customers
+
+  objectStorage:
+    provider: "gcs"
+    bucket: ""                                     # Set by setup-gke.sh or manually
+    region: "us-central1"
+
+  secretStore:
+    provider: "gcp"
+    projectId: ""                                  # Set by setup-gke.sh or manually
+    region: "us-central1"
+
+  # ── LLM — disabled by default, customer can enable any provider ─────────────
+  llm:
+    provider: "disabled"                           # claude | openai | ollama | vllm | disabled
+    model: "llama3.2:8b"
+
+  # ── Networking ──────────────────────────────────────────────────────────────
+  clusterDomain: "cluster.local"
+  ingressClass: "nginx"
+
+  # ── TLS via cert-manager ───────────────────────────────────────────────────
+  tls:
+    enabled: true
+    issuerName: "logclaw-issuer"
+    issuerKind: "ClusterIssuer"
+
+  # ── Pod Security Standards (GKE best practice) ─────────────────────────────
+  podSecurityStandards:
+    enforce: "restricted"
+    audit: "restricted"
+    warn: "restricted"
+
+  # ── Observability ──────────────────────────────────────────────────────────
+  monitoring:
+    enabled: true
+    prometheusNamespace: "monitoring"
+    grafanaDashboards: true
+
+  # ── Resource preset ────────────────────────────────────────────────────────
+  resourcePreset: "small"                          # Right-sized for early production
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ALL PRODUCTION COMPONENTS ENABLED
+# ═════════════════════════════════════════════════════════════════════════════
+platform:
+  enabled: true
+ingestion:
+  enabled: true
+kafka:
+  enabled: true
+flink:
+  enabled: true
+opensearch:
+  enabled: true
+mlEngine:
+  enabled: true
+airflow:
+  enabled: true
+ticketingAgent:
+  enabled: true
+bridge:
+  enabled: true                                    # Trace correlation engine
+dashboard:
+  enabled: true                                    # Next.js pipeline UI
+
+# Zammad disabled — LogClaw Dashboard handles incidents natively
+zammad:
+  enabled: false
+
+# ═════════════════════════════════════════════════════════════════════════════
+# COMPONENT SIZING — Right-sized for ~50 customers, modest data volumes
+# Scale up by increasing replicas + storage when customer base grows
+# ═════════════════════════════════════════════════════════════════════════════
+
+logclaw-kafka:
+  kafka:
+    replicas: 1                                    # Scale to 3 for HA at ~100 customers
+    storage:
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: "10Gi"                             # ~10GB sufficient for early production
+          deleteClaim: false
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+logclaw-opensearch:
+  opensearch:
+    masters:
+      replicas: 1
+    data:
+      replicas: 1                                  # Scale to 3 for HA at ~100 customers
+      diskSize: "20Gi"                             # ~20GB for log storage + indices
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+
+logclaw-ingestion:
+  replicaCount: 1                                  # Scale to 3 at ~100 customers
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+logclaw-flink:
+  flink:
+    taskManagers: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+logclaw-ml-engine:
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+logclaw-airflow:
+  airflow:
+    resources:
+      scheduler:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+      webserver:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+logclaw-bridge:
+  bridge:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+logclaw-ticketing-agent:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  config:
+    anomaly:
+      minimumScore: 0.85
+
+# Dashboard — exposed via LoadBalancer for external access
+logclaw-dashboard:
+  service:
+    type: LoadBalancer                             # External IP for customer demo access
+    port: 3000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"

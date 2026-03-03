@@ -3,7 +3,7 @@ name: logclaw-tenant
 description: >
   LogClaw AI-powered SRE Agent — Umbrella chart for a single tenant deployment.
   Installs all subsystems: ingestion edge, Kafka, Flink, OpenSearch,
-  ML engine, Airflow, and the Ticketing Agent.
+  ML engine, Airflow, Ticketing Agent, Bridge (trace correlation), and Dashboard.
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
@@ -51,6 +51,14 @@ dependencies:
     version: "0.1.0"
     repository: "oci://ghcr.io/logclaw/charts"
     condition: ticketingAgent.enabled
+  - name: logclaw-bridge
+    version: "0.1.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: bridge.enabled
+  - name: logclaw-dashboard
+    version: "0.2.0"
+    repository: "oci://ghcr.io/logclaw/charts"
+    condition: dashboard.enabled
   - name: logclaw-zammad
     version: "0.1.0"
     repository: "oci://ghcr.io/logclaw/charts"

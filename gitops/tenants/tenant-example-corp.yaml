@@ -37,6 +37,10 @@ airflow:
   enabled: true
 ticketingAgent:
   enabled: true
+bridge:
+  enabled: false                # Production uses Flink for stream processing
+dashboard:
+  enabled: true                 # Pipeline UI for incidents and anomaly visualization
 
 logclaw-kafka:
   kafka:

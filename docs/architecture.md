@@ -29,15 +29,18 @@ External Log Sources (apps, infra, cloud)
   +-----------------+
         |         |
         |         +-----> logclaw-flink (stream processing)
-        |                      |  anomaly scores, aggregations
+        |         |            |  anomaly scores, aggregations
+        |         |            v
+        |         +-----> logclaw-bridge (trace correlation,
+        |                      |  dev/demo alternative to Flink)
         |                      v
         |              logclaw-opensearch
         |              (search + analytics)
         |                      |
         v                      v
   logclaw-platform       logclaw-ml-engine
-  (API Gateway /         (KServe inference,
-   Tenant Dashboard)      model serving)
+  (RBAC, NetworkPolicy,  (KServe inference,
+   SecretStore)           model serving)
                                |
                         logclaw-airflow
                         (ML pipeline DAGs,
@@ -46,6 +49,10 @@ External Log Sources (apps, infra, cloud)
                         logclaw-ticketing-agent
                         (AI SRE: PagerDuty,
                          Jira, ServiceNow)
+                               |
+                        logclaw-dashboard
+                        (Next.js UI: incidents,
+                         anomaly viz, log ingestion)
 ```
 
 ## Component Roles
@@ -60,6 +67,13 @@ External Log Sources (apps, infra, cloud)
 | `logclaw-ml-engine` | Model inference serving | KServe InferenceService |
 | `logclaw-airflow` | ML pipeline orchestration, DAG scheduling | Apache Airflow |
 | `logclaw-ticketing-agent` | AI SRE agent, ticket creation and routing | Python, LangChain |
+| `logclaw-bridge` | Trace correlation engine, anomaly detection, lifecycle manager | Python, Kafka consumer |
+| `logclaw-dashboard` | Pipeline UI: log ingestion, incident management, anomaly viz | Next.js 16 |
+
+> **Bridge vs Flink:** The Bridge provides trace correlation, anomaly detection, and OpenSearch indexing
+> in a single lightweight Python service. In production, Flink handles high-throughput stream processing.
+> For dev/demo environments and early-stage deployments, the Bridge is a simpler alternative that runs
+> without the Flink Operator. Enable both for maximum capability — they process complementary Kafka topics.
 
 ## Multi-Cloud Abstraction
 
@@ -109,6 +123,12 @@ t=25m  logclaw-airflow deploys: Airflow webserver + scheduler healthy
 
 t=28m  logclaw-ticketing-agent deploys: agent connects to Kafka,
        validates ticketing provider credentials
+
+t=29m  logclaw-bridge deploys (if enabled): trace correlation engine
+       connects to Kafka + OpenSearch
+
+t=30m  logclaw-dashboard deploys (if enabled): Next.js UI available
+       on ClusterIP or LoadBalancer
 
 t=30m  All ArgoCD Application health checks green
        Tenant is fully operational
