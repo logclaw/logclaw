@@ -1,0 +1,1054 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logclaw-bridge.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-bridge.labels" . | nindent 4 }}
+data:
+  main.py: |
+    """
+    LogClaw Bridge Service — dev-mode replacement for Apache Flink stream processing.
+
+    Consumes raw logs from Kafka, normalizes and enriches them, performs statistical
+    anomaly detection (z-score on per-service error rates), and bulk-indexes
+    enriched logs and anomaly events into OpenSearch.
+
+    Architecture:
+      Thread 1 (ETL)       : raw-logs -> normalize -> enriched-logs
+      Thread 2 (Anomaly)   : enriched-logs -> z-score detector -> anomaly-events
+      Thread 3 (Indexer)   : enriched-logs + anomaly queue -> OpenSearch bulk API
+      Thread 4 (Lifecycle) : error trace_ids -> 5-layer correlation -> request_failure events
+      Main thread          : HTTP health/ready/metrics server on :8080
+    """
+
+    import hashlib
+    import json
+    import logging
+    import os
+    import re
+    import signal
+    import sys
+    import threading
+    import time
+    import uuid
+    from collections import defaultdict, deque
+    from datetime import datetime, timezone
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    import numpy as np
+    from kafka import KafkaConsumer, KafkaProducer
+    from opensearchpy import OpenSearch, helpers as os_helpers
+
+    # ---------------------------------------------------------------------------
+    # Configuration
+    # ---------------------------------------------------------------------------
+    # ── Infrastructure (immutable — require restart) ────────────────────────
+    KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
+    KAFKA_TOPIC_RAW = os.environ.get("KAFKA_TOPIC_RAW", "raw-logs")
+    KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
+    KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
+    OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+    TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
+
+    BUCKET_WIDTH = 10  # seconds per sliding-window bucket
+
+    # ── Runtime config (mutable via API) ────────────────────────────────────
+    _bridge_config_lock = threading.Lock()
+    _bridge_config = {
+        "zscoreThreshold": float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0")),
+        "windowSeconds": int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300")),
+        "bulkSize": int(os.environ.get("OPENSEARCH_BULK_SIZE", "500")),
+        "bulkIntervalSeconds": float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5")),
+        "lifecycleTimeoutSeconds": int(os.environ.get("LIFECYCLE_TIMEOUT_SECONDS", "10")),
+        "maxPendingRequests": int(os.environ.get("MAX_PENDING_REQUESTS", "10000")),
+        "traceQueryBatchSize": int(os.environ.get("TRACE_QUERY_BATCH_SIZE", "20")),
+        "traceQueryIntervalSeconds": float(os.environ.get("TRACE_QUERY_INTERVAL_SECONDS", "5")),
+    }
+
+
+    def get_bridge_config() -> dict:
+        with _bridge_config_lock:
+            return dict(_bridge_config)
+
+
+    def update_bridge_config(patch: dict) -> dict:
+        valid_keys = {
+            "zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds",
+            "lifecycleTimeoutSeconds", "maxPendingRequests",
+            "traceQueryBatchSize", "traceQueryIntervalSeconds",
+        }
+        with _bridge_config_lock:
+            for k, v in patch.items():
+                if k not in valid_keys:
+                    continue
+                if k in ("zscoreThreshold", "bulkIntervalSeconds", "traceQueryIntervalSeconds"):
+                    _bridge_config[k] = float(v)
+                elif k in ("windowSeconds", "bulkSize", "lifecycleTimeoutSeconds",
+                           "maxPendingRequests", "traceQueryBatchSize"):
+                    _bridge_config[k] = int(v)
+            return dict(_bridge_config)
+
+    # ---------------------------------------------------------------------------
+    # Logging
+    # ---------------------------------------------------------------------------
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stdout,
+    )
+    log = logging.getLogger("logclaw.bridge")
+
+    # ---------------------------------------------------------------------------
+    # Shared state
+    # ---------------------------------------------------------------------------
+    shutdown_event = threading.Event()
+    anomaly_queue: deque = deque(maxlen=10_000)  # Thread 2 -> Thread 3
+
+    # Metrics counters (simple atomic-ish ints protected by the GIL)
+    metrics = {
+        "etl_consumed": 0,
+        "etl_produced": 0,
+        "etl_errors": 0,
+        "anomaly_consumed": 0,
+        "anomaly_detected": 0,
+        "anomaly_errors": 0,
+        "indexer_consumed": 0,
+        "indexer_indexed": 0,
+        "indexer_bulk_requests": 0,
+        "indexer_errors": 0,
+        "lifecycle_error_detected": 0,
+        "lifecycle_trace_queried": 0,
+        "lifecycle_trace_published": 0,
+        "lifecycle_causal_root_found": 0,
+        "lifecycle_dependency_edges": 0,
+        "lifecycle_skipped_no_traceid": 0,
+        "lifecycle_errors": 0,
+    }
+
+    # Readiness flags per consumer group
+    ready_flags = {
+        "etl": threading.Event(),
+        "anomaly": threading.Event(),
+        "indexer": threading.Event(),
+        "lifecycle": threading.Event(),
+    }
+
+    # ── Lifecycle Engine shared state ──────────────────────────────────────
+    _pending_traces_lock = threading.Lock()
+    pending_traces = {}        # trace_id -> {service, level, message, registered_at}
+    processed_traces = {}      # trace_id -> processed_at (epoch)
+    service_dependency_graph = defaultdict(lambda: defaultdict(int))  # svc_a -> {svc_b: count}
+
+
+    # ---------------------------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------------------------
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+
+    def _make_consumer(topic: str, group_id: str) -> KafkaConsumer:
+        brokers = KAFKA_BROKERS.split(",")
+        return KafkaConsumer(
+            topic,
+            bootstrap_servers=brokers,
+            group_id=group_id,
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+            auto_commit_interval_ms=5000,
+            consumer_timeout_ms=1000,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            reconnect_backoff_ms=500,
+            reconnect_backoff_max_ms=10000,
+        )
+
+
+    def _make_producer() -> KafkaProducer:
+        brokers = KAFKA_BROKERS.split(",")
+        return KafkaProducer(
+            bootstrap_servers=brokers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            acks="all",
+            retries=3,
+            retry_backoff_ms=500,
+        )
+
+
+    def _opensearch_client() -> OpenSearch:
+        return OpenSearch(
+            hosts=[OPENSEARCH_ENDPOINT],
+            use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
+            verify_certs=False,
+            timeout=30,
+        )
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 1: ETL Consumer
+    # ---------------------------------------------------------------------------
+    def etl_consumer_loop():
+        """Read raw logs, normalize fields, and forward to enriched-logs topic."""
+        log.info("ETL consumer starting (group=logclaw-bridge-etl, topic=%s)", KAFKA_TOPIC_RAW)
+        consumer = None
+        producer = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_RAW, "logclaw-bridge-etl")
+            producer = _make_producer()
+            ready_flags["etl"].set()
+            log.info("ETL consumer ready")
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=1000)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["etl_consumed"] += 1
+                            try:
+                                enriched = _normalize(msg.value)
+                                producer.send(KAFKA_TOPIC_ENRICHED, value=enriched)
+                                metrics["etl_produced"] += 1
+                            except Exception:
+                                metrics["etl_errors"] += 1
+                                log.exception("ETL normalization error")
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["etl_errors"] += 1
+                        log.exception("ETL poll error")
+                        time.sleep(2)
+        finally:
+            _close_safely(consumer, "ETL consumer")
+            _close_safely(producer, "ETL producer")
+            log.info("ETL consumer stopped")
+
+
+    def _normalize(raw: dict) -> dict:
+        """Ensure consistent field names, uppercase level, add ingest timestamp."""
+        doc = dict(raw)
+        # Ensure level is uppercase
+        if "level" in doc:
+            doc["level"] = str(doc["level"]).upper()
+        else:
+            doc["level"] = "INFO"
+
+        # Ensure message exists
+        if "message" not in doc or not doc["message"]:
+            doc["message"] = "(no message)"
+
+        # Add metadata
+        doc["ingest_timestamp"] = _now_iso()
+        doc.setdefault("tenant_id", TENANT_ID)
+        doc.setdefault("service", "unknown")
+        doc.setdefault("timestamp", _now_iso())
+
+        return doc
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 2: Anomaly Detector
+    # ---------------------------------------------------------------------------
+    class SlidingWindowBucket:
+        __slots__ = ("error_count", "total_count")
+
+        def __init__(self):
+            self.error_count = 0
+            self.total_count = 0
+
+
+    def anomaly_detector_loop():
+        """Track per-service error rates and emit anomaly events on z-score spikes."""
+        log.info("Anomaly detector starting (group=logclaw-bridge-anomaly, topic=%s)", KAFKA_TOPIC_ENRICHED)
+        consumer = None
+        producer = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-anomaly")
+            producer = _make_producer()
+            ready_flags["anomaly"].set()
+            log.info("Anomaly detector ready")
+
+            # service_name -> deque of (bucket_ts, SlidingWindowBucket)
+            cfg = get_bridge_config()
+            windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=cfg["windowSeconds"] // BUCKET_WIDTH))
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=1000)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["anomaly_consumed"] += 1
+                            try:
+                                _process_anomaly_record(msg.value, windows, producer)
+                            except Exception:
+                                metrics["anomaly_errors"] += 1
+                                log.exception("Anomaly processing error")
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["anomaly_errors"] += 1
+                        log.exception("Anomaly poll error")
+                        time.sleep(2)
+        finally:
+            _close_safely(consumer, "Anomaly consumer")
+            _close_safely(producer, "Anomaly producer")
+            log.info("Anomaly detector stopped")
+
+
+    def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
+        cfg = get_bridge_config()
+        service = doc.get("service", "unknown")
+        level = doc.get("level", "INFO").upper()
+        is_error = level in ("ERROR", "FATAL", "CRITICAL")
+
+        # ── Lifecycle engine: register errors with trace_id ────────────
+        if is_error:
+            trace_id = doc.get("trace_id", "")
+            if trace_id:
+                with _pending_traces_lock:
+                    if trace_id not in processed_traces and trace_id not in pending_traces:
+                        if len(pending_traces) < cfg["maxPendingRequests"]:
+                            pending_traces[trace_id] = {
+                                "service": service,
+                                "level": level,
+                                "message": doc.get("message", ""),
+                                "registered_at": time.time(),
+                            }
+                            metrics["lifecycle_error_detected"] += 1
+            else:
+                metrics["lifecycle_skipped_no_traceid"] += 1
+        # ── End lifecycle hook (z-score logic continues below) ─────────
+
+        now_ts = time.time()
+        bucket_ts = int(now_ts // BUCKET_WIDTH) * BUCKET_WIDTH
+
+        window = windows[service]
+
+        # Get or create current bucket
+        if not window or window[-1][0] != bucket_ts:
+            window.append((bucket_ts, SlidingWindowBucket()))
+        current_bucket = window[-1][1]
+        current_bucket.total_count += 1
+        if is_error:
+            current_bucket.error_count += 1
+
+        # Prune expired buckets (use runtime windowSeconds)
+        cutoff = now_ts - cfg["windowSeconds"]
+        while window and window[0][0] < cutoff:
+            window.popleft()
+
+        # Need at least 3 buckets for meaningful statistics
+        if len(window) < 3:
+            return
+
+        # Compute error rates per bucket
+        rates = []
+        for _, bucket in window:
+            if bucket.total_count > 0:
+                rates.append(bucket.error_count / bucket.total_count)
+            else:
+                rates.append(0.0)
+
+        rates_arr = np.array(rates, dtype=np.float64)
+        mean = np.mean(rates_arr)
+        std = np.std(rates_arr)
+
+        if std < 1e-9:
+            return  # No variance, cannot compute z-score
+
+        current_rate = rates[-1]
+        z_score = (current_rate - mean) / std
+
+        if z_score < cfg["zscoreThreshold"]:
+            return
+
+        # Determine severity
+        severity, anomaly_score = _classify_zscore(z_score)
+
+        anomaly_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": _now_iso(),
+            "tenant_id": TENANT_ID,
+            "anomaly_type": "error_rate_spike",
+            "severity": severity,
+            "service": service,
+            "description": (
+                f"Error rate spike detected for service '{service}': "
+                f"z-score={z_score:.2f}, current_rate={current_rate:.3f}, "
+                f"mean_rate={mean:.3f}, std={std:.3f}"
+            ),
+            "anomaly_score": round(anomaly_score, 2),
+            "affected_endpoint": doc.get("endpoint", ""),
+            "status": "open",
+            "environment": TENANT_ID,
+            "z_score": round(z_score, 2),
+            "error_rate": round(current_rate, 4),
+            "window_buckets": len(window),
+        }
+
+        producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
+        anomaly_queue.append(anomaly_event)
+        metrics["anomaly_detected"] += 1
+        log.info(
+            "Anomaly detected: service=%s severity=%s z_score=%.2f score=%.2f",
+            service, severity, z_score, anomaly_score,
+        )
+
+
+    def _classify_zscore(z: float) -> tuple[str, float]:
+        if z >= 4.0:
+            return "critical", 0.98
+        elif z >= 3.0:
+            return "high", 0.90
+        elif z >= 2.5:
+            return "medium", 0.80
+        else:
+            return "low", 0.70
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 3: OpenSearch Indexer
+    # ---------------------------------------------------------------------------
+    def opensearch_indexer_loop():
+        """Bulk-index enriched logs and anomaly events into OpenSearch."""
+        cfg = get_bridge_config()
+        log.info(
+            "OpenSearch indexer starting (group=logclaw-bridge-indexer, topic=%s, bulk_size=%d, interval=%.1fs)",
+            KAFKA_TOPIC_ENRICHED, cfg["bulkSize"], cfg["bulkIntervalSeconds"],
+        )
+        consumer = None
+        os_client = None
+        try:
+            consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-indexer")
+            os_client = _opensearch_client()
+            ready_flags["indexer"].set()
+            log.info("OpenSearch indexer ready")
+
+            buffer: list[dict] = []
+            last_flush = time.time()
+
+            while not shutdown_event.is_set():
+                try:
+                    records = consumer.poll(timeout_ms=500)
+                    for tp, messages in records.items():
+                        for msg in messages:
+                            metrics["indexer_consumed"] += 1
+                            doc = msg.value
+                            today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
+                            buffer.append({
+                                "_index": f"logclaw-logs-{today}",
+                                "_source": doc,
+                            })
+
+                    # Drain anomaly queue into buffer
+                    while anomaly_queue:
+                        try:
+                            anomaly = anomaly_queue.popleft()
+                            today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
+                            buffer.append({
+                                "_index": f"logclaw-anomalies-{today}",
+                                "_source": anomaly,
+                            })
+                        except IndexError:
+                            break
+
+                    # Flush on size or interval (use runtime config)
+                    cfg = get_bridge_config()
+                    elapsed = time.time() - last_flush
+                    if len(buffer) >= cfg["bulkSize"] or (buffer and elapsed >= cfg["bulkIntervalSeconds"]):
+                        _flush_bulk(os_client, buffer)
+                        buffer = []
+                        last_flush = time.time()
+
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["indexer_errors"] += 1
+                        log.exception("Indexer loop error")
+                        time.sleep(2)
+
+            # Final flush on shutdown
+            if buffer:
+                _flush_bulk(os_client, buffer)
+
+        finally:
+            _close_safely(consumer, "Indexer consumer")
+            log.info("OpenSearch indexer stopped")
+
+
+    def _flush_bulk(client: OpenSearch, actions: list[dict]):
+        if not actions:
+            return
+        try:
+            success, errors = os_helpers.bulk(client, actions, raise_on_error=False)
+            metrics["indexer_indexed"] += success
+            metrics["indexer_bulk_requests"] += 1
+            if errors:
+                metrics["indexer_errors"] += len(errors)
+                log.warning("Bulk index had %d errors out of %d actions", len(errors), len(actions))
+            else:
+                log.debug("Bulk indexed %d documents", success)
+        except Exception:
+            metrics["indexer_errors"] += 1
+            log.exception("Bulk index request failed (%d actions)", len(actions))
+
+
+    # ---------------------------------------------------------------------------
+    # Thread 4: Request Lifecycle Engine — 5-Layer Trace Correlation
+    # ---------------------------------------------------------------------------
+    # Layer 1: Temporal ordering (sort by timestamp)
+    # Layer 2: Topological extraction (service dependency graph)
+    # Layer 3: Semantic error fingerprinting (variable-stripped templates)
+    # Layer 4: Causal chain analysis (span-tree root cause identification)
+    # Layer 5: Blast radius estimation (BFS on dependency graph)
+    # ---------------------------------------------------------------------------
+
+    # ── Error normalization regexes (compiled once) ────────────────────────
+    _RE_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
+    _RE_IP = re.compile(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?')
+    _RE_TS = re.compile(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:?\d{2})?')
+    _RE_NUMERIC_ID = re.compile(r'(?<=[/=:# ])\d{4,}')
+    _RE_LONG_QUOTED = re.compile(r'"[^"]{20,}"')
+    _RE_HEX_TOKEN = re.compile(r'\b[0-9a-f]{16,}\b', re.I)
+    _RE_WHITESPACE = re.compile(r'\s+')
+
+    # ── Error category keywords ────────────────────────────────────────────
+    _ERROR_CATEGORIES = [
+        ("timeout", ["timeout", "timed out", "deadline exceeded", "context deadline"]),
+        ("connection_refused", ["connection refused", "connect error", "econnrefused", "connection reset"]),
+        ("authentication", ["unauthorized", "forbidden", "auth failed", "invalid token", "401", "403"]),
+        ("rate_limit", ["rate limit", "too many requests", "429", "throttl"]),
+        ("out_of_memory", ["out of memory", "oom", "heap space", "memory limit"]),
+        ("null_pointer", ["null pointer", "nil pointer", "nonetype", "undefined is not", "cannot read prop"]),
+        ("validation", ["validation", "invalid", "malformed", "bad request", "400"]),
+        ("not_found", ["not found", "404", "no such", "does not exist"]),
+        ("database", ["deadlock", "lock timeout", "duplicate key", "constraint violation", "sql"]),
+        ("resource_exhausted", ["disk full", "no space", "resource exhausted", "too many open"]),
+    ]
+
+
+    def _normalize_error(message: str) -> str:
+        """Strip variable parts from error message to create a stable fingerprint template."""
+        msg = message
+        msg = _RE_UUID.sub("<UUID>", msg)
+        msg = _RE_IP.sub("<IP>", msg)
+        msg = _RE_TS.sub("<TS>", msg)
+        msg = _RE_HEX_TOKEN.sub("<HEX>", msg)
+        msg = _RE_NUMERIC_ID.sub("<ID>", msg)
+        msg = _RE_LONG_QUOTED.sub('"<STR>"', msg)
+        msg = msg.lower().strip()
+        msg = _RE_WHITESPACE.sub(" ", msg)
+        return msg
+
+
+    def _classify_error(message: str) -> str:
+        """Categorize error by keyword matching."""
+        lower = message.lower()
+        for category, keywords in _ERROR_CATEGORIES:
+            if any(kw in lower for kw in keywords):
+                return category
+        return "unknown"
+
+
+    def _find_causal_root(trace_logs: list) -> dict:
+        """Walk trace backwards to find the originating failure (root cause service).
+
+        Strategy: the root cause is the DEEPEST service in the request flow that
+        errored FIRST. Errors in upstream services are considered propagated failures.
+        """
+        if not trace_logs:
+            return {"root_cause_service": "unknown", "root_cause_span_id": "",
+                    "causal_chain": [], "error_category": "unknown"}
+
+        # Determine service order from timestamps (first seen = upstream)
+        service_first_seen = {}
+        for entry in trace_logs:
+            svc = entry.get("service", "unknown")
+            if svc not in service_first_seen:
+                service_first_seen[svc] = entry.get("timestamp", "")
+
+        service_order = sorted(service_first_seen.keys(), key=lambda s: service_first_seen[s])
+
+        # Find error entries per service (earliest error per service)
+        service_errors = {}
+        for entry in trace_logs:
+            svc = entry.get("service", "unknown")
+            lvl = entry.get("level", "INFO").upper()
+            if lvl in ("ERROR", "FATAL", "CRITICAL") and svc not in service_errors:
+                service_errors[svc] = entry
+
+        if not service_errors:
+            return {"root_cause_service": "unknown", "root_cause_span_id": "",
+                    "causal_chain": [], "error_category": "unknown"}
+
+        # Root cause = deepest service in flow that errored
+        # (latest in service_order = deepest in call chain)
+        root_svc = None
+        root_entry = None
+        for svc in reversed(service_order):
+            if svc in service_errors:
+                root_svc = svc
+                root_entry = service_errors[svc]
+                break
+
+        if not root_svc:
+            # Fallback: earliest error by timestamp
+            earliest = min(service_errors.values(), key=lambda e: e.get("timestamp", ""))
+            root_svc = earliest.get("service", "unknown")
+            root_entry = earliest
+
+        # Build causal chain: root_cause → propagated services (in flow order)
+        root_idx = service_order.index(root_svc) if root_svc in service_order else -1
+        causal_chain = [root_svc]
+        for svc in reversed(service_order[:root_idx]):
+            if svc in service_errors:
+                causal_chain.append(svc)
+
+        error_msg = root_entry.get("message", "")
+        error_category = _classify_error(error_msg)
+
+        return {
+            "root_cause_service": root_svc,
+            "root_cause_span_id": root_entry.get("span_id", ""),
+            "causal_chain": causal_chain,
+            "error_category": error_category,
+        }
+
+
+    def _estimate_blast_radius(root_cause_service: str, dep_graph: dict) -> dict:
+        """BFS on service dependency graph to estimate impact of failure in root_cause_service."""
+        if not dep_graph or root_cause_service not in dep_graph:
+            # Check reverse: who calls this service?
+            callers = set()
+            for caller, callees in dep_graph.items():
+                if root_cause_service in callees:
+                    callers.add(caller)
+            if not callers:
+                return {"impact_score": 0.0, "affected_downstream": [],
+                        "estimated_user_impact": "low"}
+            total_services = len(set(dep_graph.keys()) | {s for callees in dep_graph.values() for s in callees})
+            impact_score = len(callers) / max(total_services, 1)
+            impact_level = "high" if len(callers) > 3 else "medium" if len(callers) > 1 else "low"
+            return {"impact_score": round(impact_score, 2),
+                    "affected_downstream": sorted(callers),
+                    "estimated_user_impact": impact_level}
+
+        # BFS: find all services reachable from root_cause_service
+        visited = set()
+        queue = deque([root_cause_service])
+        while queue:
+            svc = queue.popleft()
+            if svc in visited:
+                continue
+            visited.add(svc)
+            for callee in dep_graph.get(svc, {}):
+                if callee not in visited:
+                    queue.append(callee)
+
+        # Also find reverse callers (who depends on this service)
+        callers = set()
+        for caller, callees in dep_graph.items():
+            if root_cause_service in callees:
+                callers.add(caller)
+
+        all_affected = (visited | callers) - {root_cause_service}
+        total_services = len(set(dep_graph.keys()) | {s for callees in dep_graph.values() for s in callees})
+        impact_score = len(all_affected) / max(total_services, 1)
+        impact_level = "high" if len(all_affected) > 3 else "medium" if len(all_affected) > 1 else "low"
+        return {
+            "impact_score": round(impact_score, 2),
+            "affected_downstream": sorted(all_affected),
+            "estimated_user_impact": impact_level,
+        }
+
+
+    def _query_trace_logs(os_client: OpenSearch, trace_id: str) -> list:
+        """Query OpenSearch for all logs with the given trace_id."""
+        try:
+            resp = os_client.search(
+                index="logclaw-logs-*",
+                body={
+                    "query": {"term": {"trace_id": trace_id}},
+                    "size": 200,
+                    "sort": [{"timestamp": {"order": "asc"}}],
+                    "_source": ["timestamp", "service", "level", "message", "span_id", "trace_id"],
+                },
+            )
+            return [hit["_source"] for hit in resp.get("hits", {}).get("hits", [])]
+        except Exception:
+            log.exception("Failed to query trace_id=%s from OpenSearch", trace_id)
+            return []
+
+
+    def request_lifecycle_loop():
+        """Thread 4: 5-layer trace correlation engine.
+
+        Polls pending_traces for error logs with trace_ids, queries OpenSearch
+        for the full request lifecycle, performs causal analysis, and publishes
+        enriched request_failure events to the anomaly-events Kafka topic.
+        """
+        log.info("Lifecycle engine starting")
+        producer = None
+        os_client = None
+        try:
+            producer = _make_producer()
+            os_client = _opensearch_client()
+            ready_flags["lifecycle"].set()
+            log.info("Lifecycle engine ready")
+
+            while not shutdown_event.is_set():
+                try:
+                    cfg = get_bridge_config()
+                    delay = cfg["lifecycleTimeoutSeconds"]
+                    batch_size = cfg["traceQueryBatchSize"]
+                    interval = cfg["traceQueryIntervalSeconds"]
+                    now = time.time()
+
+                    # Collect expired pending traces
+                    batch = []
+                    with _pending_traces_lock:
+                        # Prune processed_traces older than 15 min
+                        stale = [tid for tid, ts in processed_traces.items() if now - ts > 900]
+                        for tid in stale:
+                            del processed_traces[tid]
+
+                        # Collect traces that have waited long enough
+                        expired = [
+                            tid for tid, info in pending_traces.items()
+                            if now - info["registered_at"] >= delay
+                        ]
+                        for tid in expired[:batch_size]:
+                            batch.append((tid, pending_traces.pop(tid)))
+
+                    if not batch:
+                        shutdown_event.wait(timeout=interval)
+                        continue
+
+                    # Process each trace
+                    for trace_id, trigger_info in batch:
+                        try:
+                            _process_trace(trace_id, trigger_info, os_client, producer)
+                        except Exception:
+                            metrics["lifecycle_errors"] += 1
+                            log.exception("Lifecycle error processing trace_id=%s", trace_id)
+                        finally:
+                            with _pending_traces_lock:
+                                processed_traces[trace_id] = time.time()
+
+                    shutdown_event.wait(timeout=interval)
+
+                except Exception:
+                    if not shutdown_event.is_set():
+                        metrics["lifecycle_errors"] += 1
+                        log.exception("Lifecycle loop error")
+                        time.sleep(5)
+        finally:
+            _close_safely(producer, "Lifecycle producer")
+            log.info("Lifecycle engine stopped")
+
+
+    def _process_trace(trace_id: str, trigger_info: dict, os_client: OpenSearch, producer: KafkaProducer):
+        """Process a single trace: query, correlate (5 layers), and publish."""
+        # ── QUERY: Fetch all logs for this trace ───────────────────────
+        trace_logs = _query_trace_logs(os_client, trace_id)
+        metrics["lifecycle_trace_queried"] += 1
+
+        if not trace_logs:
+            log.debug("No logs found for trace_id=%s (may not be indexed yet)", trace_id)
+            return
+
+        # ── Layer 1: Temporal ordering (already sorted by timestamp from query) ──
+        request_trace = []
+        for entry in trace_logs:
+            request_trace.append({
+                "timestamp": entry.get("timestamp", ""),
+                "service": entry.get("service", "unknown"),
+                "level": entry.get("level", "INFO"),
+                "message": entry.get("message", ""),
+                "span_id": entry.get("span_id", ""),
+            })
+
+        # ── Layer 2: Topological extraction ────────────────────────────
+        seen_services = []
+        seen_set = set()
+        for entry in request_trace:
+            svc = entry["service"]
+            if svc not in seen_set:
+                seen_services.append(svc)
+                seen_set.add(svc)
+
+        affected_services = seen_services
+        request_flow = list(seen_services)  # service call order by first appearance
+
+        # Update global dependency graph (adjacent services in flow are connected)
+        for i in range(len(request_flow) - 1):
+            caller = request_flow[i]
+            callee = request_flow[i + 1]
+            service_dependency_graph[caller][callee] += 1
+            metrics["lifecycle_dependency_edges"] = sum(
+                len(callees) for callees in service_dependency_graph.values()
+            )
+
+        # ── Layer 3: Semantic error fingerprinting ─────────────────────
+        error_message = trigger_info.get("message", "")
+        normalized_template = _normalize_error(error_message)
+        error_category = _classify_error(error_message)
+
+        # ── Layer 4: Causal chain analysis ─────────────────────────────
+        causal = _find_causal_root(request_trace)
+        root_cause_service = causal["root_cause_service"]
+        causal_chain = causal["causal_chain"]
+        root_cause_span_id = causal["root_cause_span_id"]
+        if causal["error_category"] != "unknown":
+            error_category = causal["error_category"]
+
+        metrics["lifecycle_causal_root_found"] += 1
+
+        # ── Layer 5: Blast radius estimation ───────────────────────────
+        blast_radius = _estimate_blast_radius(root_cause_service, dict(service_dependency_graph))
+
+        # ── Determine severity from error level ────────────────────────
+        trigger_level = trigger_info.get("level", "ERROR").upper()
+        if trigger_level == "FATAL":
+            severity = "critical"
+            anomaly_score = 0.98
+        elif trigger_level == "CRITICAL":
+            severity = "critical"
+            anomaly_score = 0.95
+        else:
+            severity = "high"
+            anomaly_score = 0.90
+
+        # ── Collect all span_ids ───────────────────────────────────────
+        span_ids = sorted({e["span_id"] for e in request_trace if e.get("span_id")})
+
+        # ── Build description ──────────────────────────────────────────
+        cascade = " -> ".join(causal_chain) if causal_chain else root_cause_service
+        description = (
+            f"Request failure in {root_cause_service} ({error_category})"
+            f" causing cascade: {cascade}"
+        )
+
+        # ── PUBLISH: Enriched anomaly event ────────────────────────────
+        anomaly_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": _now_iso(),
+            "tenant_id": TENANT_ID,
+            "anomaly_type": "request_failure",
+            "severity": severity,
+            "service": root_cause_service,
+            "description": description,
+            "anomaly_score": round(anomaly_score, 2),
+
+            # Trace data
+            "trace_id": trace_id,
+            "span_ids": span_ids,
+            "affected_services": affected_services,
+            "request_flow": request_flow,
+            "request_trace": request_trace,
+
+            # Causal analysis (Layer 4)
+            "error_message": normalized_template,
+            "raw_error_message": error_message[:500],
+            "causal_chain": causal_chain,
+            "root_cause_service": root_cause_service,
+            "root_cause_span_id": root_cause_span_id,
+            "error_category": error_category,
+
+            # Blast radius (Layer 5)
+            "blast_radius": blast_radius,
+
+            "root_cause": "",  # populated by ticketing agent LLM
+            "status": "open",
+            "environment": TENANT_ID,
+        }
+
+        producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
+        anomaly_queue.append(anomaly_event)
+        metrics["lifecycle_trace_published"] += 1
+        log.info(
+            "Lifecycle event: trace_id=%s root_cause=%s category=%s chain=%s blast=%.0f%%",
+            trace_id, root_cause_service, error_category,
+            " -> ".join(causal_chain), blast_radius["impact_score"] * 100,
+        )
+
+
+    # ---------------------------------------------------------------------------
+    # HTTP Health Server
+    # ---------------------------------------------------------------------------
+    class HealthHandler(BaseHTTPRequestHandler):
+        """HTTP handler for /health, /ready, /metrics, and /config."""
+
+        # ── CORS preflight ──────────────────────────────────────────────
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._cors_headers()
+            self.end_headers()
+
+        # ── GET ──────────────────────────────────────────────────────────
+        def do_GET(self):
+            if self.path == "/health":
+                self._respond_json(200, {
+                    "status": "healthy",
+                    "service": "logclaw-bridge",
+                    "tenant_id": TENANT_ID,
+                    "timestamp": _now_iso(),
+                })
+            elif self.path == "/ready":
+                all_ready = all(f.is_set() for f in ready_flags.values())
+                if all_ready:
+                    self._respond_json(200, {
+                        "status": "ready",
+                        "consumers": {k: v.is_set() for k, v in ready_flags.items()},
+                    })
+                else:
+                    self._respond_json(503, {
+                        "status": "not_ready",
+                        "consumers": {k: v.is_set() for k, v in ready_flags.items()},
+                    })
+            elif self.path == "/metrics":
+                self._respond_metrics()
+            elif self.path == "/config":
+                self._respond_json(200, get_bridge_config())
+            else:
+                self._respond_json(404, {"error": "not found"})
+
+        # ── PATCH ────────────────────────────────────────────────────────
+        def do_PATCH(self):
+            if self.path == "/config":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    updated = update_bridge_config(body)
+                    log.info("Bridge config updated via API: %s", updated)
+                    self._respond_json(200, updated)
+                except (json.JSONDecodeError, ValueError) as e:
+                    self._respond_json(400, {"error": str(e)})
+            else:
+                self._respond_json(404, {"error": "not found"})
+
+        # ── Helpers ──────────────────────────────────────────────────────
+        def _cors_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def _respond_json(self, code: int, body: dict):
+            payload = json.dumps(body).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _respond_metrics(self):
+            lines = []
+            for key, value in metrics.items():
+                prom_name = f"logclaw_bridge_{key}_total"
+                lines.append(f"# TYPE {prom_name} counter")
+                lines.append(f"{prom_name} {value}")
+            # Readiness gauge
+            for name, flag in ready_flags.items():
+                prom_name = f"logclaw_bridge_ready_{name}"
+                lines.append(f"# TYPE {prom_name} gauge")
+                lines.append(f"{prom_name} {1 if flag.is_set() else 0}")
+            body = "\n".join(lines) + "\n"
+            payload = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format, *args):
+            """Suppress default stderr logging; use structured logger instead."""
+            log.debug("HTTP %s", format % args)
+
+
+    # ---------------------------------------------------------------------------
+    # Utilities
+    # ---------------------------------------------------------------------------
+    def _close_safely(resource, name: str):
+        if resource is None:
+            return
+        try:
+            resource.close()
+        except Exception:
+            log.debug("Error closing %s (ignored)", name)
+
+
+    # ---------------------------------------------------------------------------
+    # Main entry-point
+    # ---------------------------------------------------------------------------
+    def main():
+        cfg = get_bridge_config()
+        log.info("=" * 60)
+        log.info("LogClaw Bridge Service starting")
+        log.info("  KAFKA_BROKERS          = %s", KAFKA_BROKERS)
+        log.info("  KAFKA_TOPIC_RAW        = %s", KAFKA_TOPIC_RAW)
+        log.info("  KAFKA_TOPIC_ENRICHED   = %s", KAFKA_TOPIC_ENRICHED)
+        log.info("  KAFKA_TOPIC_ANOMALIES  = %s", KAFKA_TOPIC_ANOMALIES)
+        log.info("  OPENSEARCH_ENDPOINT    = %s", OPENSEARCH_ENDPOINT)
+        log.info("  TENANT_ID              = %s", TENANT_ID)
+        log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", cfg["zscoreThreshold"])
+        log.info("  ANOMALY_WINDOW_SECONDS = %d", cfg["windowSeconds"])
+        log.info("  OPENSEARCH_BULK_SIZE   = %d", cfg["bulkSize"])
+        log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", cfg["bulkIntervalSeconds"])
+        log.info("  LIFECYCLE_TIMEOUT      = %ds", cfg["lifecycleTimeoutSeconds"])
+        log.info("  TRACE_QUERY_BATCH      = %d", cfg["traceQueryBatchSize"])
+        log.info("  TRACE_QUERY_INTERVAL   = %.1fs", cfg["traceQueryIntervalSeconds"])
+        log.info("=" * 60)
+
+        # Validate required env vars
+        if not os.environ.get("KAFKA_BROKERS"):
+            log.warning("KAFKA_BROKERS not set; using default localhost:9092")
+        if not os.environ.get("OPENSEARCH_ENDPOINT"):
+            log.warning("OPENSEARCH_ENDPOINT not set; using default http://localhost:9200")
+
+        # Start worker threads
+        threads = [
+            threading.Thread(target=etl_consumer_loop, name="etl-consumer", daemon=True),
+            threading.Thread(target=anomaly_detector_loop, name="anomaly-detector", daemon=True),
+            threading.Thread(target=opensearch_indexer_loop, name="opensearch-indexer", daemon=True),
+            threading.Thread(target=request_lifecycle_loop, name="lifecycle-engine", daemon=True),
+        ]
+        for t in threads:
+            t.start()
+            log.info("Started thread: %s", t.name)
+
+        # Start HTTP health server
+        server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+        server_thread = threading.Thread(target=server.serve_forever, name="http-health", daemon=True)
+        server_thread.start()
+        log.info("Health server listening on :8080")
+
+        # Graceful shutdown on SIGINT/SIGTERM
+        def _shutdown(signum, frame):
+            sig_name = signal.Signals(signum).name
+            log.info("Received %s — initiating graceful shutdown", sig_name)
+            shutdown_event.set()
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+        # Block main thread until shutdown signal is received
+        log.info("Bridge service running — waiting for shutdown signal")
+        while not shutdown_event.is_set():
+            try:
+                shutdown_event.wait(timeout=1.0)
+            except (KeyboardInterrupt, SystemExit):
+                shutdown_event.set()
+                break
+
+        log.info("Shutdown signal received — stopping worker threads")
+
+        # Give worker threads time to finish gracefully
+        for t in threads:
+            t.join(timeout=10)
+            if t.is_alive():
+                log.warning("Thread %s did not stop within 10s", t.name)
+
+        server.shutdown()
+        log.info("LogClaw Bridge Service stopped")
+
+
+    if __name__ == "__main__":
+        main()
