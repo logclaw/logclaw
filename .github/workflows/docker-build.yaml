@@ -70,26 +70,39 @@ jobs:
             context: apps/ticketing-agent
             app-version: "1.0.0"
 
-    # Skip if nothing changed (unless manual dispatch or tag)
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (matrix.image == 'dashboard' && needs.changes.outputs.dashboard == 'true') ||
-      (matrix.image == 'bridge' && needs.changes.outputs.bridge == 'true') ||
-      (matrix.image == 'ticketing-agent' && needs.changes.outputs.ticketing-agent == 'true')
-
     steps:
+      # matrix context is only available at step level, not job-level if
+      - name: Check if build is needed
+        id: gate
+        shell: bash
+        run: |
+          SHOULD_BUILD=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHOULD_BUILD=true
+          fi
+          case "${{ matrix.image }}" in
+            dashboard)       [[ "${{ needs.changes.outputs.dashboard }}" == "true" ]]        && SHOULD_BUILD=true ;;
+            bridge)          [[ "${{ needs.changes.outputs.bridge }}" == "true" ]]           && SHOULD_BUILD=true ;;
+            ticketing-agent) [[ "${{ needs.changes.outputs.ticketing-agent }}" == "true" ]]  && SHOULD_BUILD=true ;;
+          esac
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+          echo "🔍 ${{ matrix.image }}: should_build=$SHOULD_BUILD"
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.should_build == 'true'
 
       # ── Docker Buildx (multi-arch) ──
       - name: Set up QEMU
+        if: steps.gate.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: steps.gate.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
 
       # ── Login to GHCR ──
       - name: Login to GHCR
-        if: github.event_name != 'pull_request'
+        if: steps.gate.outputs.should_build == 'true' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -98,6 +111,7 @@ jobs:
 
       # ── Image metadata (tags + labels) ──
       - name: Docker metadata
+        if: steps.gate.outputs.should_build == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -114,6 +128,7 @@ jobs:
 
       # ── Build + Push ──
       - name: Build and push
+        if: steps.gate.outputs.should_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -126,6 +141,7 @@ jobs:
 
       # ── Trivy vulnerability scan ──
       - name: Scan for vulnerabilities
+        if: steps.gate.outputs.should_build == 'true'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.REGISTRY_PATH }}/${{ matrix.image }}:sha-${{ github.sha }}
@@ -138,7 +154,7 @@ jobs:
 
       # ── Summary ──
       - name: Image summary
-        if: github.event_name != 'pull_request'
+        if: steps.gate.outputs.should_build == 'true' && github.event_name != 'pull_request'
         run: |
           echo "### 🐳 ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
