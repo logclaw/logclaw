@@ -24,7 +24,6 @@ data:
     import json
     import logging
     import os
-    import re
     import signal
     import sys
     import threading
@@ -41,34 +40,44 @@ data:
     # ---------------------------------------------------------------------------
     # Configuration
     # ---------------------------------------------------------------------------
+    # ── Infrastructure (immutable — require restart) ────────────────────────
     KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
     KAFKA_TOPIC_RAW = os.environ.get("KAFKA_TOPIC_RAW", "raw-logs")
     KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
     KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
     OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
     TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
-    ANOMALY_ZSCORE_THRESHOLD = float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0"))
-    ANOMALY_WINDOW_SECONDS = int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300"))
-    BULK_SIZE = int(os.environ.get("OPENSEARCH_BULK_SIZE", "500"))
-    BULK_INTERVAL = float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5"))
 
     BUCKET_WIDTH = 10  # seconds per sliding-window bucket
 
-    # Request Lifecycle Tracker configuration (OTel-only)
-    LIFECYCLE_TIMEOUT = int(os.environ.get("LIFECYCLE_TIMEOUT_SECONDS", "30"))
-    MAX_PENDING_REQUESTS = int(os.environ.get("MAX_PENDING_REQUESTS", "10000"))
-    LIFECYCLE_CLEANUP_INTERVAL = 5  # seconds between cleanup sweeps
+    # ── Runtime config (mutable via API) ────────────────────────────────────
+    _bridge_config_lock = threading.Lock()
+    _bridge_config = {
+        "zscoreThreshold": float(os.environ.get("ANOMALY_ZSCORE_THRESHOLD", "2.0")),
+        "windowSeconds": int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300")),
+        "bulkSize": int(os.environ.get("OPENSEARCH_BULK_SIZE", "500")),
+        "bulkIntervalSeconds": float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5")),
+    }
 
-    # OTel trace context fields — the ONLY correlation fields LogClaw supports.
-    # Enterprises must instrument with OpenTelemetry (the CNCF standard).
-    OTEL_TRACE_ID_FIELDS = ["trace_id", "traceId", "TraceId", "otelTraceID"]
-    OTEL_SPAN_ID_FIELDS = ["span_id", "spanId", "SpanId", "otelSpanID"]
 
-    # OTel semantic conventions for enrichment
-    SERVICE_FIELDS = ["service", "service.name"]
-    ENDPOINT_FIELDS = ["endpoint", "http.route", "http.url", "url.path"]
-    STATUS_CODE_FIELDS = ["http.status_code", "http.response.status_code"]
-    ERROR_TYPE_FIELDS = ["error.type", "exception.type"]
+    def get_bridge_config() -> dict:
+        with _bridge_config_lock:
+            return dict(_bridge_config)
+
+
+    def update_bridge_config(patch: dict) -> dict:
+        valid_keys = {"zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds"}
+        with _bridge_config_lock:
+            for k, v in patch.items():
+                if k not in valid_keys:
+                    continue
+                if k == "zscoreThreshold":
+                    _bridge_config[k] = float(v)
+                elif k in ("windowSeconds", "bulkSize"):
+                    _bridge_config[k] = int(v)
+                elif k == "bulkIntervalSeconds":
+                    _bridge_config[k] = float(v)
+            return dict(_bridge_config)
 
     # ---------------------------------------------------------------------------
     # Logging
@@ -84,7 +93,7 @@ data:
     # Shared state
     # ---------------------------------------------------------------------------
     shutdown_event = threading.Event()
-    anomaly_queue = deque(maxlen=10_000)  # Thread 2 -> Thread 3
+    anomaly_queue: deque = deque(maxlen=10_000)  # Thread 2 -> Thread 3
 
     # Metrics counters (simple atomic-ish ints protected by the GIL)
     metrics = {
@@ -98,9 +107,6 @@ data:
         "indexer_indexed": 0,
         "indexer_bulk_requests": 0,
         "indexer_errors": 0,
-        "lifecycle_tracked": 0,
-        "lifecycle_completed": 0,
-        "lifecycle_errors_detected": 0,
     }
 
     # Readiness flags per consumer group
@@ -114,11 +120,11 @@ data:
     # ---------------------------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------------------------
-    def _now_iso():
+    def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
 
-    def _make_consumer(topic, group_id):
+    def _make_consumer(topic: str, group_id: str) -> KafkaConsumer:
         brokers = KAFKA_BROKERS.split(",")
         return KafkaConsumer(
             topic,
@@ -134,7 +140,7 @@ data:
         )
 
 
-    def _make_producer():
+    def _make_producer() -> KafkaProducer:
         brokers = KAFKA_BROKERS.split(",")
         return KafkaProducer(
             bootstrap_servers=brokers,
@@ -145,7 +151,7 @@ data:
         )
 
 
-    def _opensearch_client():
+    def _opensearch_client() -> OpenSearch:
         return OpenSearch(
             hosts=[OPENSEARCH_ENDPOINT],
             use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
@@ -192,17 +198,20 @@ data:
             log.info("ETL consumer stopped")
 
 
-    def _normalize(raw):
+    def _normalize(raw: dict) -> dict:
         """Ensure consistent field names, uppercase level, add ingest timestamp."""
         doc = dict(raw)
+        # Ensure level is uppercase
         if "level" in doc:
             doc["level"] = str(doc["level"]).upper()
         else:
             doc["level"] = "INFO"
 
+        # Ensure message exists
         if "message" not in doc or not doc["message"]:
             doc["message"] = "(no message)"
 
+        # Add metadata
         doc["ingest_timestamp"] = _now_iso()
         doc.setdefault("tenant_id", TENANT_ID)
         doc.setdefault("service", "unknown")
@@ -222,277 +231,8 @@ data:
             self.total_count = 0
 
 
-    def _extract_first(doc, fields):
-        """Extract the first non-empty value from a list of OTel field names."""
-        for f in fields:
-            val = doc.get(f)
-            if val is not None and str(val).strip():
-                return str(val).strip()
-        return None
-
-
-    class RequestLifecycle:
-        """Tracks a single request by OTel trace_id as it flows through services."""
-        __slots__ = ("trace_id", "logs", "services", "span_ids", "first_seen",
-                     "last_seen", "has_error", "max_level", "error_service",
-                     "error_message", "endpoint", "status_code", "error_type")
-
-        def __init__(self, trace_id):
-            self.trace_id = trace_id
-            self.logs = []
-            self.services = []
-            self.span_ids = []
-            self.first_seen = time.time()
-            self.last_seen = time.time()
-            self.has_error = False
-            self.max_level = "INFO"
-            self.error_service = None
-            self.error_message = None
-            self.endpoint = None
-            self.status_code = None
-            self.error_type = None
-
-        def add_log(self, doc, span_id=None):
-            if len(self.logs) < 50:  # cap log entries per lifecycle
-                self.logs.append(doc)
-            self.last_seen = time.time()
-            if span_id and span_id not in self.span_ids:
-                self.span_ids.append(span_id)
-            service = _extract_first(doc, SERVICE_FIELDS) or "unknown"
-            if service not in self.services:
-                self.services.append(service)
-            if not self.endpoint:
-                self.endpoint = _extract_first(doc, ENDPOINT_FIELDS)
-            # Track HTTP status code from OTel semantic conventions
-            status = _extract_first(doc, STATUS_CODE_FIELDS)
-            if status:
-                try:
-                    code = int(status)
-                    if code >= 400:
-                        self.status_code = code
-                except (ValueError, TypeError):
-                    pass
-            # Track error state from log level
-            level = doc.get("level", "INFO").upper()
-            if level in ("ERROR", "FATAL", "CRITICAL"):
-                self.has_error = True
-                self.error_service = service
-                self.error_message = doc.get("message", "")
-                if not self.error_type:
-                    self.error_type = _extract_first(doc, ERROR_TYPE_FIELDS)
-                if level == "FATAL":
-                    self.max_level = "FATAL"
-                elif level == "CRITICAL" and self.max_level != "FATAL":
-                    self.max_level = "CRITICAL"
-                elif self.max_level not in ("FATAL", "CRITICAL"):
-                    self.max_level = level
-            # Also flag as error if HTTP status >= 500
-            elif self.status_code and self.status_code >= 500 and not self.has_error:
-                self.has_error = True
-                self.error_service = service
-                self.error_message = doc.get("message", "")
-
-
-    class RequestLifecycleTracker:
-        """Tracks request lifecycles using OTel trace context and emits rich
-        anomaly events when errors are detected in a request's journey.
-
-        OTel-only: only looks for trace_id/span_id fields and W3C traceparent.
-        Enterprises must instrument with OpenTelemetry (CNCF standard).
-        """
-
-        def __init__(self, producer, max_pending=None, timeout=None):
-            self.pending = {}  # trace_id -> RequestLifecycle
-            self.producer = producer
-            self.max_pending = max_pending or MAX_PENDING_REQUESTS
-            self.timeout = timeout or LIFECYCLE_TIMEOUT
-            self.last_cleanup = time.time()
-
-        def _extract_otel_context(self, doc):
-            """Extract OTel trace_id and span_id from a log record.
-
-            Supports:
-              - Direct fields: trace_id, traceId, TraceId, otelTraceID
-              - W3C traceparent: 00-{trace_id}-{span_id}-{flags}
-
-            Returns (trace_id, span_id) or (None, None).
-            """
-            trace_id = _extract_first(doc, OTEL_TRACE_ID_FIELDS)
-            span_id = _extract_first(doc, OTEL_SPAN_ID_FIELDS)
-
-            # Try W3C traceparent header if direct fields not found
-            if not trace_id:
-                traceparent = doc.get("traceparent") or doc.get("traceParent")
-                if traceparent:
-                    parts = str(traceparent).split("-")
-                    if len(parts) >= 3:
-                        trace_id = parts[1]
-                        if not span_id:
-                            span_id = parts[2]
-
-            return trace_id, span_id
-
-        def process_record(self, doc):
-            """Process a single enriched log record through OTel lifecycle tracking."""
-            trace_id, span_id = self._extract_otel_context(doc)
-            if not trace_id:
-                return  # No OTel trace context — skip lifecycle tracking
-
-            metrics["lifecycle_tracked"] += 1
-
-            if trace_id in self.pending:
-                self.pending[trace_id].add_log(doc, span_id)
-            else:
-                if len(self.pending) >= self.max_pending:
-                    # LRU eviction: finalize oldest lifecycle to prevent unbounded memory
-                    oldest_key = min(self.pending,
-                                     key=lambda k: self.pending[k].first_seen)
-                    self._finalize(oldest_key)
-                lifecycle = RequestLifecycle(trace_id)
-                lifecycle.add_log(doc, span_id)
-                self.pending[trace_id] = lifecycle
-
-        def cleanup(self):
-            """Finalize timed-out lifecycles."""
-            now = time.time()
-            if now - self.last_cleanup < LIFECYCLE_CLEANUP_INTERVAL:
-                return
-            self.last_cleanup = now
-            expired = [tid for tid, lc in self.pending.items()
-                       if now - lc.last_seen > self.timeout]
-            for tid in expired:
-                self._finalize(tid)
-
-        def _finalize(self, trace_id):
-            """Finalize a lifecycle. If it has errors, emit a rich anomaly event."""
-            lifecycle = self.pending.pop(trace_id, None)
-            if not lifecycle:
-                return
-
-            metrics["lifecycle_completed"] += 1
-
-            if not lifecycle.has_error:
-                return  # No errors in this request, nothing to report
-            if len(lifecycle.logs) < 2:
-                return  # Single log is not a meaningful lifecycle
-
-            metrics["lifecycle_errors_detected"] += 1
-
-            # Sort logs chronologically
-            lifecycle.logs.sort(key=lambda l: l.get("timestamp", ""))
-
-            severity = "critical" if lifecycle.max_level == "FATAL" else "high"
-            anomaly_score = 0.95 if lifecycle.max_level == "FATAL" else 0.85
-
-            error_type = self._classify_error(lifecycle)
-            primary_service = lifecycle.error_service or lifecycle.services[-1]
-            endpoint = lifecycle.endpoint or "unknown"
-
-            # Build title matching the TICK-1247 format
-            title_parts = []
-            if endpoint and endpoint != "unknown":
-                title_parts.append(endpoint)
-            if lifecycle.status_code:
-                title_parts.append("{} Error".format(lifecycle.status_code))
-            title_parts.append("{} {}".format(primary_service, error_type))
-            title = " \u2014 ".join(title_parts)
-
-            # Build request trace with OTel span context
-            request_trace = []
-            prev_ts = None
-            for entry in lifecycle.logs:
-                ts = entry.get("timestamp", "")
-                duration_ms = (entry.get("duration_ms")
-                               or entry.get("response_time_ms") or 0)
-                if not duration_ms and prev_ts and ts:
-                    try:
-                        t1 = datetime.fromisoformat(prev_ts.replace("Z", "+00:00"))
-                        t2 = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        duration_ms = max(0, int((t2 - t1).total_seconds() * 1000))
-                    except Exception:
-                        duration_ms = 0
-                request_trace.append({
-                    "timestamp": ts,
-                    "service": _extract_first(entry, SERVICE_FIELDS) or "unknown",
-                    "level": entry.get("level", "INFO"),
-                    "message": entry.get("message", ""),
-                    "span_id": _extract_first(entry, OTEL_SPAN_ID_FIELDS) or "",
-                    "duration_ms": duration_ms,
-                    "host": entry.get("host", ""),
-                    "endpoint": _extract_first(entry, ENDPOINT_FIELDS) or "",
-                    "raw_log": json.dumps(entry),
-                })
-                prev_ts = ts
-
-            # Root cause: last ERROR/FATAL log message
-            error_logs = [l for l in lifecycle.logs
-                          if l.get("level", "").upper() in ("ERROR", "FATAL", "CRITICAL")]
-            root_cause = (error_logs[-1].get("message", "Unknown error")
-                          if error_logs else "Unknown error")
-
-            anomaly_event = {
-                "event_id": str(uuid.uuid4()),
-                "timestamp": _now_iso(),
-                "tenant_id": TENANT_ID,
-                "anomaly_type": "request_failure",
-                "severity": severity,
-                "service": primary_service,
-                "title": title,
-                "description": root_cause[:200],
-                "trace_id": lifecycle.trace_id,
-                "span_ids": lifecycle.span_ids,
-                "request_flow": lifecycle.services,
-                "affected_services": list(set(lifecycle.services)),
-                "request_trace": request_trace,
-                "root_cause": root_cause,
-                "error_message": lifecycle.error_message or "",
-                "endpoint": endpoint,
-                "status_code": lifecycle.status_code,
-                "error_type": lifecycle.error_type or error_type,
-                "anomaly_score": round(anomaly_score, 2),
-                "status": "open",
-                "environment": TENANT_ID,
-            }
-
-            self.producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
-            anomaly_queue.append(anomaly_event)
-            metrics["anomaly_detected"] += 1
-            log.info(
-                "Request failure detected: trace_id=%s service=%s severity=%s flow=%s",
-                trace_id, primary_service, severity,
-                " -> ".join(lifecycle.services),
-            )
-
-        def _classify_error(self, lifecycle):
-            """Extract error type from lifecycle context using OTel conventions."""
-            # Prefer OTel error.type / exception.type
-            if lifecycle.error_type:
-                return lifecycle.error_type
-            msg = (lifecycle.error_message or "").lower()
-            if "timeout" in msg:
-                return "Timeout"
-            if "connection refused" in msg or "connection reset" in msg:
-                return "Connection Refused"
-            if "pool exhausted" in msg:
-                return "Connection Pool Exhausted"
-            if "circuit breaker" in msg:
-                return "Circuit Breaker Open"
-            if "out of memory" in msg or "oom" in msg:
-                return "OOM"
-            if "ssl" in msg or "tls" in msg or "certificate" in msg:
-                return "SSL Error"
-            if lifecycle.status_code:
-                return "{} Error".format(lifecycle.status_code)
-            return "Error"
-
-
     def anomaly_detector_loop():
-        """Track per-service error rates (z-score) AND request lifecycles (OTel).
-
-        Runs BOTH detectors on every enriched log record:
-          1. Z-score rate detector — aggregate error rate spikes per service
-          2. OTel lifecycle tracker — individual request failure detection
-        """
+        """Track per-service error rates and emit anomaly events on z-score spikes."""
         log.info("Anomaly detector starting (group=logclaw-bridge-anomaly, topic=%s)", KAFKA_TOPIC_ENRICHED)
         consumer = None
         producer = None
@@ -500,10 +240,11 @@ data:
             consumer = _make_consumer(KAFKA_TOPIC_ENRICHED, "logclaw-bridge-anomaly")
             producer = _make_producer()
             ready_flags["anomaly"].set()
-            log.info("Anomaly detector ready (z-score + OTel lifecycle tracker)")
+            log.info("Anomaly detector ready")
 
-            windows = defaultdict(lambda: deque(maxlen=ANOMALY_WINDOW_SECONDS // BUCKET_WIDTH))
-            lifecycle_tracker = RequestLifecycleTracker(producer)
+            # service_name -> deque of (bucket_ts, SlidingWindowBucket)
+            cfg = get_bridge_config()
+            windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=cfg["windowSeconds"] // BUCKET_WIDTH))
 
             while not shutdown_event.is_set():
                 try:
@@ -512,17 +253,10 @@ data:
                         for msg in messages:
                             metrics["anomaly_consumed"] += 1
                             try:
-                                # Detector 1: z-score error rate spikes
                                 _process_anomaly_record(msg.value, windows, producer)
-                                # Detector 2: OTel request lifecycle failures
-                                lifecycle_tracker.process_record(msg.value)
                             except Exception:
                                 metrics["anomaly_errors"] += 1
                                 log.exception("Anomaly processing error")
-
-                    # Periodic lifecycle cleanup (finalize timed-out traces)
-                    lifecycle_tracker.cleanup()
-
                 except Exception:
                     if not shutdown_event.is_set():
                         metrics["anomaly_errors"] += 1
@@ -534,7 +268,8 @@ data:
             log.info("Anomaly detector stopped")
 
 
-    def _process_anomaly_record(doc, windows, producer):
+    def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
+        cfg = get_bridge_config()
         service = doc.get("service", "unknown")
         level = doc.get("level", "INFO").upper()
         is_error = level in ("ERROR", "FATAL", "CRITICAL")
@@ -544,6 +279,7 @@ data:
 
         window = windows[service]
 
+        # Get or create current bucket
         if not window or window[-1][0] != bucket_ts:
             window.append((bucket_ts, SlidingWindowBucket()))
         current_bucket = window[-1][1]
@@ -551,13 +287,16 @@ data:
         if is_error:
             current_bucket.error_count += 1
 
-        cutoff = now_ts - ANOMALY_WINDOW_SECONDS
+        # Prune expired buckets (use runtime windowSeconds)
+        cutoff = now_ts - cfg["windowSeconds"]
         while window and window[0][0] < cutoff:
             window.popleft()
 
+        # Need at least 3 buckets for meaningful statistics
         if len(window) < 3:
             return
 
+        # Compute error rates per bucket
         rates = []
         for _, bucket in window:
             if bucket.total_count > 0:
@@ -570,14 +309,15 @@ data:
         std = np.std(rates_arr)
 
         if std < 1e-9:
-            return
+            return  # No variance, cannot compute z-score
 
         current_rate = rates[-1]
         z_score = (current_rate - mean) / std
 
-        if z_score < ANOMALY_ZSCORE_THRESHOLD:
+        if z_score < cfg["zscoreThreshold"]:
             return
 
+        # Determine severity
         severity, anomaly_score = _classify_zscore(z_score)
 
         anomaly_event = {
@@ -588,10 +328,10 @@ data:
             "severity": severity,
             "service": service,
             "description": (
-                "Error rate spike detected for service '{}': "
-                "z-score={:.2f}, current_rate={:.3f}, "
-                "mean_rate={:.3f}, std={:.3f}"
-            ).format(service, z_score, current_rate, mean, std),
+                f"Error rate spike detected for service '{service}': "
+                f"z-score={z_score:.2f}, current_rate={current_rate:.3f}, "
+                f"mean_rate={mean:.3f}, std={std:.3f}"
+            ),
             "anomaly_score": round(anomaly_score, 2),
             "affected_endpoint": doc.get("endpoint", ""),
             "status": "open",
@@ -610,7 +350,7 @@ data:
         )
 
 
-    def _classify_zscore(z):
+    def _classify_zscore(z: float) -> tuple[str, float]:
         if z >= 4.0:
             return "critical", 0.98
         elif z >= 3.0:
@@ -626,9 +366,10 @@ data:
     # ---------------------------------------------------------------------------
     def opensearch_indexer_loop():
         """Bulk-index enriched logs and anomaly events into OpenSearch."""
+        cfg = get_bridge_config()
         log.info(
             "OpenSearch indexer starting (group=logclaw-bridge-indexer, topic=%s, bulk_size=%d, interval=%.1fs)",
-            KAFKA_TOPIC_ENRICHED, BULK_SIZE, BULK_INTERVAL,
+            KAFKA_TOPIC_ENRICHED, cfg["bulkSize"], cfg["bulkIntervalSeconds"],
         )
         consumer = None
         os_client = None
@@ -638,7 +379,7 @@ data:
             ready_flags["indexer"].set()
             log.info("OpenSearch indexer ready")
 
-            buffer = []
+            buffer: list[dict] = []
             last_flush = time.time()
 
             while not shutdown_event.is_set():
@@ -650,23 +391,26 @@ data:
                             doc = msg.value
                             today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
                             buffer.append({
-                                "_index": "logclaw-logs-{}".format(today),
+                                "_index": f"logclaw-logs-{today}",
                                 "_source": doc,
                             })
 
+                    # Drain anomaly queue into buffer
                     while anomaly_queue:
                         try:
                             anomaly = anomaly_queue.popleft()
                             today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
                             buffer.append({
-                                "_index": "logclaw-anomalies-{}".format(today),
+                                "_index": f"logclaw-anomalies-{today}",
                                 "_source": anomaly,
                             })
                         except IndexError:
                             break
 
+                    # Flush on size or interval (use runtime config)
+                    cfg = get_bridge_config()
                     elapsed = time.time() - last_flush
-                    if len(buffer) >= BULK_SIZE or (buffer and elapsed >= BULK_INTERVAL):
+                    if len(buffer) >= cfg["bulkSize"] or (buffer and elapsed >= cfg["bulkIntervalSeconds"]):
                         _flush_bulk(os_client, buffer)
                         buffer = []
                         last_flush = time.time()
@@ -677,6 +421,7 @@ data:
                         log.exception("Indexer loop error")
                         time.sleep(2)
 
+            # Final flush on shutdown
             if buffer:
                 _flush_bulk(os_client, buffer)
 
@@ -685,7 +430,7 @@ data:
             log.info("OpenSearch indexer stopped")
 
 
-    def _flush_bulk(client, actions):
+    def _flush_bulk(client: OpenSearch, actions: list[dict]):
         if not actions:
             return
         try:
@@ -706,8 +451,15 @@ data:
     # HTTP Health Server
     # ---------------------------------------------------------------------------
     class HealthHandler(BaseHTTPRequestHandler):
-        """Minimal HTTP handler for /health, /ready, and /metrics."""
+        """HTTP handler for /health, /ready, /metrics, and /config."""
 
+        # ── CORS preflight ──────────────────────────────────────────────
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._cors_headers()
+            self.end_headers()
+
+        # ── GET ──────────────────────────────────────────────────────────
         def do_GET(self):
             if self.path == "/health":
                 self._respond_json(200, {
@@ -730,32 +482,57 @@ data:
                     })
             elif self.path == "/metrics":
                 self._respond_metrics()
+            elif self.path == "/config":
+                self._respond_json(200, get_bridge_config())
             else:
                 self._respond_json(404, {"error": "not found"})
 
-        def _respond_json(self, code, body):
+        # ── PATCH ────────────────────────────────────────────────────────
+        def do_PATCH(self):
+            if self.path == "/config":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    updated = update_bridge_config(body)
+                    log.info("Bridge config updated via API: %s", updated)
+                    self._respond_json(200, updated)
+                except (json.JSONDecodeError, ValueError) as e:
+                    self._respond_json(400, {"error": str(e)})
+            else:
+                self._respond_json(404, {"error": "not found"})
+
+        # ── Helpers ──────────────────────────────────────────────────────
+        def _cors_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def _respond_json(self, code: int, body: dict):
             payload = json.dumps(body).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
+            self._cors_headers()
             self.end_headers()
             self.wfile.write(payload)
 
         def _respond_metrics(self):
             lines = []
             for key, value in metrics.items():
-                prom_name = "logclaw_bridge_{}_total".format(key)
-                lines.append("# TYPE {} counter".format(prom_name))
-                lines.append("{} {}".format(prom_name, value))
+                prom_name = f"logclaw_bridge_{key}_total"
+                lines.append(f"# TYPE {prom_name} counter")
+                lines.append(f"{prom_name} {value}")
+            # Readiness gauge
             for name, flag in ready_flags.items():
-                prom_name = "logclaw_bridge_ready_{}".format(name)
-                lines.append("# TYPE {} gauge".format(prom_name))
-                lines.append("{} {}".format(prom_name, 1 if flag.is_set() else 0))
+                prom_name = f"logclaw_bridge_ready_{name}"
+                lines.append(f"# TYPE {prom_name} gauge")
+                lines.append(f"{prom_name} {1 if flag.is_set() else 0}")
             body = "\n".join(lines) + "\n"
             payload = body.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
+            self._cors_headers()
             self.end_headers()
             self.wfile.write(payload)
 
@@ -767,7 +544,7 @@ data:
     # ---------------------------------------------------------------------------
     # Utilities
     # ---------------------------------------------------------------------------
-    def _close_safely(resource, name):
+    def _close_safely(resource, name: str):
         if resource is None:
             return
         try:
@@ -780,6 +557,7 @@ data:
     # Main entry-point
     # ---------------------------------------------------------------------------
     def main():
+        cfg = get_bridge_config()
         log.info("=" * 60)
         log.info("LogClaw Bridge Service starting")
         log.info("  KAFKA_BROKERS          = %s", KAFKA_BROKERS)
@@ -788,20 +566,19 @@ data:
         log.info("  KAFKA_TOPIC_ANOMALIES  = %s", KAFKA_TOPIC_ANOMALIES)
         log.info("  OPENSEARCH_ENDPOINT    = %s", OPENSEARCH_ENDPOINT)
         log.info("  TENANT_ID              = %s", TENANT_ID)
-        log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", ANOMALY_ZSCORE_THRESHOLD)
-        log.info("  ANOMALY_WINDOW_SECONDS = %d", ANOMALY_WINDOW_SECONDS)
-        log.info("  OPENSEARCH_BULK_SIZE   = %d", BULK_SIZE)
-        log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", BULK_INTERVAL)
-        log.info("  LIFECYCLE_TIMEOUT      = %ds", LIFECYCLE_TIMEOUT)
-        log.info("  MAX_PENDING_REQUESTS   = %d", MAX_PENDING_REQUESTS)
-        log.info("  OTel trace fields      = %s", OTEL_TRACE_ID_FIELDS)
+        log.info("  ANOMALY_ZSCORE_THRESH  = %.1f", cfg["zscoreThreshold"])
+        log.info("  ANOMALY_WINDOW_SECONDS = %d", cfg["windowSeconds"])
+        log.info("  OPENSEARCH_BULK_SIZE   = %d", cfg["bulkSize"])
+        log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", cfg["bulkIntervalSeconds"])
         log.info("=" * 60)
 
+        # Validate required env vars
         if not os.environ.get("KAFKA_BROKERS"):
             log.warning("KAFKA_BROKERS not set; using default localhost:9092")
         if not os.environ.get("OPENSEARCH_ENDPOINT"):
             log.warning("OPENSEARCH_ENDPOINT not set; using default http://localhost:9200")
 
+        # Start worker threads
         threads = [
             threading.Thread(target=etl_consumer_loop, name="etl-consumer", daemon=True),
             threading.Thread(target=anomaly_detector_loop, name="anomaly-detector", daemon=True),
@@ -811,21 +588,23 @@ data:
             t.start()
             log.info("Started thread: %s", t.name)
 
+        # Start HTTP health server
         server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
         server_thread = threading.Thread(target=server.serve_forever, name="http-health", daemon=True)
         server_thread.start()
         log.info("Health server listening on :8080")
 
+        # Graceful shutdown on SIGINT/SIGTERM
         def _shutdown(signum, frame):
             sig_name = signal.Signals(signum).name
-            log.info("Received %s - initiating graceful shutdown", sig_name)
+            log.info("Received %s — initiating graceful shutdown", sig_name)
             shutdown_event.set()
 
         signal.signal(signal.SIGINT, _shutdown)
         signal.signal(signal.SIGTERM, _shutdown)
 
         # Block main thread until shutdown signal is received
-        log.info("Bridge service running - waiting for shutdown signal")
+        log.info("Bridge service running — waiting for shutdown signal")
         while not shutdown_event.is_set():
             try:
                 shutdown_event.wait(timeout=1.0)
@@ -833,8 +612,9 @@ data:
                 shutdown_event.set()
                 break
 
-        log.info("Shutdown signal received - stopping worker threads")
+        log.info("Shutdown signal received — stopping worker threads")
 
+        # Give worker threads time to finish gracefully
         for t in threads:
             t.join(timeout=10)
             if t.is_alive():
