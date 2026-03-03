@@ -37,7 +37,7 @@ jobs:
       ticketing-agent: ${{ steps.filter.outputs.ticketing-agent }}
       agent: ${{ steps.filter.outputs.agent }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -95,7 +95,7 @@ jobs:
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
           echo "🔍 ${{ matrix.image }}: should_build=$SHOULD_BUILD"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.gate.outputs.should_build == 'true'
 
       # ── Docker Buildx (multi-arch) ──
