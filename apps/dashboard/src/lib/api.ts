@@ -491,6 +491,43 @@ export async function updateBridgeConfig(
   return res.json();
 }
 
+// ── Connection test helpers ──────────────────────────────────
+
+export interface TestResult {
+  ok: boolean;
+  message: string;
+  latency_ms: number;
+}
+
+export async function testPlatformConnection(
+  platform: string,
+): Promise<TestResult> {
+  const res = await fetch("/api/ticketing/api/v1/test-connection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform }),
+  });
+  return res.json();
+}
+
+export async function testLlmConnection(): Promise<TestResult> {
+  const res = await fetch("/api/ticketing/api/v1/test-llm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+
+// ── Required field definitions for status badges ──────────
+
+export const PLATFORM_REQUIRED_FIELDS: Record<string, string[]> = {
+  pagerduty: ["routingKey"],
+  jira: ["baseUrl", "apiToken", "userEmail"],
+  servicenow: ["instanceUrl", "username", "password"],
+  opsgenie: ["apiKey"],
+  slack: ["webhookUrl"],
+};
+
 // ── Health helpers ──────────────────────────────────────────
 
 export interface ServiceHealth {

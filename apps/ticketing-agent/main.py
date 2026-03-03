@@ -830,6 +830,172 @@ def kafka_loop():
         kafka_loop()
 
 
+# ── Platform / LLM connection tests ───────────────────────────────────
+
+# Required fields per platform — must be non-empty to be considered configured
+PLATFORM_REQUIRED_FIELDS = {
+    "pagerduty": ["routingKey"],
+    "jira": ["baseUrl", "apiToken", "userEmail"],
+    "servicenow": ["instanceUrl", "username", "password"],
+    "opsgenie": ["apiKey"],
+    "slack": ["webhookUrl"],
+}
+
+
+def test_platform_connection(platform: str) -> dict:
+    """Perform a lightweight connectivity test for the given platform.
+    Returns {"ok": bool, "message": str, "latency_ms": int}."""
+    cfg = get_config()
+    pcfg = cfg["platforms"].get(platform, {})
+
+    # Check required fields first
+    required = PLATFORM_REQUIRED_FIELDS.get(platform, [])
+    missing = [f for f in required if not pcfg.get(f) or pcfg[f] == "****"]
+    if missing:
+        return {"ok": False, "message": f"Missing required fields: {', '.join(missing)}", "latency_ms": 0}
+
+    import time as _t
+    start = _t.time()
+    try:
+        if platform == "slack":
+            # Slack: post a test message to the webhook
+            url = pcfg["webhookUrl"]
+            payload = json.dumps({
+                "channel": pcfg.get("channel", "#logclaw-alerts"),
+                "username": "LogClaw",
+                "icon_emoji": ":white_check_mark:",
+                "text": ":white_check_mark: LogClaw connection test successful",
+            })
+            req = Request(url, data=payload.encode(), headers={"Content-Type": "application/json"}, method="POST")
+            resp = urlopen(req, timeout=8)
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"Slack webhook responded {resp.status}", "latency_ms": ms}
+
+        elif platform == "pagerduty":
+            # PagerDuty: send a change event (non-alerting) to validate the routing key
+            url = pcfg.get("apiUrl", "https://events.pagerduty.com") + "/v2/change/enqueue"
+            payload = json.dumps({
+                "routing_key": pcfg["routingKey"],
+                "payload": {
+                    "summary": "LogClaw connection test",
+                    "timestamp": now_iso(),
+                    "source": f"logclaw-{TENANT_ID}",
+                },
+            })
+            req = Request(url, data=payload.encode(), headers={"Content-Type": "application/json"}, method="POST")
+            resp = urlopen(req, timeout=10)
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"PagerDuty responded {resp.status}", "latency_ms": ms}
+
+        elif platform == "jira":
+            # Jira: GET /rest/api/2/myself to validate credentials
+            url = pcfg["baseUrl"].rstrip("/") + "/rest/api/2/myself"
+            import base64 as _b64
+            creds = _b64.b64encode(f'{pcfg["userEmail"]}:{pcfg["apiToken"]}'.encode()).decode()
+            req = Request(url, headers={"Authorization": f"Basic {creds}", "Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            ms = int((_t.time() - start) * 1000)
+            display = data.get("displayName", data.get("emailAddress", "OK"))
+            return {"ok": True, "message": f"Authenticated as {display}", "latency_ms": ms}
+
+        elif platform == "servicenow":
+            # ServiceNow: GET table with limit=0 to test auth
+            url = pcfg["instanceUrl"].rstrip("/") + f'/api/now/table/{pcfg.get("table", "incident")}?sysparm_limit=0'
+            import base64 as _b64
+            creds = _b64.b64encode(f'{pcfg["username"]}:{pcfg["password"]}'.encode()).decode()
+            req = Request(url, headers={"Authorization": f"Basic {creds}", "Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"ServiceNow responded {resp.status}", "latency_ms": ms}
+
+        elif platform == "opsgenie":
+            # OpsGenie: GET /v2/heartbeats to test auth
+            url = pcfg.get("apiUrl", "https://api.opsgenie.com") + "/v2/heartbeats"
+            req = Request(url, headers={"Authorization": f"GenieKey {pcfg['apiKey']}", "Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"OpsGenie responded {resp.status}", "latency_ms": ms}
+
+        else:
+            return {"ok": False, "message": f"Unknown platform: {platform}", "latency_ms": 0}
+
+    except HTTPError as e:
+        ms = int((_t.time() - start) * 1000)
+        return {"ok": False, "message": f"HTTP {e.code}: {e.reason}", "latency_ms": ms}
+    except URLError as e:
+        ms = int((_t.time() - start) * 1000)
+        return {"ok": False, "message": f"Connection failed: {e.reason}", "latency_ms": ms}
+    except Exception as e:
+        ms = int((_t.time() - start) * 1000)
+        return {"ok": False, "message": str(e)[:200], "latency_ms": ms}
+
+
+def test_llm_connection() -> dict:
+    """Perform a lightweight connectivity test for the configured LLM provider."""
+    cfg = get_config()
+    llm = cfg["llm"]
+    provider = llm["provider"]
+    endpoint = llm.get("endpoint", "")
+    model = llm.get("model", "")
+
+    if provider == "disabled":
+        return {"ok": False, "message": "LLM provider is disabled", "latency_ms": 0}
+    if not endpoint:
+        return {"ok": False, "message": "No endpoint configured", "latency_ms": 0}
+
+    import time as _t
+    start = _t.time()
+    try:
+        if provider == "ollama":
+            # Ollama: GET /api/tags to list available models
+            url = endpoint.rstrip("/") + "/api/tags"
+            req = Request(url, headers={"Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            models = [m.get("name", "?") for m in data.get("models", [])]
+            ms = int((_t.time() - start) * 1000)
+            found = model in " ".join(models) if model else True
+            msg = f"Connected — {len(models)} model(s) available"
+            if model and not found:
+                msg += f" (warning: '{model}' not found)"
+            return {"ok": True, "message": msg, "latency_ms": ms}
+
+        elif provider == "vllm":
+            # vLLM: GET /v1/models (OpenAI-compatible)
+            url = endpoint.rstrip("/") + "/v1/models"
+            req = Request(url, headers={"Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            models = [m.get("id", "?") for m in data.get("data", [])]
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"Connected — models: {', '.join(models[:3])}", "latency_ms": ms}
+
+        elif provider in ("claude", "openai"):
+            # Cloud providers: just check the endpoint is reachable
+            url = endpoint.rstrip("/") + ("/v1/models" if provider == "openai" else "/v1/messages")
+            req = Request(url, headers={"Accept": "application/json"}, method="GET")
+            resp = urlopen(req, timeout=10)
+            ms = int((_t.time() - start) * 1000)
+            return {"ok": True, "message": f"Endpoint reachable ({resp.status})", "latency_ms": ms}
+
+        else:
+            return {"ok": False, "message": f"Unknown provider: {provider}", "latency_ms": 0}
+
+    except HTTPError as e:
+        ms = int((_t.time() - start) * 1000)
+        # 401/403 means the endpoint IS reachable but needs auth — that's actually a partial success
+        if e.code in (401, 403):
+            return {"ok": True, "message": f"Endpoint reachable (auth required: {e.code})", "latency_ms": ms}
+        return {"ok": False, "message": f"HTTP {e.code}: {e.reason}", "latency_ms": ms}
+    except URLError as e:
+        ms = int((_t.time() - start) * 1000)
+        return {"ok": False, "message": f"Connection failed: {e.reason}", "latency_ms": ms}
+    except Exception as e:
+        ms = int((_t.time() - start) * 1000)
+        return {"ok": False, "message": str(e)[:200], "latency_ms": ms}
+
+
 # ── API Schema / Discovery ─────────────────────────────────────────────
 def api_schema():
     return {
@@ -854,6 +1020,8 @@ def api_schema():
             {"method": "PATCH",  "path": f"/api/{API_VERSION}/config/platforms",           "description": "Toggle platforms and update credentials"},
             {"method": "PATCH",  "path": f"/api/{API_VERSION}/config/anomaly",             "description": "Update anomaly detection thresholds"},
             {"method": "PATCH",  "path": f"/api/{API_VERSION}/config/llm",                 "description": "Switch LLM provider, model, endpoint"},
+            {"method": "POST",   "path": f"/api/{API_VERSION}/test-connection",             "description": "Test platform connectivity (Slack, PagerDuty, etc.)"},
+            {"method": "POST",   "path": f"/api/{API_VERSION}/test-llm",                    "description": "Test LLM provider connectivity"},
             {"method": "GET",    "path": f"/api/{API_VERSION}/schema",                     "description": "API schema and endpoint discovery"},
         ],
         "incident_states": VALID_STATES,
@@ -984,6 +1152,19 @@ class H(BaseHTTPRequestHandler):
                     if key in allowed:
                         _config["llm"][key] = val
             return self._j(200, {"llm": get_config()["llm"], "persisted": False}, req_id)
+
+        # ── Test platform connection ──
+        if api_path == "/api/test-connection" and method == "POST":
+            platform = body.get("platform", "") if body else ""
+            if platform not in VALID_PLATFORMS:
+                return self._j(400, {"error": {"code": "invalid_platform", "message": f"Must be one of: {sorted(VALID_PLATFORMS)}"}}, req_id)
+            result = test_platform_connection(platform)
+            return self._j(200, result, req_id)
+
+        # ── Test LLM connection ──
+        if api_path == "/api/test-llm" and method == "POST":
+            result = test_llm_connection()
+            return self._j(200, result, req_id)
 
         # ── Incident list ──
         if api_path == "/api/incidents" and method == "GET":

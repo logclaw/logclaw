@@ -1,8 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { type LlmConfig, updateLlmConfig } from "@/lib/api";
-import { Brain, Check, Loader2 } from "lucide-react";
+import {
+  type LlmConfig,
+  type TestResult,
+  updateLlmConfig,
+  testLlmConnection,
+} from "@/lib/api";
+import {
+  Brain,
+  Check,
+  Loader2,
+  Zap,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 
 const PROVIDERS = [
   { value: "disabled", label: "Disabled", desc: "No LLM — raw anomaly data only" },
@@ -21,6 +33,8 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
   const [local, setLocal] = useState<LlmConfig>(llm);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const isDirty = JSON.stringify(local) !== JSON.stringify(llm);
 
@@ -30,13 +44,27 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
       await updateLlmConfig(local);
       onUpdate();
       setSaved(true);
+      setTestResult(null); // Clear old test since config changed
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
     }
   };
 
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const result = await testLlmConnection();
+      setTestResult(result);
+    } catch {
+      setTestResult({ ok: false, message: "Request failed", latency_ms: 0 });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const activeProvider = PROVIDERS.find((p) => p.value === local.provider);
+  const canTest = llm.provider !== "disabled" && llm.endpoint && !isDirty;
 
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
@@ -54,11 +82,17 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
               className={`h-2 w-2 rounded-full ${
                 local.provider === "disabled"
                   ? "bg-[#aeaeb2]"
-                  : "bg-emerald-500 animate-pulse"
+                  : testResult?.ok
+                    ? "bg-emerald-500"
+                    : "bg-amber-500 animate-pulse"
               }`}
             />
             <span className="text-[11px] font-medium text-[#6e6e73]">
-              {local.provider === "disabled" ? "Off" : activeProvider?.label}
+              {local.provider === "disabled"
+                ? "Off"
+                : testResult?.ok
+                  ? `${activeProvider?.label} connected`
+                  : activeProvider?.label}
             </span>
           </div>
           <button
@@ -143,6 +177,62 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
                 className="w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2 font-mono text-[12px] text-[#1d1d1f] outline-none focus:border-[#FF5722] focus:ring-1 focus:ring-[#FF5722]/20"
               />
             </div>
+          </div>
+        )}
+
+        {/* Test Connection button + result */}
+        {local.provider !== "disabled" && (
+          <div>
+            <button
+              onClick={handleTest}
+              disabled={testing || !canTest}
+              title={
+                isDirty
+                  ? "Save changes first"
+                  : !llm.endpoint
+                    ? "Set an endpoint URL first"
+                    : "Test connection to the LLM provider"
+              }
+              className="flex items-center gap-1.5 rounded-full border border-[#e5e5ea] bg-white px-4 py-1.5 text-[12px] font-medium text-[#6e6e73] transition-all hover:border-[#aeaeb2] hover:text-[#1d1d1f] disabled:opacity-40"
+            >
+              {testing ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Zap className="h-3 w-3" />
+              )}
+              Test Connection
+            </button>
+
+            {testResult && (
+              <div
+                className={`mt-3 flex items-start gap-2 rounded-lg px-3 py-2 ${
+                  testResult.ok ? "bg-emerald-50" : "bg-red-50"
+                }`}
+              >
+                {testResult.ok ? (
+                  <CheckCircle2 className="mt-0.5 h-3 w-3 flex-shrink-0 text-emerald-500" />
+                ) : (
+                  <XCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-red-500" />
+                )}
+                <div>
+                  <p
+                    className={`text-[11px] font-medium ${
+                      testResult.ok ? "text-emerald-700" : "text-red-700"
+                    }`}
+                  >
+                    {testResult.ok ? "Connection successful" : "Connection failed"}
+                  </p>
+                  <p
+                    className={`text-[10px] ${
+                      testResult.ok ? "text-emerald-600" : "text-red-600"
+                    }`}
+                  >
+                    {testResult.message}
+                    {testResult.latency_ms > 0 && ` (${testResult.latency_ms}ms)`}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
