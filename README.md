@@ -154,8 +154,8 @@ helm upgrade --install logclaw-dashboard-dev-local charts/logclaw-dashboard \
 
 ```bash
 # Dashboard (main UI)
-kubectl port-forward svc/logclaw-dashboard-dev-local 3000:3000 -n logclaw-dev-local
-open http://localhost:3000
+kubectl port-forward svc/logclaw-dashboard-dev-local 3333:3000 -n logclaw-dev-local
+open http://localhost:3333
 
 # OpenSearch (query API)
 kubectl port-forward svc/logclaw-opensearch-dev-local 9200:9200 -n logclaw-dev-local
@@ -218,7 +218,7 @@ kubectl port-forward svc/logclaw-opensearch-dev-local 9200:9200 -n logclaw-dev-l
 curl -s 'http://localhost:9200/logclaw-incidents-*/_search?size=5&sort=created_at:desc' | python3 -m json.tool
 
 # Or use the Dashboard
-open http://localhost:3000/incidents
+open http://localhost:3333/incidents
 ```
 
 ### 8 — Tear down
