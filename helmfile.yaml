@@ -27,5 +27,7 @@ helmfiles:
   - path: helmfile.d/50-flink.yaml
   - path: helmfile.d/60-ml-engine.yaml
   - path: helmfile.d/70-airflow.yaml
+  - path: helmfile.d/75-bridge.yaml
   - path: helmfile.d/80-ticketing-agent.yaml
   - path: helmfile.d/85-zammad.yaml
+  - path: helmfile.d/90-dashboard.yaml

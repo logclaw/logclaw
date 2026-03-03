@@ -12,7 +12,7 @@ KIND_CLUSTER  := logclaw-dev
 
 .PHONY: help deps lint lint-umbrella validate-schema template template-diff \
         kind-create kind-delete install-operators install uninstall test \
-        ct-install package push clean
+        ct-install package push clean setup-dev ingest-logs
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -113,6 +113,15 @@ push: ## Push charts to OCI registry (requires HELM_REGISTRY)
 	@for pkg in dist/*.tgz; do \
 		$(HELM) push "$$pkg" oci://$(HELM_REGISTRY); \
 	done
+
+setup-dev: ## One-command local dev setup (Kind + operators + full stack)
+	@./scripts/setup-dev.sh
+
+ingest-logs: ## Ingest sample logs (use FILE=<path> or default Apple Pay logs)
+	@./scripts/ingest-logs.sh $(if $(FILE),$(FILE),--generate)
+
+ingest-smoke: ## Send a single smoke test log
+	@./scripts/ingest-logs.sh --smoke
 
 clean: ## Remove build artifacts
 	rm -rf dist/
