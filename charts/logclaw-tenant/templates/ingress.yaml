@@ -1,9 +1,38 @@
-{{- if .Values.ingress }}
-{{- if .Values.ingress.enabled }}
+{{- if and .Values.ingress .Values.ingress.enabled }}
+{{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: API endpoint (log ingestion)
+     ════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.ingress.api }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}-ingress
+  name: {{ .Release.Name }}-ingress-api
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.ingress.api.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-logclaw-ingestion
+                port:
+                  number: 8080
+{{- end }}
+---
+{{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: UI endpoints (dashboard, airflow, flink)
+     ════════════════════════════════════════════════════════════════════ */}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-ui
   namespace: {{ .Release.Namespace }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
@@ -12,7 +41,6 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    {{- /* ── Dashboard ───────────────────────────────────────── */}}
     {{- if .Values.ingress.dashboard }}
     - host: {{ .Values.ingress.dashboard.host }}
       http:
@@ -25,20 +53,6 @@ spec:
                 port:
                   number: 3000
     {{- end }}
-    {{- /* ── Log Ingestion API ────────────────────────────────── */}}
-    {{- if .Values.ingress.api }}
-    - host: {{ .Values.ingress.api.host }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ .Release.Name }}-logclaw-ingestion
-                port:
-                  number: 8080
-    {{- end }}
-    {{- /* ── Airflow UI ───────────────────────────────────────── */}}
     {{- if .Values.ingress.airflow }}
     - host: {{ .Values.ingress.airflow.host }}
       http:
@@ -51,7 +65,6 @@ spec:
                 port:
                   number: 8080
     {{- end }}
-    {{- /* ── Flink Dashboard ──────────────────────────────────── */}}
     {{- if .Values.ingress.flink }}
     - host: {{ .Values.ingress.flink.host }}
       http:
@@ -85,5 +98,4 @@ spec:
                 port:
                   number: 8081
     {{- end }}
-{{- end }}
 {{- end }}

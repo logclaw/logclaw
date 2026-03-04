@@ -59,7 +59,3 @@ dependencies:
     version: "0.2.0"
     repository: "file://../logclaw-dashboard"
     condition: dashboard.enabled
-  - name: logclaw-zammad
-    version: "0.1.0"
-    repository: "file://../logclaw-zammad"
-    condition: zammad.enabled

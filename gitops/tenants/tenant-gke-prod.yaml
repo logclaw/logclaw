@@ -260,7 +260,7 @@ logclaw-ticketing-agent:
   replicaCount: 1
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/ticketing-agent"
-    tag: "1.0.2"
+    tag: "1.0.4"
   resources:
     requests:
       cpu: "100m"
@@ -276,10 +276,10 @@ logclaw-ticketing-agent:
 logclaw-flink:
   flink:
     version: "1.19"
-    jobImageTag: "0.1.0"
+    jobImageTag: "0.1.1"
     image:
       repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/logclaw-flink-jobs"
-      tag: "0.1.0"
+      tag: "0.1.1"
     jobManager:
       cpu: 0.5
       memory: "1024m"

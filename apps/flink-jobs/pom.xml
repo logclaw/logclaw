@@ -6,7 +6,7 @@
 
     <groupId>io.logclaw</groupId>
     <artifactId>logclaw-flink-jobs</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <packaging>pom</packaging>
     <name>LogClaw Flink Jobs</name>
     <description>Stream processing pipeline for the LogClaw observability platform</description>
@@ -24,7 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <flink.version>1.19.1</flink.version>
         <kafka.connector.version>3.2.0-1.19</kafka.connector.version>
-        <jackson.version>2.17.2</jackson.version>
+        <jackson.version>2.15.3</jackson.version>
         <slf4j.version>2.0.13</slf4j.version>
     </properties>
 
