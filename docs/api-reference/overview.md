@@ -1,74 +1,66 @@
 ---
 title: API Reference
-description: Dashboard proxy API endpoints for LogClaw services.
+description: Complete API documentation for all LogClaw services.
 ---
 
 # API Reference
 
-The LogClaw dashboard exposes proxy API routes that forward requests to backend services.
-All endpoints are accessible via the dashboard's Next.js server.
+LogClaw exposes APIs through two access patterns:
 
-## Ingestion
+1. **Dashboard Proxy** — the Next.js Dashboard proxies requests to backend services under `/api/<service>/`. Use this for browser-based access and when the Dashboard is your entry point.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/otel/v1/logs` | Ingest logs via OTLP HTTP/JSON. Proxied to the OTel Collector on port 4318. |
+2. **Direct Service Access** — each backend service exposes its own API on its Kubernetes ClusterIP service. Use this for programmatic access from within the cluster.
 
-## OpenSearch
+## Service Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/opensearch/_cat/indices` | List all OpenSearch indices. |
-| `POST` | `/api/opensearch/<index>/_search` | Search logs in a specific index. |
-
-## Ticketing Agent
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/ticketing/api/incidents` | List all incidents. |
-| `POST` | `/api/ticketing/api/incidents/:id/:action` | Transition an incident (acknowledge, resolve, escalate). |
-| `GET` | `/api/ticketing/api/v1/config` | Get the full runtime configuration. |
-| `PATCH` | `/api/ticketing/api/v1/config/platforms` | Update ticketing platform settings (PagerDuty, Jira, etc.). |
-| `PATCH` | `/api/ticketing/api/v1/config/routing` | Update per-severity routing rules. |
-| `PATCH` | `/api/ticketing/api/v1/config/anomaly` | Update anomaly detection thresholds. |
-| `PATCH` | `/api/ticketing/api/v1/config/llm` | Update LLM provider configuration. |
-| `POST` | `/api/ticketing/api/v1/test-connection` | Test connectivity to a ticketing platform. |
-| `POST` | `/api/ticketing/api/v1/test-llm` | Test connectivity to the LLM provider. |
-
-## Bridge
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/bridge/health` | Bridge service health check. |
-| `GET` | `/api/bridge/metrics` | Prometheus-format metrics. |
-| `GET` | `/api/bridge/config` | Current Bridge runtime configuration. |
-| `PATCH` | `/api/bridge/config` | Update Bridge runtime configuration. |
-
-## ML Engine (Feast)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/feast/health` | Feast feature server health check. |
-
-## Airflow
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/airflow/health` | Airflow scheduler and webserver health. |
-
-## Infrastructure Agent
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/agent/health` | Agent liveness check. |
-| `GET` | `/api/agent/ready` | Agent readiness check. |
-| `GET` | `/api/agent/metrics` | Infrastructure metrics (CPU, memory, disk). |
+| Service | Dashboard Proxy | Direct (in-cluster) | Port |
+|---------|----------------|---------------------|------|
+| [OTel Collector](/api-reference/ingestion) | `/api/otel/*` | `logclaw-otel-collector:4318` | 4317 (gRPC), 4318 (HTTP) |
+| [Bridge](/api-reference/bridge) | `/api/bridge/*` | `logclaw-bridge:8080` | 8080 |
+| [OpenSearch](/api-reference/opensearch) | `/api/opensearch/*` | `logclaw-opensearch:9200` | 9200 |
+| [Ticketing Agent](/api-reference/ticketing) | `/api/ticketing/*` | `logclaw-ticketing-agent:18081` | 18081 |
+| [Infrastructure Agent](/api-reference/agent) | `/api/agent/*` | `logclaw-agent:8080` | 8080 |
+| Airflow | `/api/airflow/*` | `logclaw-airflow-webserver:8080` | 8080 |
+| Feast | `/api/feast/*` | `logclaw-feast:6567` | 6567 |
 
 ## Authentication
 
-All dashboard API routes are currently unauthenticated proxies intended for internal cluster use.
-Access control is enforced at the Kubernetes NetworkPolicy level — only pods within the tenant
-namespace can reach the backend services.
+All Dashboard API routes are unauthenticated proxies intended for **internal cluster use**. Access control is enforced at the Kubernetes NetworkPolicy level — only pods within the tenant namespace can reach backend services.
 
-For external access, deploy an ingress controller with authentication (OIDC, mTLS) in front of
-the dashboard service.
+For external access, deploy an ingress controller with authentication (OIDC, mTLS) in front of the Dashboard service.
+
+<Note>
+OpenSearch requests through the Dashboard proxy include Basic Auth headers automatically when `OPENSEARCH_USER` and `OPENSEARCH_PASSWORD` environment variables are set.
+</Note>
+
+## Common Response Formats
+
+### Health Checks
+
+All services implement a standard health check:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Error Responses
+
+```json
+{
+  "error": "description of the error",
+  "status": 500
+}
+```
+
+### Proxy Errors
+
+When a backend service is unreachable, the Dashboard returns:
+
+```json
+{
+  "error": "Service unavailable",
+  "status": 502
+}
+```

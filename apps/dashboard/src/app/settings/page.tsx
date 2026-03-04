@@ -86,7 +86,7 @@ export default function SettingsPage() {
           <Settings className="h-5 w-5 text-[#6e6e73]" />
         </div>
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+          <h1 className="text-[18px] font-bold tracking-tight text-[#1d1d1f] sm:text-[22px]">
             Settings
           </h1>
           <p className="text-[13px] text-[#6e6e73]">
@@ -126,24 +126,27 @@ export default function SettingsPage() {
 
       {/* Tab bar */}
       {!loading && (
-        <div className="animate-fade-in-up flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12px] font-medium transition-all ${
-                  activeTab === tab.id
-                    ? "bg-[#FF5722] text-white shadow-sm"
-                    : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {tab.label}
-              </button>
-            );
-          })}
+        <div className="animate-fade-in-up -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <div className="flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] min-w-max sm:min-w-0">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-all whitespace-nowrap sm:px-4 ${
+                    activeTab === tab.id
+                      ? "bg-[#FF5722] text-white shadow-sm"
+                      : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -235,7 +238,7 @@ export default function SettingsPage() {
                   className="flex items-center gap-3 rounded-xl bg-[#fafafa] px-4 py-2.5"
                 >
                   <span
-                    className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                    className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold ${
                       ep.method === "GET"
                         ? "bg-emerald-50 text-emerald-600"
                         : ep.method === "PATCH"
@@ -245,10 +248,10 @@ export default function SettingsPage() {
                   >
                     {ep.method}
                   </span>
-                  <span className="flex-1 font-mono text-[12px] text-[#1d1d1f]">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#1d1d1f] sm:text-[12px]">
                     {ep.path}
                   </span>
-                  <span className="text-[12px] text-[#aeaeb2]">{ep.desc}</span>
+                  <span className="hidden text-[12px] text-[#aeaeb2] md:block">{ep.desc}</span>
                 </div>
               ))}
             </div>

@@ -61,14 +61,14 @@ export default function InfraHealthPanel() {
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <ServerCrash className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
             Infrastructure Health
           </h3>
           {metrics && (
-            <span className="text-[10px] text-[#aeaeb2]">
+            <span className="hidden text-[10px] text-[#aeaeb2] sm:inline">
               Updated {new Date(metrics.collectedAt).toLocaleTimeString()}
             </span>
           )}
@@ -95,14 +95,14 @@ export default function InfraHealthPanel() {
       ) : metrics ? (
         <div className="divide-y divide-[#f2f2f7]">
           {/* ── OpenSearch Cluster ────────────────────────── */}
-          <div className="px-5 py-4">
+          <div className="px-4 py-4 sm:px-5">
             <div className="mb-2.5 flex items-center gap-2">
               <Search className="h-3.5 w-3.5 text-[#aeaeb2]" />
               <span className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
                 OpenSearch Cluster
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block h-2.5 w-2.5 rounded-full ${
@@ -117,7 +117,7 @@ export default function InfraHealthPanel() {
                   {metrics.osHealth.status}
                 </span>
               </div>
-              <span className="text-[12px] text-[#aeaeb2]">
+              <span className="text-[11px] text-[#aeaeb2] sm:text-[12px]">
                 {metrics.osHealth.numberOfNodes ?? "?"} nodes &middot;{" "}
                 {metrics.osHealth.numberOfDataNodes ?? "?"} data nodes
               </span>
@@ -125,7 +125,7 @@ export default function InfraHealthPanel() {
           </div>
 
           {/* ── Kafka Consumer Lag ────────────────────────── */}
-          <div className="px-5 py-4">
+          <div className="px-4 py-4 sm:px-5">
             <div className="mb-2.5 flex items-center gap-2">
               <Database className="h-3.5 w-3.5 text-[#aeaeb2]" />
               <span className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -140,9 +140,9 @@ export default function InfraHealthPanel() {
                 {Object.entries(metrics.kafkaLag).map(([group, lag]) => (
                   <div
                     key={group}
-                    className="flex items-center justify-between rounded-lg bg-[#fafafa] px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-lg bg-[#fafafa] px-3 py-2"
                   >
-                    <span className="font-mono text-[12px] text-[#1d1d1f]">{group}</span>
+                    <span className="min-w-0 truncate font-mono text-[11px] text-[#1d1d1f] sm:text-[12px]">{group}</span>
                     <span
                       className={`font-mono text-[12px] font-semibold ${
                         lag > 1000 ? "text-red-500" : lag > 100 ? "text-amber-500" : "text-emerald-600"
@@ -157,7 +157,7 @@ export default function InfraHealthPanel() {
           </div>
 
           {/* ── Flink Jobs ────────────────────────────────── */}
-          <div className="px-5 py-4">
+          <div className="px-4 py-4 sm:px-5">
             <div className="mb-2.5 flex items-center gap-2">
               <Workflow className="h-3.5 w-3.5 text-[#aeaeb2]" />
               <span className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -205,7 +205,7 @@ export default function InfraHealthPanel() {
           </div>
 
           {/* ── External Secrets ──────────────────────────── */}
-          <div className="px-5 py-4">
+          <div className="px-4 py-4 sm:px-5">
             <div className="mb-2.5 flex items-center gap-2">
               <KeyRound className="h-3.5 w-3.5 text-[#aeaeb2]" />
               <span className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -220,17 +220,17 @@ export default function InfraHealthPanel() {
                 {metrics.esoStatus.map((secret) => (
                   <div
                     key={secret.name}
-                    className="flex items-center justify-between rounded-lg bg-[#fafafa] px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-lg bg-[#fafafa] px-3 py-2"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       {secret.ready ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
                       ) : (
-                        <XCircle className="h-3.5 w-3.5 text-red-500" />
+                        <XCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
                       )}
-                      <span className="font-mono text-[12px] text-[#1d1d1f]">{secret.name}</span>
+                      <span className="min-w-0 truncate font-mono text-[11px] text-[#1d1d1f] sm:text-[12px]">{secret.name}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                           secret.ready
@@ -241,7 +241,7 @@ export default function InfraHealthPanel() {
                         {secret.ready ? "Synced" : "Not Ready"}
                       </span>
                       {secret.lastSync && (
-                        <span className="text-[10px] text-[#aeaeb2]">
+                        <span className="hidden text-[10px] text-[#aeaeb2] sm:inline">
                           {new Date(secret.lastSync).toLocaleTimeString()}
                         </span>
                       )}

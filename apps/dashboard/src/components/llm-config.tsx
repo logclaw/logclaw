@@ -68,16 +68,16 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
 
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
             LLM Provider
           </h3>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Status indicator */}
-          <div className="flex items-center gap-1.5">
+          <div className="hidden items-center gap-1.5 sm:flex">
             <div
               className={`h-2 w-2 rounded-full ${
                 local.provider === "disabled"
@@ -110,7 +110,7 @@ export default function LlmConfigPanel({ llm, onUpdate }: Props) {
         </div>
       </div>
 
-      <div className="p-5 space-y-4">
+      <div className="p-4 space-y-4 sm:p-5">
         {/* Provider selector */}
         <div>
           <label className="mb-2 block text-[11px] font-medium text-[#6e6e73]">

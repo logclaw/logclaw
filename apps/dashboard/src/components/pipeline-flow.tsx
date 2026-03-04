@@ -120,17 +120,17 @@ export default function PipelineFlow({ throughput }: Props) {
   const tp = throughput;
 
   return (
-    <div className="animate-fade-in-up rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+    <div className="animate-fade-in-up rounded-2xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] sm:p-6">
       {/* ── Data Pipeline ─────────────────────────────────── */}
-      <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2] sm:mb-4">
         Data Pipeline
       </h3>
-      <div className="stagger-children flex items-start justify-between gap-1 overflow-x-auto pb-4">
+      <div className="stagger-children flex items-start justify-between gap-1 overflow-x-auto pb-4 -mx-1 px-1">
         {/* Ingest — OTel Collector */}
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-cyan-50 text-cyan-600 transition-transform duration-300 hover:scale-110">
                 <Download className="h-5 w-5" />
               </div>
               <StatusDot status="active" />
@@ -154,7 +154,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-purple-50 text-purple-600 transition-transform duration-300 hover:scale-110">
                 <Radio className="h-5 w-5" />
               </div>
               <StatusDot status="active" />
@@ -174,7 +174,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-amber-50 text-amber-600 transition-transform duration-300 hover:scale-110">
                 <GitBranch className="h-5 w-5" />
               </div>
               <StatusDot status="active" />
@@ -196,7 +196,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-emerald-50 text-emerald-600 transition-transform duration-300 hover:scale-110">
                 <Database className="h-5 w-5" />
               </div>
               <StatusDot status="active" />
@@ -227,15 +227,15 @@ export default function PipelineFlow({ throughput }: Props) {
       </div>
 
       {/* ── AI & Operations ───────────────────────────────── */}
-      <h3 className="mb-4 mt-1 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+      <h3 className="mb-3 mt-1 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2] sm:mb-4">
         AI &amp; Operations
       </h3>
-      <div className="stagger-children flex items-start justify-between gap-1 overflow-x-auto pb-2">
+      <div className="stagger-children flex items-start justify-between gap-1 overflow-x-auto pb-2 -mx-1 px-1">
         {/* Detect — Anomaly */}
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-orange-50 text-orange-600 transition-transform duration-300 hover:scale-110">
                 <Zap className="h-5 w-5" />
               </div>
               <StatusDot status="active" />
@@ -261,7 +261,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-indigo-50 text-indigo-600 transition-transform duration-300 hover:scale-110">
                 <Brain className="h-5 w-5" />
               </div>
               <StatusDot
@@ -285,7 +285,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-teal-50 text-teal-600 transition-transform duration-300 hover:scale-110">
                 <Calendar className="h-5 w-5" />
               </div>
               <StatusDot
@@ -307,7 +307,7 @@ export default function PipelineFlow({ throughput }: Props) {
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-500 transition-transform duration-300 hover:scale-110">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl sm:h-12 sm:w-12 bg-red-50 text-red-500 transition-transform duration-300 hover:scale-110">
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <StatusDot

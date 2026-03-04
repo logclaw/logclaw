@@ -215,7 +215,7 @@ export default function FileUploader() {
           setDragging(false);
           handleFiles(e.dataTransfer.files);
         }}
-        className={`relative flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-14 transition-all duration-300
+        className={`relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 transition-all duration-300 sm:gap-4 sm:p-14
           ${
             dragging
               ? "border-[#FF5722] bg-orange-50/50 shadow-lg shadow-orange-500/5"

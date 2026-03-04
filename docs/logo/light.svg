@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 40" fill="none">
+  <!-- Claw icon -->
+  <g transform="translate(2, 4)">
+    <path d="M8 28 Q4 20 8 12 Q10 8 14 6" stroke="#E64A19" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M14 28 Q10 20 14 12 Q16 8 20 6" stroke="#E64A19" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M20 28 Q16 20 20 12 Q22 8 26 6" stroke="#E64A19" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <!-- Log lines -->
+    <line x1="4" y1="30" x2="28" y2="30" stroke="#FF5722" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+    <line x1="6" y1="33" x2="24" y2="33" stroke="#FF5722" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  </g>
+  <!-- Text -->
+  <text x="40" y="28" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#1d1d1f" letter-spacing="-0.5">Log<tspan fill="#E64A19">Claw</tspan></text>
+</svg>

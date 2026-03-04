@@ -214,7 +214,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
 
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <Plug className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -235,33 +235,33 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
           return (
             <div key={key}>
               {/* Header row */}
-              <div className="flex items-center justify-between px-5 py-3">
+              <div className="flex items-center justify-between px-4 py-3 sm:px-5">
                 <button
                   onClick={() => toggleExpand(key)}
-                  className="flex flex-1 items-center gap-3 text-left"
+                  className="flex flex-1 items-center gap-2 text-left sm:gap-3"
                 >
                   {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-[#aeaeb2]" />
+                    <ChevronDown className="h-4 w-4 shrink-0 text-[#aeaeb2]" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-[#aeaeb2]" />
+                    <ChevronRight className="h-4 w-4 shrink-0 text-[#aeaeb2]" />
                   )}
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f5f5f7] text-[10px] font-bold text-[#6e6e73]">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f5f5f7] text-[10px] font-bold text-[#6e6e73]">
                     {def.icon}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[13px] font-medium text-[#1d1d1f]">
                       {def.label}
                     </p>
-                    <p className="text-[10px] text-[#aeaeb2]">
+                    <p className="truncate text-[10px] text-[#aeaeb2]">
                       {status.sublabel}
                     </p>
                   </div>
                 </button>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   {/* Status badge */}
                   <span
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${status.style}`}
+                    className={`hidden rounded-full px-2.5 py-0.5 text-[10px] font-semibold sm:inline ${status.style}`}
                   >
                     {status.label}
                   </span>
@@ -285,7 +285,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
 
               {/* Expanded config form */}
               {isExpanded && (
-                <div className="border-t border-[#f2f2f7] bg-[#fafafa] px-5 py-4">
+                <div className="border-t border-[#f2f2f7] bg-[#fafafa] px-4 py-4 sm:px-5">
                   <div className="space-y-3">
                     {def.fields.map((field) => {
                       const isSecret = field.type === "secret";
@@ -330,7 +330,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
                   </div>
 
                   {/* Action buttons */}
-                  <div className="mt-4 flex items-center gap-3">
+                  <div className="mt-4 flex flex-wrap items-center gap-2 sm:gap-3">
                     <button
                       onClick={() => handleSave(key)}
                       disabled={saving === key || !localEdits[key]}

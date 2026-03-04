@@ -45,6 +45,7 @@ These top-level boolean maps control which sub-charts are rendered by the umbrel
 | `ticketingAgent.enabled` | bool | No | `true` | Deploy `logclaw-ticketing-agent` (AI SRE agent). Requires `kafka.enabled=true` and `opensearch.enabled=true`. |
 | `bridge.enabled` | bool | No | `false` | Deploy `logclaw-bridge` (OTLP ETL + trace correlation engine). Flattens OTLP JSON from Kafka `raw-logs` into canonical log documents, performs anomaly detection, trace correlation, and OpenSearch indexing. Dev/demo alternative to Flink. Can run alongside Flink. |
 | `dashboard.enabled` | bool | No | `false` | Deploy `logclaw-dashboard` (Next.js pipeline UI). Provides log ingestion drag-and-drop, incident management, anomaly visualization, and real-time pipeline monitoring. |
+| `agent.enabled` | bool | No | `false` | Deploy `logclaw-agent` (Go infrastructure health collector). Collects Kafka lag, Flink job status, OpenSearch health, and ESO sync status. Feeds the Dashboard pipeline view. |
 
 ## Per-Chart Override Syntax
 

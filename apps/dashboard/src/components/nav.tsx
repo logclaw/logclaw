@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -7,6 +8,8 @@ import {
   ShieldAlert,
   Upload,
   Settings,
+  Menu,
+  X,
 } from "lucide-react";
 
 const links = [
@@ -38,18 +41,21 @@ function LogClawLogo() {
 
 export default function Nav() {
   const path = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <header className="glass sticky top-0 z-50 border-b border-black/[0.06]">
-      <div className="mx-auto flex h-12 max-w-[1200px] items-center gap-8 px-6">
-        <Link href="/" className="flex items-center gap-2.5">
+      <div className="mx-auto flex h-12 max-w-[1200px] items-center justify-between px-4 sm:px-6">
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
           <LogClawLogo />
           <span className="text-[15px] font-semibold tracking-tight text-[#1d1d1f]">
             LogClaw
           </span>
         </Link>
 
-        <nav className="flex items-center gap-1">
+        {/* Desktop nav */}
+        <nav className="hidden items-center gap-1 md:flex">
           {links.map((l) => {
             const active =
               l.href === "/" ? path === "/" : path.startsWith(l.href);
@@ -72,16 +78,63 @@ export default function Nav() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
+        {/* Right side: status pill (desktop) + hamburger (mobile) */}
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600 sm:flex">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
             Pipeline Active
           </div>
+
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.04] md:hidden"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile nav overlay */}
+      {mobileOpen && (
+        <div className="animate-fade-in border-t border-black/[0.04] bg-white/95 backdrop-blur-lg md:hidden">
+          <nav className="mx-auto max-w-[1200px] space-y-1 px-4 py-3">
+            {links.map((l) => {
+              const active =
+                l.href === "/" ? path === "/" : path.startsWith(l.href);
+              const Icon = l.icon;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 text-[14px] font-medium transition-all
+                    ${
+                      active
+                        ? "bg-[#FF5722]/10 text-[#FF5722]"
+                        : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                    }`}
+                >
+                  <Icon className="h-5 w-5" />
+                  {l.label}
+                </Link>
+              );
+            })}
+            {/* Mobile status pill */}
+            <div className="flex items-center gap-1.5 px-4 py-2 text-[12px] font-medium text-emerald-600">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              Pipeline Active
+            </div>
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
