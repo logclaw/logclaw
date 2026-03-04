@@ -21,9 +21,6 @@ data:
     enabled = true
     address = "0.0.0.0:8686"
 
-    [global_options]
-    timezone = "UTC"
-
     # ---------------------------------------------------------------------------
     # SOURCES
     # ---------------------------------------------------------------------------
@@ -40,9 +37,7 @@ data:
     crt_file = "/etc/vector/tls/tls.crt"
     key_file = "/etc/vector/tls/tls.key"
     {{- end }}
-    [sources.http_receiver.headers]
-    # Extract the X-Tenant-ID header as a field for validation
-    X-Tenant-ID = "tenant_id_header"
+    # Headers are automatically extracted from HTTP requests by Vector
 
     {{- end }}
 
@@ -99,7 +94,7 @@ data:
       if is_string(.message) {
         parsed, err = parse_json(.message)
         if err == null {
-          . = merge(., parsed)
+          . = merge!(., parsed)
         }
       }
     '''
@@ -185,6 +180,7 @@ data:
     topic = "${KAFKA_TOPIC}"
     compression = "{{ .Values.sink.kafka.compression }}"
     message_timeout_ms = 30000
+    key_field = "tenant_id"
 
     [sinks.kafka_out.encoding]
     codec = "{{ .Values.sink.kafka.encoding }}"
@@ -193,13 +189,9 @@ data:
     max_events = {{ .Values.sink.kafka.batchSize }}
 
     [sinks.kafka_out.buffer]
-    type = "disk"
-    max_size = 268435488
+    type = "memory"
+    max_events = 5000
     when_full = "block"
-
-    # Partition by tenant_id so consumers can filter efficiently
-    [sinks.kafka_out.partition]
-    message_key = "{{ "{{" }} tenant_id {{ "}}" }}"
 
     # Prometheus metrics exporter — scraped by the platform monitoring stack
     [sinks.prometheus_exporter]

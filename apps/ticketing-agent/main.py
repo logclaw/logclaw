@@ -1,15 +1,27 @@
-import os, sys, json, time, threading, hashlib, uuid, traceback
+import os, sys, json, time, threading, hashlib, uuid, traceback, ssl, base64
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse, parse_qs
 
+# Trust internal cluster TLS certificates (self-signed by OpenSearch operator)
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
+
 # ── Infrastructure (immutable — require restart) ─────────────────────
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
 KAFKA_GROUP = os.environ.get("KAFKA_CONSUMER_GROUP", "logclaw-ticketing-agent")
 OS_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+OS_USERNAME = os.environ.get("OPENSEARCH_USERNAME", "")
+OS_PASSWORD = os.environ.get("OPENSEARCH_PASSWORD", "")
+_os_auth_header = ""
+if OS_USERNAME:
+    _os_auth_header = "Basic " + base64.b64encode(
+        f"{OS_USERNAME}:{OS_PASSWORD}".encode()
+    ).decode()
 TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
 API_VERSION = "v1"
 ENGINE_VERSION = "2.1.0"
@@ -138,8 +150,11 @@ def gen_request_id():
 def os_req(method, path, body=None):
     url = f"{OS_ENDPOINT}/{path}"
     data = json.dumps(body).encode() if body else None
-    req = Request(url, data, {"Content-Type": "application/json"}, method=method)
-    resp = urlopen(req, timeout=10).read()
+    headers = {"Content-Type": "application/json"}
+    if _os_auth_header:
+        headers["Authorization"] = _os_auth_header
+    req = Request(url, data, headers, method=method)
+    resp = urlopen(req, timeout=10, context=_ssl_ctx).read()
     if not resp:
         return {}
     return json.loads(resp)

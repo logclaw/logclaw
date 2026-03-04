@@ -20,5 +20,5 @@ spec:
       protocol: TCP
     - name: http
       port: {{ .Values.mlEngine.feast.service.httpPort }}
-      targetPort: http
+      targetPort: grpc
       protocol: TCP

@@ -96,48 +96,43 @@ Resolve opensearchEndpoint — required global value.
 
 {{/*
 Resolve vectorEndpoint — Vector log ingestion service.
+Uses Helm release name to match the actual K8s service created by the umbrella chart.
 */}}
 {{- define "logclaw-dashboard.vectorEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-ingestion-{{ $tenantId }}.{{ .Release.Namespace }}.svc:8080
+http://{{ .Release.Name }}-logclaw-ingestion.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
 Resolve ticketingEndpoint — LogClaw Ticketing Agent service.
 */}}
 {{- define "logclaw-dashboard.ticketingEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-ticketing-agent-{{ $tenantId }}.{{ .Release.Namespace }}.svc:8080
+http://{{ .Release.Name }}-logclaw-ticketing-agent.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
 Resolve bridgeEndpoint — LogClaw Bridge service.
 */}}
 {{- define "logclaw-dashboard.bridgeEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-bridge-{{ $tenantId }}.{{ .Release.Namespace }}.svc:8080
+http://{{ .Release.Name }}-logclaw-bridge.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
 Resolve feastEndpoint — Feast feature server (ML Engine).
 */}}
 {{- define "logclaw-dashboard.feastEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-ml-engine-{{ $tenantId }}-feast-server.{{ .Release.Namespace }}.svc:6567
+http://{{ .Release.Name }}-logclaw-ml-engine-feast-server.{{ .Release.Namespace }}.svc:6567
 {{- end }}
 
 {{/*
 Resolve airflowEndpoint — Apache Airflow webserver.
 */}}
 {{- define "logclaw-dashboard.airflowEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-airflow-{{ $tenantId }}-webserver.{{ .Release.Namespace }}.svc:8080
+http://{{ .Release.Name }}-webserver.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
 Resolve agentEndpoint — LogClaw infrastructure health agent.
 */}}
 {{- define "logclaw-dashboard.agentEndpoint" -}}
-{{- $tenantId := include "logclaw-dashboard.tenantId" . -}}
-http://logclaw-agent-{{ $tenantId }}-logclaw-agent.{{ .Release.Namespace }}.svc:8080
+http://{{ .Release.Name }}-logclaw-agent.{{ .Release.Namespace }}.svc:8080
 {{- end }}

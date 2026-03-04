@@ -86,7 +86,10 @@ Produces e.g.: s3://my-bucket/flink/checkpoints
 {{- if not $bucket }}
 {{- fail "global.objectStorage.bucket is required for checkpoint storage" }}
 {{- end }}
-{{- printf "%s://%s/flink/checkpoints" $provider $bucket }}
+{{- /* Map provider name to Flink filesystem scheme (gcs → gs for Flink GCS connector) */}}
+{{- $scheme := $provider }}
+{{- if eq $provider "gcs" }}{{- $scheme = "gs" }}{{- end }}
+{{- printf "%s://%s/flink/checkpoints" $scheme $bucket }}
 {{- end }}
 
 {{/*
@@ -99,16 +102,32 @@ Usage: {{ include "logclaw-flink.savepointDir" . }}
 {{- if not $bucket }}
 {{- fail "global.objectStorage.bucket is required for savepoint storage" }}
 {{- end }}
-{{- printf "%s://%s/flink/savepoints" $provider $bucket }}
+{{- $scheme := $provider }}
+{{- if eq $provider "gcs" }}{{- $scheme = "gs" }}{{- end }}
+{{- printf "%s://%s/flink/savepoints" $scheme $bucket }}
 {{- end }}
 
 {{/*
-Return the Flink version string prefixed with 'v'.
+Return the Flink version string in operator format (v1_19).
+The operator expects underscores, not dots.
 Usage: {{ include "logclaw-flink.flinkVersion" . }}
-Produces e.g.: v1.19
+Produces e.g.: v1_19
 */}}
 {{- define "logclaw-flink.flinkVersion" -}}
-{{- printf "v%s" .Values.flink.version }}
+{{- printf "v%s" (.Values.flink.version | replace "." "_") }}
+{{- end }}
+
+{{/*
+Return the Flink jobs container image reference.
+Supports an optional flink.image.repository override; defaults to
+global.imageRegistry / logclaw-flink-jobs.
+*/}}
+{{- define "logclaw-flink.jobImage" -}}
+{{- if (.Values.flink.image).repository -}}
+  {{- printf "%s:%s" .Values.flink.image.repository (.Values.flink.image.tag | default .Values.flink.jobImageTag) }}
+{{- else -}}
+  {{- printf "%s/logclaw-flink-jobs:%s" ((.Values.global).imageRegistry | default "docker.io") .Values.flink.jobImageTag }}
+{{- end -}}
 {{- end }}
 
 {{/*

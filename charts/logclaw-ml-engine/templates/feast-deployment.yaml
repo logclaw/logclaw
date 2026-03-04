@@ -46,7 +46,7 @@ spec:
         - name: feast-data-dir
           image: "{{ .Values.mlEngine.feast.image.repository }}:{{ .Values.mlEngine.feast.image.tag }}"
           imagePullPolicy: {{ .Values.mlEngine.feast.image.pullPolicy }}
-          command: ["sh", "-c", "mkdir -p /feast/data && chmod 770 /feast/data"]
+          command: ["sh", "-c", "mkdir -p /feast/data"]
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532
@@ -64,12 +64,9 @@ spec:
           imagePullPolicy: {{ .Values.mlEngine.feast.image.pullPolicy }}
 
           command:
-            - feast
-            - serve
-            - -h
-            - "0.0.0.0"
-            - -p
-            - "6566"
+            - sh
+            - -c
+            - "cd /feast/config && feast serve -h 0.0.0.0 -p 6566"
 
           env:
             - name: REDIS_PASSWORD
@@ -95,7 +92,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: http
+              port: grpc
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 3
@@ -105,7 +102,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: http
+              port: grpc
             initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 3
@@ -143,7 +140,7 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ .Values.global.topologyKey | default "topology.kubernetes.io/zone" }}
-          whenUnsatisfiable: DoNotSchedule
+          whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
               {{- include "logclaw-ml-engine.selectorLabels" . | nindent 14 }}

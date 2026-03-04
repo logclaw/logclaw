@@ -138,17 +138,17 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
 
   const [logsRes, anomalyRes] = await Promise.all([
     // Logs: `timestamp` field is NOT indexed (mapping: dynamic=false),
-    // so we use match_all instead of range. Fields `level` and `service`
-    // are direct keyword types (no .keyword sub-field).
+    // so we use match_all instead of range. Text fields need .keyword
+    // sub-field for aggregations and term-level queries.
     osQuery<any>("logclaw-logs-*", {
       size: 0,
       query: { match_all: {} },
       aggs: {
-        levels: { terms: { field: "level", size: 10 } },
-        services: { terms: { field: "service", size: 20 } },
+        levels: { terms: { field: "level.keyword", size: 10 } },
+        services: { terms: { field: "service.keyword", size: 20 } },
         error_count: {
           filter: {
-            terms: { level: ["ERROR", "FATAL", "CRITICAL"] },
+            terms: { "level.keyword": ["ERROR", "FATAL", "CRITICAL"] },
           },
         },
       },
@@ -196,7 +196,7 @@ export async function fetchErrorLogs(limit = 50): Promise<LogEntry[]> {
     size: limit,
     sort: [{ _doc: "desc" }],
     query: {
-      terms: { level: ["ERROR", "FATAL", "CRITICAL"] },
+      terms: { "level.keyword": ["ERROR", "FATAL", "CRITICAL"] },
     },
   });
   return res.hits?.hits ?? [];

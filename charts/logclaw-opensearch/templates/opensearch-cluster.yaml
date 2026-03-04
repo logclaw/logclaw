@@ -27,6 +27,16 @@ spec:
       http:
         generate: true
 
+  bootstrap:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1536Mi"
+      limits:
+        cpu: "500m"
+        memory: "2Gi"
+    jvm: "-Xms1g -Xmx1g"
+
   nodePools:
     # ─── Master / Cluster-manager nodes ───────────────────────────────────────
     - component: masters
@@ -42,11 +52,12 @@ spec:
       roles:
         - "cluster_manager"
       persistence:
-        {{- with (include "logclaw-opensearch.storageClass" .) }}
-        storageClass: {{ . | quote }}
-        {{- end }}
-      additionalConfig:
-        node.ml: "false"
+        pvc:
+          {{- with (include "logclaw-opensearch.storageClass" .) }}
+          storageClass: {{ . | quote }}
+          {{- end }}
+          accessModes:
+            - ReadWriteOnce
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
@@ -71,9 +82,12 @@ spec:
         - "data"
         - "ingest"
       persistence:
-        {{- with (include "logclaw-opensearch.storageClass" .) }}
-        storageClass: {{ . | quote }}
-        {{- end }}
+        pvc:
+          {{- with (include "logclaw-opensearch.storageClass" .) }}
+          storageClass: {{ . | quote }}
+          {{- end }}
+          accessModes:
+            - ReadWriteOnce
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}

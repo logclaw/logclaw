@@ -1,3 +1,4 @@
+{{- if not (eq (toString (.Values.mlEngine.kserve).enabled) "false") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,3 +36,4 @@ data:
     # Dependency management — disable per-model pip installs for reproducibility.
     # All required packages must be baked into the model archive (.mar).
     install_py_dep_per_model=false
+{{- end }}

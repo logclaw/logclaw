@@ -49,6 +49,8 @@ data:
     KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
     KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
     OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+    OPENSEARCH_USERNAME = os.environ.get("OPENSEARCH_USERNAME", "")
+    OPENSEARCH_PASSWORD = os.environ.get("OPENSEARCH_PASSWORD", "")
     TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
 
     BUCKET_WIDTH = 10  # seconds per sliding-window bucket
@@ -176,12 +178,16 @@ data:
 
 
     def _opensearch_client() -> OpenSearch:
-        return OpenSearch(
+        kwargs = dict(
             hosts=[OPENSEARCH_ENDPOINT],
             use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
             verify_certs=False,
+            ssl_show_warn=False,
             timeout=30,
         )
+        if OPENSEARCH_USERNAME:
+            kwargs["http_auth"] = (OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD)
+        return OpenSearch(**kwargs)
 
 
     # ---------------------------------------------------------------------------

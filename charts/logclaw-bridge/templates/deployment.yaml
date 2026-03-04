@@ -73,6 +73,13 @@ spec:
             # ── OpenSearch ──────────────────────────────────────────────────
             - name: OPENSEARCH_ENDPOINT
               value: {{ include "logclaw-bridge.opensearchEndpoint" . | quote }}
+            - name: OPENSEARCH_USERNAME
+              value: {{ (.Values.config).opensearchUsername | default "admin" | quote }}
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ (.Values.config).opensearchCredentialsSecret | default "logclaw-logclaw-opensearch-admin-password" }}
+                  key: password
             - name: OPENSEARCH_BULK_SIZE
               value: {{ .Values.config.opensearch.bulkSize | quote }}
             - name: OPENSEARCH_BULK_INTERVAL_SECONDS
