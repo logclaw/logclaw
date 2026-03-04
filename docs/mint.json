@@ -64,6 +64,12 @@
       ]
     },
     {
+      "group": "Integrations",
+      "pages": [
+        "integrations"
+      ]
+    },
+    {
       "group": "Configuration",
       "pages": [
         "values-reference"

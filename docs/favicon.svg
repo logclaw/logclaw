@@ -1,11 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="#FF5722"/>
-  <!-- Claw mark (3 diagonal strokes) — matches brand logo -->
-  <g transform="translate(3, 1)">
-    <path d="M5 5 L17 23" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
-    <path d="M10 3 L20 19" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
-    <path d="M15 1 L23 15" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
-    <!-- Log line under claw -->
-    <path d="M3 26 L23 26" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+  <!-- Simplified claw mark - recognizable at 16px -->
+  <path d="M6 6 L22 26" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
+  <path d="M12 4 L24 22" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
+  <path d="M18 2 L26 18" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
+  <path d="M4 28 L28 28" stroke="#000" stroke-width="2" stroke-linecap="round"/>
 </svg>

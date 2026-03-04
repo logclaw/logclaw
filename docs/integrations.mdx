@@ -1,0 +1,132 @@
+---
+title: "Integrations"
+description: "Every platform LogClaw connects to — from incident routing to cloud infrastructure to data migration."
+icon: "plug"
+---
+
+LogClaw integrates with the tools your team already uses. No proprietary agents, no vendor lock-in — just OpenTelemetry in, intelligence out.
+
+---
+
+## Incident Routing
+
+LogClaw auto-creates incident tickets with AI root cause analysis, routed by severity to the platform your team already uses.
+
+<CardGroup cols={3}>
+  <Card title="PagerDuty" icon={<img src="/images/integrations/pagerduty.svg" width="20" />}>
+    Events API v2 with severity mapping. Critical and high-severity incidents trigger pages automatically.
+  </Card>
+  <Card title="Jira" icon={<img src="/images/integrations/jira.svg" width="20" />}>
+    REST API v2 issue creation with priority mapping, custom labels, and project routing.
+  </Card>
+  <Card title="ServiceNow" icon={<img src="/images/integrations/servicenow.svg" width="20" />}>
+    Incident table API with severity, urgency, impact fields, and assignment group routing.
+  </Card>
+  <Card title="OpsGenie" icon={<img src="/images/integrations/opsgenie.svg" width="20" />}>
+    v2 Alerts API with priority mapping, responder teams, and escalation support.
+  </Card>
+  <Card title="Slack" icon={<img src="/images/integrations/slack.svg" width="20" />}>
+    Incoming webhooks with severity indicators, service tags, and direct links to incident details.
+  </Card>
+</CardGroup>
+
+### Severity-Based Routing
+
+Configure which platform receives incidents based on severity:
+
+```yaml
+routing:
+  critical: pagerduty    # Wake someone up
+  high: pagerduty        # Page the on-call
+  medium: jira           # Create a ticket
+  low: slack             # Post to channel
+```
+
+Every platform supports connection health checks with latency metrics from the LogClaw dashboard.
+
+---
+
+## Cloud Providers
+
+LogClaw is Kubernetes-native and runs on any cloud. Helm charts include provider-specific configurations for authentication, secrets, and object storage.
+
+<CardGroup cols={3}>
+  <Card title="AWS" icon={<img src="/images/integrations/aws.svg" width="20" />}>
+    **EKS** with IRSA (IAM Roles for Service Accounts), **S3** for object storage, **AWS Secrets Manager** via External Secrets Operator.
+  </Card>
+  <Card title="Google Cloud" icon={<img src="/images/integrations/gcp.svg" width="20" />}>
+    **GKE** with Workload Identity, **GCS** for object storage, **Google Secret Manager** via External Secrets Operator.
+  </Card>
+  <Card title="Azure" icon={<img src="/images/integrations/azure.svg" width="20" />}>
+    **AKS** with Workload Identity, **Azure Blob Storage**, **Azure Key Vault** via External Secrets Operator.
+  </Card>
+</CardGroup>
+
+### Self-Hosted
+
+LogClaw also runs on any self-managed Kubernetes cluster with:
+- **MinIO** for S3-compatible object storage
+- **HashiCorp Vault** for secret management
+- Standard CSI-compatible persistent volumes
+
+---
+
+## Data Ingestion
+
+<Card title="OpenTelemetry (OTLP)" icon={<img src="/images/integrations/otel.svg" width="20" />}>
+  **The only ingestion protocol.** LogClaw receives logs exclusively via OTLP — the CNCF industry standard adopted by 48.5% of enterprises. gRPC on port 4317, HTTP on port 4318.
+</Card>
+
+### Migrate From Existing Tools
+
+LogClaw replaces these platforms for log observability and incident detection. Since OpenTelemetry is vendor-neutral, migrating is straightforward — point your OTel Collector or SDK at LogClaw instead of your current vendor.
+
+<CardGroup cols={3}>
+  <Card title="Splunk" icon={<img src="/images/integrations/splunk.svg" width="20" />}>
+    Replace Splunk's log observability at **80-90% lower cost**. No SPL lock-in, no proprietary Universal Forwarders. Your data stays in your cluster.
+  </Card>
+  <Card title="Datadog" icon={<img src="/images/integrations/datadog.svg" width="20" />}>
+    Eliminate per-GB pricing surprises. LogClaw delivers autonomous incident detection that Datadog's dashboard-first model cannot match.
+  </Card>
+  <Card title="New Relic" icon={<img src="/images/integrations/newrelic.svg" width="20" />}>
+    Move from New Relic's consumption-based pricing to self-hosted log intelligence with zero vendor risk.
+  </Card>
+  <Card title="Dynatrace" icon={<img src="/images/integrations/dynatrace.svg" width="20" />}>
+    Replace Dynatrace log monitoring with OTLP-native ingestion and AI-powered root cause analysis — at a fraction of the cost.
+  </Card>
+  <Card title="CloudWatch" icon={<img src="/images/integrations/cloudwatch.svg" width="20" />}>
+    Consolidate CloudWatch Logs into LogClaw for cross-cloud visibility, anomaly detection, and auto-ticketing that CloudWatch doesn't offer.
+  </Card>
+</CardGroup>
+
+<Info>
+LogClaw doesn't require you to rip-and-replace overnight. You can run LogClaw alongside your existing tools — send the same OTLP data to both — and migrate incrementally as your team gains confidence.
+</Info>
+
+---
+
+## AI / LLM Providers
+
+LogClaw uses LLMs for root cause analysis — generating human-readable incident summaries from correlated log entries. Choose your provider:
+
+| Provider | Type | Details |
+|----------|------|---------|
+| **Claude** (Anthropic) | Cloud API | `v1/messages` — recommended for quality |
+| **OpenAI** | Cloud API | `v1/chat/completions` — GPT-4o / GPT-4 |
+| **Ollama** | Self-hosted | Local inference — full data sovereignty |
+| **vLLM** | Self-hosted | High-throughput inference server |
+
+<Tip>
+For maximum data sovereignty, pair LogClaw with **Ollama** or **vLLM** — your logs and incident summaries never leave your infrastructure.
+</Tip>
+
+---
+
+## Observability Stack
+
+| Component | Integration | Purpose |
+|-----------|-------------|---------|
+| **Prometheus** | Built-in | All LogClaw services expose `/metrics` endpoints for scraping |
+| **Grafana** | Optional | Pre-built dashboard JSON via `grafanaDashboards` Helm flag |
+| **OpenSearch** | Core | Log storage, full-text search, and analytics backend |
+| **Kafka** | Core | Internal message broker for log streaming between components |
