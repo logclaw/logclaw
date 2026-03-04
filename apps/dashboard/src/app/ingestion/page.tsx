@@ -44,22 +44,34 @@ export default function IngestionPage() {
                 POST
               </span>
               <h4 className="font-mono text-[14px] font-medium text-[#1d1d1f]">
-                /api/vector/
+                /api/otel/v1/logs
               </h4>
             </div>
             <p className="mt-1.5 text-[13px] text-[#6e6e73]">
-              Send log entries directly to the Vector ingestion pipeline.
+              Send log entries via OTLP HTTP to the OpenTelemetry Collector.
             </p>
             <pre className="mt-3 overflow-x-auto rounded-xl bg-[#1d1d1f] p-4 text-[12px] text-[#aeaeb2] font-mono">
-{`curl -X POST http://localhost:3000/api/vector/ \\
+{`curl -X POST http://localhost:3000/api/otel/v1/logs \\
   -H "Content-Type: application/json" \\
-  -d '[{
-    "timestamp": "2025-01-15T10:30:00Z",
-    "level": "ERROR",
-    "message": "Connection timeout",
-    "service": "payment-api",
-    "host": "prod-web-01"
-  }]'`}
+  -d '{
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "payment-api"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "1741003200000000000",
+          "severityText": "ERROR",
+          "body": {"stringValue": "Connection timeout"},
+          "attributes": [
+            {"key": "host.name", "value": {"stringValue": "prod-web-01"}}
+          ]
+        }]
+      }]
+    }]
+  }'`}
             </pre>
           </div>
 

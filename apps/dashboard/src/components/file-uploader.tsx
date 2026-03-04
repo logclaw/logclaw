@@ -182,14 +182,14 @@ export default function FileUploader() {
         const batch = logs.slice(i, i + 50);
         setStatus({
           type: "uploading",
-          message: `Sending ${Math.min(i + 50, logs.length)}/${logs.length} entries to Vector...`,
+          message: `Sending ${Math.min(i + 50, logs.length)}/${logs.length} entries via OTLP...`,
         });
         await uploadLogs(batch);
         totalAccepted += batch.length;
       }
       setStatus({
         type: "success",
-        message: `Successfully ingested ${totalAccepted} log entries into Vector`,
+        message: `Successfully ingested ${totalAccepted} log entries via OTLP`,
       });
       setValidation(null);
       setTimeout(() => setStatus({ type: "idle" }), 5000);
@@ -323,7 +323,7 @@ export default function FileUploader() {
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF5722] px-4 py-3 text-[14px] font-semibold text-white transition-all hover:bg-[#E64A19] active:scale-[0.99]"
             >
               <Send className="h-4 w-4" />
-              Ingest {validation.totalEntries} Logs into Vector
+              Ingest {validation.totalEntries} Logs via OTLP
             </button>
           )}
 
@@ -463,7 +463,7 @@ function QuickUpload() {
         className="mt-3 flex items-center gap-2 rounded-full bg-[#FF5722] px-4 py-2 text-[13px] font-medium text-white transition-all hover:bg-[#E64A19] disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Send className="h-3.5 w-3.5" />
-        Send to Vector
+        Send via OTLP
       </button>
     </div>
   );
