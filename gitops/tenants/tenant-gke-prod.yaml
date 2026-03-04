@@ -11,6 +11,20 @@
 tenantId: "gke-prod"
 clusterServer: ""
 
+# ═════════════════════════════════════════════════════════════════════════════
+# INGRESS — Cloudflare DNS → NGINX Ingress Controller (35.225.68.81)
+# ═════════════════════════════════════════════════════════════════════════════
+ingress:
+  enabled: true
+  dashboard:
+    host: "app.logclaw.ai"
+  api:
+    host: "api.logclaw.ai"
+  airflow:
+    host: "airflow.logclaw.ai"
+  flink:
+    host: "flink.logclaw.ai"
+
 global:
   tenantId: "gke-prod"
   tenantName: "LogClaw Production"
@@ -457,7 +471,7 @@ logclaw-dashboard:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/dashboard"
     tag: "1.2.1"
   service:
-    type: LoadBalancer
+    type: ClusterIP
     port: 3000
   resources:
     requests:
