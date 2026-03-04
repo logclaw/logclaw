@@ -99,7 +99,7 @@ Apache Kafka cluster {{ .Release.Name }} has been deployed successfully.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   JMX metrics are exposed on port 9404 on each broker pod.
-{{- if .Values.global.monitoring.enabled }}
+{{- if and .Values.global ((.Values.global).monitoring) .Values.global.monitoring.enabled }}
   PrometheusRule has been created with the following alerts:
     - LogClawKafkaBrokerDown          (critical)
     - LogClawKafkaBrokerCount         (warning)

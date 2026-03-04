@@ -67,8 +67,7 @@ logclaw-ingestion:
     minReplicas: 5
     maxReplicas: 30
 
-# Multi-platform ticketing: PagerDuty for P1 alerting, Jira for all tickets,
-# Zammad for internal SRE team workflow. All three enabled simultaneously.
+# Multi-platform ticketing: PagerDuty for P1 alerting, Jira for all tickets.
 logclaw-ticketing-agent:
   config:
     pagerduty:
@@ -88,9 +87,6 @@ logclaw-ticketing-agent:
       enabled: false
     opsgenie:
       enabled: false
-    zammad:
-      enabled: true             # In-cluster ITSM (no data egress for log context)
-      groupName: "SRE Incidents"
     slack:
       enabled: true             # Slack notifications for critical/high
       channel: "#sre-incidents"
@@ -98,9 +94,9 @@ logclaw-ticketing-agent:
         - "critical"
         - "high"
     routing:
-      critical: ["pagerduty", "jira", "zammad", "slack"]
-      high: ["jira", "zammad", "slack"]
-      medium: ["jira", "zammad"]
+      critical: ["pagerduty", "jira", "slack"]
+      high: ["jira", "slack"]
+      medium: ["jira"]
       low: ["jira"]
     anomaly:
       minimumScore: 0.90
@@ -112,7 +108,3 @@ logclaw-airflow:
         enabled: true
         repo: "git@github.com:example-corp/logclaw-ml-pipelines.git"
         branch: "main"
-
-# Enable in-cluster Zammad ITSM deployment
-zammad:
-  enabled: true

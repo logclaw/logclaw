@@ -10,6 +10,12 @@ charts/*/charts/
 kubeconfig-*.yaml
 *.kubeconfig
 
+# Environment (user-specific overrides — .env.dev and .env.example are tracked)
+.env
+
+# Build artifacts
+dist/
+
 # OS
 .DS_Store
 Thumbs.db

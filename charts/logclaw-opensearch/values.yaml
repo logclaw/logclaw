@@ -4,6 +4,11 @@ fullnameOverride: ""
 opensearch:
   version: "2.14.0"
 
+  # Dev mode: use standalone StatefulSet instead of Opster CRD
+  # Avoids bootstrap pod race condition with single-master deployments
+  devMode:
+    enabled: false
+
   masters:
     replicas: 3
     diskSize: "50Gi"

@@ -1,14 +1,13 @@
-strimzi-kafka-operator:
-  watchAnyNamespace: false
-  watchNamespaces: []
-  generateNetworkPolicy: true
-  featureGates: "+UseKRaft,+KafkaNodePools"
-  logLevel: "INFO"
-  replicas: 1
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "384Mi"
-    limits:
-      cpu: "1"
-      memory: "768Mi"
+watchAnyNamespace: false
+watchNamespaces: []
+generateNetworkPolicy: true
+featureGates: ""
+logLevel: "INFO"
+replicas: 1
+resources:
+  requests:
+    cpu: "200m"
+    memory: "384Mi"
+  limits:
+    cpu: "1"
+    memory: "768Mi"

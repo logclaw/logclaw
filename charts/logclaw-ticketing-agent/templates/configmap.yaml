@@ -58,16 +58,6 @@ data:
           medium: {{ (.Values.config.opsgenie.priorityMapping).medium | default "P3" }}
           low: {{ (.Values.config.opsgenie.priorityMapping).low | default "P4" }}
 
-      zammad:
-        enabled: {{ .Values.config.zammad.enabled }}
-        endpoint: {{ include "logclaw-ticketing-agent.zammadEndpoint" . | quote }}
-        group_name: {{ .Values.config.zammad.groupName | quote }}
-        priority_mapping:
-          critical: {{ (.Values.config.zammad.priorityMapping).critical | default "1 high" | quote }}
-          high: {{ (.Values.config.zammad.priorityMapping).high | default "2 normal" | quote }}
-          medium: {{ (.Values.config.zammad.priorityMapping).medium | default "3 normal" | quote }}
-          low: {{ (.Values.config.zammad.priorityMapping).low | default "4 low" | quote }}
-
       slack:
         enabled: {{ .Values.config.slack.enabled }}
         channel: {{ .Values.config.slack.channel | quote }}

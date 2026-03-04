@@ -1,4 +1,22 @@
+# CI test values for logclaw-airflow chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  clusterDomain: "cluster.local"
+  monitoring:
+    enabled: false
+
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
 airflow:
+  images:
+    airflow:
+      repository: "apache/airflow"
+      tag: "2.9.2"
   dags:
     gitSync:
       enabled: false
@@ -7,10 +25,10 @@ airflow:
     resources:
       requests:
         cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
         memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
   scheduler:
     replicas: 1
     resources:
@@ -22,3 +40,10 @@ airflow:
         memory: "512Mi"
   postgresql:
     enabled: true
+    image:
+      registry: docker.io
+      repository: bitnami/postgresql
+      tag: "latest"
+    auth:
+      postgresPassword: "postgres"
+      existingSecret: ""

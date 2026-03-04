@@ -1,0 +1,75 @@
+version: 2
+
+updates:
+  # ── Docker base images ───────────────────────────────────────
+  # Watches for new node:22-alpine and python:3.12-slim releases
+  - package-ecosystem: "docker"
+    directory: "/apps/dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps):"
+
+  - package-ecosystem: "docker"
+    directory: "/apps/bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps):"
+
+  - package-ecosystem: "docker"
+    directory: "/apps/ticketing-agent"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(deps):"
+
+  # ── npm dependencies ─────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/apps/dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "chore(deps):"
+    groups:
+      next-react:
+        patterns: ["next", "react", "react-dom"]
+      dev-deps:
+        dependency-type: "development"
+
+  # ── pip dependencies ─────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/apps/bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore(deps):"
+
+  - package-ecosystem: "pip"
+    directory: "/apps/ticketing-agent"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore(deps):"
+
+  # ── GitHub Actions ───────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci):"

@@ -52,17 +52,17 @@ Certificates provisioned:
 Network Policies
 ----------------
 Ingress allowed from:
-  - Namespace: {{ .Values.global.monitoring.namespace | default "monitoring" }} (Prometheus scraping on 9090)
+  - Namespace: {{ (((.Values.global).monitoring).namespace) | default "monitoring" }} (Prometheus scraping on 9090)
   - Namespace: ingress-nginx (ports 80, 443)
-  - Namespace: {{ .Values.global.argocd.namespace | default "argocd" }} (health checks on 8080)
+  - Namespace: {{ (((.Values.global).argocd).namespace) | default "argocd" }} (health checks on 8080)
   - Same namespace (intra-pod communication)
 
 Egress allowed to:
   - kube-system/kube-dns (UDP/TCP 53)
-  - Namespace: {{ .Values.global.monitoring.namespace | default "monitoring" }} (port 9090)
+  - Namespace: {{ (((.Values.global).monitoring).namespace) | default "monitoring" }} (port 9090)
   - Internet (0.0.0.0/0 excluding RFC-1918) on port 443
   - Same namespace (intra-pod communication)
-  - Namespace: {{ .Values.global.argocd.namespace | default "argocd" }} (ports 8080, 8081)
+  - Namespace: {{ (((.Values.global).argocd).namespace) | default "argocd" }} (ports 8080, 8081)
 
 ---
 

@@ -1,3 +1,26 @@
+# CI test values for logclaw-kafka chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  storageClassHighThroughput: "standard"
+  clusterDomain: "cluster.local"
+  topologyKey: "topology.kubernetes.io/zone"
+  objectStorage:
+    provider: "s3"
+    bucket: "logclaw-dev-local"
+    region: "us-east-1"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+  monitoring:
+    enabled: false
+    prometheusSelector: "kube-prometheus"
+
+# ── Chart-specific overrides for minimal local footprint ───────────────────────
 kafka:
   replicas: 1
   storage:
@@ -6,6 +29,15 @@ kafka:
         type: persistent-claim
         size: "10Gi"
         deleteClaim: true
+  config:
+    auto.create.topics.enable: "false"
+    default.replication.factor: "1"
+    min.insync.replicas: "1"
+    log.retention.hours: "24"
+    log.segment.bytes: "1073741824"
+    offsets.topic.replication.factor: "1"
+    transaction.state.log.replication.factor: "1"
+    transaction.state.log.min.isr: "1"
   resources:
     requests:
       cpu: "500m"
@@ -16,6 +48,26 @@ kafka:
   jvmOptions:
     -Xms: "512m"
     -Xmx: "1g"
+
+topics:
+  rawLogs:
+    partitions: 1
+    replicas: 1
+    retentionMs: "86400000"
+    segmentBytes: "1073741824"
+  enriched:
+    partitions: 1
+    replicas: 1
+    retentionMs: "86400000"
+  anomalies:
+    partitions: 1
+    replicas: 1
+    retentionMs: "604800000"
+  dlq:
+    partitions: 1
+    replicas: 1
+    retentionMs: "2592000000"
+
 kafkaConnect:
   enabled: false
 s3Sink:

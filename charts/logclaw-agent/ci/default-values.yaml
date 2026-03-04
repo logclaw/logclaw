@@ -1,0 +1,17 @@
+# CI / local dev defaults for logclaw-agent
+global:
+  tenantId: dev-local
+
+image:
+  tag: latest
+
+service:
+  port: 8080
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"

@@ -1,18 +1,17 @@
-cert-manager:
-  installCRDs: true
+installCRDs: true
+replicaCount: 2
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+webhook:
   replicaCount: 2
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-  webhook:
-    replicaCount: 2
-  cainjector:
-    replicaCount: 1
-  prometheus:
-    enabled: true
-    servicemonitor:
-      enabled: true
+cainjector:
+  replicaCount: 1
+prometheus:
+  enabled: false
+  servicemonitor:
+    enabled: false

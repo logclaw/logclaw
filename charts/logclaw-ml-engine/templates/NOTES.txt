@@ -40,7 +40,7 @@ Redis Online Store
   Redis host (cluster-internal):
     {{ include "logclaw-ml-engine.redisHost" . }}:6379
 
-{{- if .Values.global.monitoring.enabled }}
+{{- if and .Values.global ((.Values.global).monitoring) .Values.global.monitoring.enabled }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Monitoring

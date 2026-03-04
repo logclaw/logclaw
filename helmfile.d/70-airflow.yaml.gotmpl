@@ -1,0 +1,28 @@
+repositories:
+  - name: apache-airflow
+    url: "https://airflow.apache.org"
+
+releases:
+  - name: logclaw-airflow-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ../charts/logclaw-airflow
+    values:
+      - ../charts/logclaw-airflow/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+{{- if eq (env "POSTGRES_EXTERNAL" | default "false") "true" }}
+      # External PostgreSQL — disable bundled sub-chart, use external DB
+      - name: postgresql.enabled
+        value: "false"
+      - name: data.metadataConnection.host
+        value: {{ requiredEnv "POSTGRES_HOST" }}
+      - name: data.metadataConnection.port
+        value: {{ env "POSTGRES_PORT" | default "5432" }}
+      - name: data.metadataConnection.db
+        value: {{ env "POSTGRES_DB" | default "airflow" }}
+      - name: data.metadataConnection.login
+        value: {{ env "POSTGRES_USER" | default "airflow" }}
+      - name: data.metadataConnection.password
+        value: {{ requiredEnv "POSTGRES_PASSWORD" }}
+{{- end }}

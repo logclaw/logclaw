@@ -30,7 +30,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.monitoring.namespace | default "monitoring" | quote }}
+              kubernetes.io/metadata.name: {{ (((.Values.global).monitoring).namespace) | default "monitoring" | quote }}
       ports:
         - protocol: TCP
           port: 9090
@@ -64,7 +64,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.argocd.namespace | default "argocd" | quote }}
+              kubernetes.io/metadata.name: {{ (((.Values.global).argocd).namespace) | default "argocd" | quote }}
       ports:
         - protocol: TCP
           port: 8080

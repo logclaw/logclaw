@@ -1,0 +1,172 @@
+name: Build & Push Container Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - ".github/workflows/docker-build.yaml"
+  pull_request:
+    paths:
+      - "apps/**"
+  # Manual trigger — build specific image or all
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image to build (dashboard, bridge, ticketing-agent, agent, or all)"
+        required: false
+        default: "all"
+
+# Cancel in-flight runs for the same branch
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_PATH: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  # ── Detect which apps changed ──────────────────────────────────
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      bridge: ${{ steps.filter.outputs.bridge }}
+      ticketing-agent: ${{ steps.filter.outputs.ticketing-agent }}
+      agent: ${{ steps.filter.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dashboard:
+              - 'apps/dashboard/**'
+            bridge:
+              - 'apps/bridge/**'
+            ticketing-agent:
+              - 'apps/ticketing-agent/**'
+            agent:
+              - 'apps/agent/**'
+
+  # ── Build matrix ───────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: changes
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: dashboard
+            context: apps/dashboard
+            app-version: "2.0.0"
+          - image: bridge
+            context: apps/bridge
+            app-version: "1.0.0"
+          - image: ticketing-agent
+            context: apps/ticketing-agent
+            app-version: "1.0.0"
+          - image: agent
+            context: apps/agent
+            app-version: "0.1.0"
+
+    steps:
+      # matrix context is only available at step level, not job-level if
+      - name: Check if build is needed
+        id: gate
+        shell: bash
+        run: |
+          SHOULD_BUILD=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHOULD_BUILD=true
+          fi
+          case "${{ matrix.image }}" in
+            dashboard)       [[ "${{ needs.changes.outputs.dashboard }}" == "true" ]]        && SHOULD_BUILD=true ;;
+            bridge)          [[ "${{ needs.changes.outputs.bridge }}" == "true" ]]           && SHOULD_BUILD=true ;;
+            ticketing-agent) [[ "${{ needs.changes.outputs.ticketing-agent }}" == "true" ]]  && SHOULD_BUILD=true ;;
+            agent)           [[ "${{ needs.changes.outputs.agent }}" == "true" ]]            && SHOULD_BUILD=true ;;
+          esac
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+          echo "🔍 ${{ matrix.image }}: should_build=$SHOULD_BUILD"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.should_build == 'true'
+
+      # ── Docker Buildx (multi-arch) ──
+      - name: Set up QEMU
+        if: steps.gate.outputs.should_build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.gate.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      # ── Login to GHCR ──
+      - name: Login to GHCR
+        if: steps.gate.outputs.should_build == 'true' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Image metadata (tags + labels) ──
+      - name: Docker metadata
+        if: steps.gate.outputs.should_build == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_PATH }}/${{ matrix.image }}
+          tags: |
+            # Semantic version from Chart.yaml appVersion
+            type=raw,value=${{ matrix.app-version }},enable={{is_default_branch}}
+            # Git SHA (always, for traceability)
+            type=sha,prefix=sha-,format=short
+            # latest (only on main)
+            type=raw,value=latest,enable={{is_default_branch}}
+            # PR number (for PR builds)
+            type=ref,event=pr
+
+      # ── Build + Push ──
+      - name: Build and push
+        if: steps.gate.outputs.should_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Trivy vulnerability scan ──
+      - name: Scan for vulnerabilities
+        if: steps.gate.outputs.should_build == 'true'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY_PATH }}/${{ matrix.image }}:sha-${{ github.sha }}
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+        # Don't fail on PR scans — just report
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+
+      # ── Summary ──
+      - name: Image summary
+        if: steps.gate.outputs.should_build == 'true' && github.event_name != 'pull_request'
+        run: |
+          echo "### 🐳 ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Registry** | \`${{ env.REGISTRY_PATH }}/${{ matrix.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tags** | \`${{ matrix.app-version }}\`, \`sha-${GITHUB_SHA::7}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Platforms** | \`linux/amd64\`, \`linux/arm64\` |" >> $GITHUB_STEP_SUMMARY

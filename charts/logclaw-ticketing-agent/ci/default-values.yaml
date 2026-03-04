@@ -1,5 +1,41 @@
-# CI test values — minimal config suitable for helm lint / helm template
+# CI test values for logclaw-ticketing-agent chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+#
+# Dev mode: replaces the production binary with a Python reference implementation
+# that consumes Kafka anomaly-events and creates tickets in OpenSearch.
+#
+# Industry-standard incident management API (v1) aligned with:
+#   - PagerDuty Events API v2 (severity/urgency, dedup_key, routing)
+#   - FireHydrant milestones (detected_at, acknowledged_at, mitigated_at, resolved_at)
+#   - incident.io timeline model (structured events with actor attribution)
+#   - ITIL incident lifecycle (categorization, impact, urgency, priority matrix)
+#
+# Integrations: Jira, ServiceNow, PagerDuty, OpsGenie, Slack (webhook-based)
+# Python application code is in configmap-app.yaml (not heredoc).
+
 replicaCount: 1
+
+image:
+  repository: "python"
+  tag: "3.12-slim"
+
+command:
+  - /bin/sh
+  - -c
+  - |
+    pip install --quiet kafka-python-ng==2.2.3 opensearch-py==2.4.2 lz4 python-snappy 2>/dev/null &&
+    exec python -u /app/main.py
+
+# Dev mode: override security for pip install (needs writable filesystem + root)
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
 
 autoscaling:
   enabled: false
@@ -9,12 +45,42 @@ autoscaling:
 config:
   pagerduty:
     enabled: false
+    apiUrl: "https://events.pagerduty.com"
+    autoResolveTimeoutMinutes: 240
   jira:
     enabled: false
+    baseUrl: ""
+    projectKey: "OPS"
+    issueType: "Bug"
   servicenow:
     enabled: false
+    instanceUrl: ""
+    table: "incident"
+    categoryField: "category"
+  opsgenie:
+    enabled: false
+    apiUrl: "https://api.opsgenie.com"
+    team: ""
+  slack:
+    enabled: false
+    channel: "#logclaw-alerts"
+    username: "LogClaw"
+    iconEmoji: ":shield:"
   anomaly:
     minimumScore: 0.5
+    contextWindowSeconds: 300
+    maxLogLinesInTicket: 50
+    deduplicationWindowMinutes: 15
+  kafka:
+    consumerGroup: "logclaw-ticketing-agent"
+    autoOffsetReset: "earliest"
+    maxPollRecords: 100
+    sessionTimeoutMs: 30000
+  routing:
+    critical: []
+    high: []
+    medium: []
+    low: []
 
 resources:
   requests:
@@ -24,27 +90,33 @@ resources:
     cpu: "500m"
     memory: "256Mi"
 
-# Minimal globals required to pass the helper guards
+# -- Global values (normally injected by umbrella chart) ---------------------------
 global:
-  tenantId: "ci-test"
-  kafkaBrokers: "kafka-broker:9092"
+  tenantId: "dev-local"
+  tier: "standard"
+  storageClass: "standard"
+  kafkaBrokers: "logclaw-kafka-dev-local-kafka-bootstrap.logclaw-dev-local.svc:9092"
   kafkaTopics:
-    anomalies: "logclaw.anomalies"
-  opensearchEndpoint: "https://opensearch:9200"
+    anomalies: "anomaly-events"
+  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
   topologyKey: "topology.kubernetes.io/zone"
   imagePullSecrets: []
   secretStore:
     name: "logclaw-secret-store"
     kind: "ClusterSecretStore"
+  llm:
+    provider: "disabled"
+    model: ""
+    endpoint: ""
   monitoring:
     enabled: false
     prometheusNamespace: "monitoring"
 
 llm:
   provider: "disabled"
+  temperature: 0.2
+  maxTokens: 2048
+  timeoutSeconds: 60
 
 ticketing:
-  platform: "pagerduty-jira"
-
-zammad:
-  groupName: "SRE Incidents"
+  platform: "opensearch"

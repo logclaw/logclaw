@@ -136,10 +136,17 @@ Name of the ExternalSecret-managed secret.
 {{- end }}
 
 {{/*
-Name of the ConfigMap.
+Name of the ConfigMap (YAML config).
 */}}
 {{- define "logclaw-ticketing-agent.configMapName" -}}
 {{- printf "%s-config" (include "logclaw-ticketing-agent.fullname" .) }}
+{{- end }}
+
+{{/*
+Name of the App ConfigMap (Python code).
+*/}}
+{{- define "logclaw-ticketing-agent.configMapAppName" -}}
+{{- printf "%s-app" (include "logclaw-ticketing-agent.fullname" .) }}
 {{- end }}
 
 {{/*
@@ -209,22 +216,8 @@ https://api.openai.com
 {{- end }}
 
 {{/*
-Resolve the Zammad endpoint. Auto-resolves to in-cluster FQDN when empty.
-Uses config.zammad.endpoint (moved from top-level zammad.endpoint).
-*/}}
-{{- define "logclaw-ticketing-agent.zammadEndpoint" -}}
-{{- if .Values.config.zammad.endpoint -}}
-{{- .Values.config.zammad.endpoint -}}
-{{- else -}}
-{{- $clusterDomain := ((.Values.global).clusterDomain) | default "cluster.local" -}}
-http://logclaw-zammad-{{ include "logclaw-ticketing-agent.tenantId" . }}.{{ .Release.Namespace }}.svc.{{ $clusterDomain }}:3000
-{{- end -}}
-{{- end }}
-
-{{/*
 Returns "true" if any platform requires outbound external HTTPS (port 443).
 Covers: PagerDuty, Jira, ServiceNow, OpsGenie, Slack, and cloud LLMs (Claude/OpenAI).
-Zammad is in-cluster only and does not require external egress.
 */}}
 {{- define "logclaw-ticketing-agent.needsExternalHttps" -}}
 {{- $llmProvider := include "logclaw-ticketing-agent.llmProvider" . -}}
