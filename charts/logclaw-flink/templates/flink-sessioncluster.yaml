@@ -12,7 +12,7 @@ metadata:
     logclaw.io/description: "Interactive session cluster for Flink SQL and ad-hoc queries"
     logclaw.io/tenant-id: {{ include "logclaw-flink.tenantId" . | quote }}
 spec:
-  image: {{ (.Values.global).imageRegistry | default "docker.io" }}/logclaw-flink-jobs:{{ .Values.flink.jobImageTag }}
+  image: {{ include "logclaw-flink.jobImage" . }}
   imagePullPolicy: IfNotPresent
   flinkVersion: {{ include "logclaw-flink.flinkVersion" . }}
   flinkConfiguration:

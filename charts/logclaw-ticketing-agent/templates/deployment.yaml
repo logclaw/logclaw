@@ -73,6 +73,13 @@ spec:
               value: {{ include "logclaw-ticketing-agent.kafkaTopicAnomalies" . | quote }}
             - name: OPENSEARCH_ENDPOINT
               value: {{ include "logclaw-ticketing-agent.opensearchEndpoint" . | quote }}
+            - name: OPENSEARCH_USERNAME
+              value: {{ .Values.config.opensearch.username | default "admin" | quote }}
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.opensearch.credentialsSecret | default "logclaw-logclaw-opensearch-admin-password" }}
+                  key: password
             # ── Anomaly thresholds ────────────────────────────────────────────
             - name: ANOMALY_MINIMUM_SCORE
               value: {{ .Values.config.anomaly.minimumScore | quote }}

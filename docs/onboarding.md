@@ -70,6 +70,8 @@ opensearch:     { enabled: true }
 mlEngine:       { enabled: true }
 airflow:        { enabled: true }
 ticketingAgent: { enabled: true }
+bridge:         { enabled: false }  # Trace correlation engine (dev/demo alternative to Flink)
+dashboard:      { enabled: false }  # Next.js pipeline UI
 ```
 
 Refer to `docs/values-reference.md` for the full list of configurable fields.
@@ -115,6 +117,8 @@ Expected sync wave order:
 5. `logclaw-flink` (depends on Kafka)
 6. `logclaw-ml-engine`, `logclaw-airflow` (parallel)
 7. `logclaw-ticketing-agent`
+8. `logclaw-bridge` (if enabled)
+9. `logclaw-dashboard` (if enabled)
 
 ## 5. Verify Each Component
 
@@ -173,6 +177,22 @@ kubectl get pods -n logclaw-<tenantId> -l component=webserver
 kubectl logs -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-ticketing-agent \
   --tail=20
 # Expected: "Connected to Kafka", "Ticketing provider validated"
+```
+
+**Bridge** (if enabled)
+```bash
+kubectl get pods -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-bridge
+# Expected: Running
+kubectl logs -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-bridge --tail=20
+# Expected: "Connected to Kafka", "Trace correlation engine started"
+```
+
+**Dashboard** (if enabled)
+```bash
+kubectl get pods -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-dashboard
+# Expected: Running
+kubectl port-forward svc/logclaw-dashboard-<tenantId> 3333:3000 -n logclaw-<tenantId>
+# → http://localhost:3333
 ```
 
 ## 6. Troubleshooting

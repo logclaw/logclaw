@@ -1,0 +1,13 @@
+releases:
+  - name: logclaw-bridge-{{ env "TENANT_ID" | default "dev-local" }}
+    namespace: logclaw-{{ env "TENANT_ID" | default "dev-local" }}
+    chart: ./charts/logclaw-bridge
+    values:
+      - charts/logclaw-bridge/ci/default-values.yaml
+    set:
+      - name: global.tenantId
+        value: {{ env "TENANT_ID" | default "dev-local" }}
+      - name: global.kafkaBrokers
+        value: {{ env "KAFKA_BROKERS" | default "logclaw-kafka-kafka-bootstrap:9093" }}
+      - name: global.opensearchEndpoint
+        value: {{ env "OPENSEARCH_ENDPOINT" | default "https://logclaw-opensearch:9200" }}

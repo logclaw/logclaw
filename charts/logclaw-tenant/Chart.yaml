@@ -3,11 +3,11 @@ name: logclaw-tenant
 description: >
   LogClaw AI-powered SRE Agent — Umbrella chart for a single tenant deployment.
   Installs all subsystems: ingestion edge, Kafka, Flink, OpenSearch,
-  ML engine, Airflow, and the Ticketing Agent.
+  ML engine, Airflow, Ticketing Agent, Bridge (trace correlation), and Dashboard.
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
-kubeVersion: ">=1.27.0"
+kubeVersion: ">=1.27.0-0"
 keywords:
   - logclaw
   - sre
@@ -21,33 +21,45 @@ maintainers:
 dependencies:
   - name: logclaw-platform
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-platform"
     condition: platform.enabled
   - name: logclaw-ingestion
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-ingestion"
     condition: ingestion.enabled
   - name: logclaw-kafka
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-kafka"
     condition: kafka.enabled
   - name: logclaw-flink
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-flink"
     condition: flink.enabled
   - name: logclaw-opensearch
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-opensearch"
     condition: opensearch.enabled
   - name: logclaw-ml-engine
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-ml-engine"
     condition: mlEngine.enabled
   - name: logclaw-airflow
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-airflow"
     condition: airflow.enabled
   - name: logclaw-ticketing-agent
     version: "0.1.0"
-    repository: "file://.."
+    repository: "file://../logclaw-ticketing-agent"
     condition: ticketingAgent.enabled
+  - name: logclaw-bridge
+    version: "0.1.0"
+    repository: "file://../logclaw-bridge"
+    condition: bridge.enabled
+  - name: logclaw-dashboard
+    version: "0.2.0"
+    repository: "file://../logclaw-dashboard"
+    condition: dashboard.enabled
+  - name: logclaw-zammad
+    version: "0.1.0"
+    repository: "file://../logclaw-zammad"
+    condition: zammad.enabled

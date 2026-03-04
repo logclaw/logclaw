@@ -16,3 +16,12 @@ global:
     enabled: true
   llm:
     provider: "disabled"
+
+bridge:
+  enabled: false
+
+dashboard:
+  enabled: false
+
+zammad:
+  enabled: false

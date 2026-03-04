@@ -56,6 +56,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
             - name: PORT
               value: "3000"
             - name: HOSTNAME
@@ -65,15 +67,11 @@ spec:
             - name: OPENSEARCH_ENDPOINT
               value: {{ include "logclaw-dashboard.opensearchEndpoint" . | quote }}
             - name: OPENSEARCH_USER
-              valueFrom:
-                secretKeyRef:
-                  name: opensearch-admin-credentials
-                  key: username
-                  optional: true
+              value: {{ (.Values.config).opensearchUsername | default "admin" | quote }}
             - name: OPENSEARCH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: opensearch-admin-credentials
+                  name: {{ (.Values.config).opensearchCredentialsSecret | default "logclaw-logclaw-opensearch-admin-password" }}
                   key: password
                   optional: true
             - name: VECTOR_ENDPOINT

@@ -1,4 +1,4 @@
-{{- if .Capabilities.APIVersions.Has "serving.kserve.io/v1beta1" }}
+{{- if not (eq (toString (.Values.mlEngine.kserve).enabled) "false") }}
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:

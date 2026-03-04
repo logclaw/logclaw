@@ -108,3 +108,12 @@ airflow:
 
 ticketingAgent:
   enabled: true
+
+bridge:
+  enabled: false                # opt-in: trace correlation engine (dev/demo alternative to Flink)
+
+dashboard:
+  enabled: false                # opt-in: Next.js pipeline UI (log ingestion, incidents, anomaly viz)
+
+zammad:
+  enabled: false                # opt-in: deploy in-cluster Zammad ITSM (replaces PD + Jira)

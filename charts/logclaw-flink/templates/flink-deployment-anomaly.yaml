@@ -13,8 +13,8 @@ metadata:
     logclaw.io/tenant-id: {{ include "logclaw-flink.tenantId" . | quote }}
     logclaw.io/critical: "true"
 spec:
-  image: {{ (.Values.global).imageRegistry | default "docker.io" }}/logclaw-flink-jobs:{{ .Values.flink.jobImageTag }}
-  imagePullPolicy: IfNotPresent
+  image: {{ include "logclaw-flink.jobImage" . }}
+  imagePullPolicy: Always
   flinkVersion: {{ include "logclaw-flink.flinkVersion" . }}
   flinkConfiguration:
     {{- include "logclaw-flink.flinkConfiguration" . | nindent 4 }}
@@ -36,14 +36,14 @@ spec:
       cpu: {{ .Values.flink.taskManager.cpu }}
     {{- /*
     Anomaly scoring is the latency-critical path; run more TaskManagers
-    than other jobs. We double the default replica count, with a minimum of 4.
+    than other jobs. We double the default replica count, with a minimum of 1.
     */}}
-    replicas: {{ max 4 (mul .Values.flink.taskManager.replicas 2) }}
+    replicas: {{ max 1 (mul .Values.flink.taskManager.replicas 2) }}
   job:
     jarURI: local:///opt/flink/jobs/logclaw-anomaly-scorer-{{ .Values.flink.jobImageTag }}.jar
     entryClass: "io.logclaw.flink.AnomalyScoringJob"
     parallelism: {{ .Values.flink.anomalyJob.parallelism }}
-    upgradeMode: last-state
+    upgradeMode: stateless
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"

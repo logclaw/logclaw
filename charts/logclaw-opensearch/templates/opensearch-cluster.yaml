@@ -1,4 +1,3 @@
-{{- if not .Values.opensearch.devMode.enabled }}
 apiVersion: opensearch.opster.io/v1
 kind: OpenSearchCluster
 metadata:
@@ -28,6 +27,16 @@ spec:
       http:
         generate: true
 
+  bootstrap:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1536Mi"
+      limits:
+        cpu: "500m"
+        memory: "2Gi"
+    jvm: "-Xms1g -Xmx1g"
+
   nodePools:
     # ─── Master / Cluster-manager nodes ───────────────────────────────────────
     - component: masters
@@ -44,11 +53,11 @@ spec:
         - "cluster_manager"
       persistence:
         pvc:
-          accessModes:
-            - ReadWriteOnce
           {{- with (include "logclaw-opensearch.storageClass" .) }}
           storageClass: {{ . | quote }}
           {{- end }}
+          accessModes:
+            - ReadWriteOnce
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
@@ -74,11 +83,11 @@ spec:
         - "ingest"
       persistence:
         pvc:
-          accessModes:
-            - ReadWriteOnce
           {{- with (include "logclaw-opensearch.storageClass" .) }}
           storageClass: {{ . | quote }}
           {{- end }}
+          accessModes:
+            - ReadWriteOnce
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: {{ include "logclaw-opensearch.topologyKey" . | quote }}
@@ -108,4 +117,3 @@ spec:
           labelSelector:
             matchLabels:
               opster.io/opensearch-nodepool: coordinators
-{{- end }}

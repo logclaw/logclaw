@@ -12,8 +12,8 @@ metadata:
     logclaw.io/slo: "enrichment"
     logclaw.io/tenant-id: {{ include "logclaw-flink.tenantId" . | quote }}
 spec:
-  image: {{ (.Values.global).imageRegistry | default "docker.io" }}/logclaw-flink-jobs:{{ .Values.flink.jobImageTag }}
-  imagePullPolicy: IfNotPresent
+  image: {{ include "logclaw-flink.jobImage" . }}
+  imagePullPolicy: Always
   flinkVersion: {{ include "logclaw-flink.flinkVersion" . }}
   flinkConfiguration:
     {{- include "logclaw-flink.flinkConfiguration" . | nindent 4 }}
@@ -25,8 +25,8 @@ spec:
     replicas: {{ .Values.flink.jobManager.replicas }}
   taskManager:
     resource:
-      memory: {{ .Values.flink.taskManager.memory | quote }}
-      cpu: {{ .Values.flink.taskManager.cpu }}
+      memory: {{ (.Values.flink.enrichmentJob).taskManagerMemory | default .Values.flink.taskManager.memory | quote }}
+      cpu: {{ (.Values.flink.enrichmentJob).taskManagerCpu | default .Values.flink.taskManager.cpu }}
     replicas: {{ .Values.flink.taskManager.replicas }}
   job:
     jarURI: local:///opt/flink/jobs/logclaw-enrichment-{{ .Values.flink.jobImageTag }}.jar
@@ -60,9 +60,9 @@ spec:
                 - ALL
           resources:
             requests:
-              cpu: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "cpu" "2" | quote }}
-              memory: {{ (.Values.flink.taskManager.resources).requests | default dict | dig "memory" "4Gi" | quote }}
+              cpu: {{ (.Values.flink.enrichmentJob).resourceRequests | default dict | dig "cpu" ((.Values.flink.taskManager.resources).requests | default dict | dig "cpu" "2") | quote }}
+              memory: {{ (.Values.flink.enrichmentJob).resourceRequests | default dict | dig "memory" ((.Values.flink.taskManager.resources).requests | default dict | dig "memory" "4Gi") | quote }}
             limits:
-              cpu: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "cpu" "4" | quote }}
-              memory: {{ (.Values.flink.taskManager.resources).limits | default dict | dig "memory" "8Gi" | quote }}
+              cpu: {{ (.Values.flink.enrichmentJob).resourceLimits | default dict | dig "cpu" ((.Values.flink.taskManager.resources).limits | default dict | dig "cpu" "4") | quote }}
+              memory: {{ (.Values.flink.enrichmentJob).resourceLimits | default dict | dig "memory" ((.Values.flink.taskManager.resources).limits | default dict | dig "memory" "8Gi") | quote }}
 {{- end }}

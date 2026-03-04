@@ -30,8 +30,17 @@ const STRIP_RESPONSE_HEADERS = new Set([
 /**
  * Create a proxy handler that forwards requests to a backend service.
  * The `envKey` is read at runtime so the image stays portable.
+ *
+ * Options:
+ *   authEnv – pair of env-var names [userEnvKey, passwordEnvKey] whose
+ *             values are injected as a Basic Authorization header when
+ *             both are non-empty.  This keeps credentials server-side.
  */
-export function createProxyHandler(envKey: string, fallback: string) {
+export function createProxyHandler(
+  envKey: string,
+  fallback: string,
+  opts?: { authEnv?: [string, string] },
+) {
   async function handler(
     req: NextRequest,
     { params }: { params: Promise<{ path?: string[] }> },
@@ -46,6 +55,19 @@ export function createProxyHandler(envKey: string, fallback: string) {
     req.headers.forEach((v, k) => {
       if (!HOP_HEADERS.has(k.toLowerCase())) headers.set(k, v);
     });
+
+    // Inject Basic Auth from env vars when configured
+    if (opts?.authEnv) {
+      const [userKey, passKey] = opts.authEnv;
+      const user = process.env[userKey];
+      const pass = process.env[passKey];
+      if (user) {
+        headers.set(
+          "Authorization",
+          `Basic ${Buffer.from(`${user}:${pass || ""}`).toString("base64")}`,
+        );
+      }
+    }
 
     // Read body as bytes to avoid stream issues in standalone mode
     let body: ArrayBuffer | undefined;

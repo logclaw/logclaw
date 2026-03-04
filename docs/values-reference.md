@@ -38,6 +38,8 @@ These top-level boolean maps control which sub-charts are rendered by the umbrel
 | `mlEngine.enabled` | bool | No | `true` | Deploy `logclaw-ml-engine` (KServe InferenceService). Requires GPU nodes or CPU-only inference image override. |
 | `airflow.enabled` | bool | No | `true` | Deploy `logclaw-airflow` (pipeline orchestration). |
 | `ticketingAgent.enabled` | bool | No | `true` | Deploy `logclaw-ticketing-agent` (AI SRE agent). Requires `kafka.enabled=true` and `opensearch.enabled=true`. |
+| `bridge.enabled` | bool | No | `false` | Deploy `logclaw-bridge` (trace correlation engine). Dev/demo alternative to Flink — provides anomaly detection, trace correlation, and OpenSearch indexing in a single service. Can run alongside Flink. |
+| `dashboard.enabled` | bool | No | `false` | Deploy `logclaw-dashboard` (Next.js pipeline UI). Provides log ingestion drag-and-drop, incident management, anomaly visualization, and real-time pipeline monitoring. |
 
 ## Per-Chart Override Syntax
 
@@ -104,6 +106,21 @@ logclaw-airflow:
         repo: "git@github.com:yourorg/logclaw-dags.git"
         branch: "main"
         sshKeySecret: "airflow-git-ssh-key"
+
+logclaw-bridge:
+  bridge:
+    kafkaBrokers: "logclaw-kafka-kafka-bootstrap:9093"
+    opensearchEndpoint: "https://logclaw-opensearch:9200"
+    anomalyThreshold: 2.5
+    windowSize: 50
+
+logclaw-dashboard:
+  image:
+    repository: "ghcr.io/logclaw/dashboard"
+    tag: "latest"
+  service:
+    type: ClusterIP           # ClusterIP (default) or LoadBalancer for external access
+    port: 3000
 ```
 
 ## Tier Profiles

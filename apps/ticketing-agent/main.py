@@ -1,15 +1,27 @@
-import os, sys, json, time, threading, hashlib, uuid, traceback
+import os, sys, json, time, threading, hashlib, uuid, traceback, ssl, base64
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse, parse_qs
 
+# Trust internal cluster TLS certificates (self-signed by OpenSearch operator)
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
+
 # ── Infrastructure (immutable — require restart) ─────────────────────
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
 KAFKA_GROUP = os.environ.get("KAFKA_CONSUMER_GROUP", "logclaw-ticketing-agent")
 OS_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
+OS_USERNAME = os.environ.get("OPENSEARCH_USERNAME", "")
+OS_PASSWORD = os.environ.get("OPENSEARCH_PASSWORD", "")
+_os_auth_header = ""
+if OS_USERNAME:
+    _os_auth_header = "Basic " + base64.b64encode(
+        f"{OS_USERNAME}:{OS_PASSWORD}".encode()
+    ).decode()
 TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
 API_VERSION = "v1"
 ENGINE_VERSION = "2.1.0"
@@ -138,8 +150,11 @@ def gen_request_id():
 def os_req(method, path, body=None):
     url = f"{OS_ENDPOINT}/{path}"
     data = json.dumps(body).encode() if body else None
-    req = Request(url, data, {"Content-Type": "application/json"}, method=method)
-    resp = urlopen(req, timeout=10).read()
+    headers = {"Content-Type": "application/json"}
+    if _os_auth_header:
+        headers["Authorization"] = _os_auth_header
+    req = Request(url, data, headers, method=method)
+    resp = urlopen(req, timeout=10, context=_ssl_ctx).read()
     if not resp:
         return {}
     return json.loads(resp)
@@ -454,13 +469,228 @@ def os_context(service):
         return []
 
 
+# ── LLM Integration — Universal Caller + Trace Analysis ──────────────
+
+def _call_llm(prompt, system=""):
+    """Universal LLM caller routing to configured provider.
+    Returns response text or empty string on error/disabled."""
+    cfg = get_config()
+    llm = cfg["llm"]
+    provider = llm["provider"]
+    endpoint = llm.get("endpoint", "")
+    model = llm.get("model", "")
+    temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
+    max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+    timeout_s = int(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
+
+    if provider == "disabled" or not endpoint:
+        return ""
+
+    try:
+        if provider in ("ollama", "vllm"):
+            url = endpoint.rstrip("/") + "/v1/chat/completions"
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            payload = json.dumps({
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            })
+            req = Request(url, data=payload.encode(),
+                         headers={"Content-Type": "application/json"}, method="POST")
+            resp = json.loads(urlopen(req, timeout=timeout_s).read())
+            return resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        elif provider == "claude":
+            url = endpoint.rstrip("/") + "/v1/messages"
+            api_key = os.environ.get("ANTHROPIC_API_KEY", os.environ.get("LLM_API_KEY", ""))
+            messages = [{"role": "user", "content": prompt}]
+            body = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": messages,
+            }
+            if system:
+                body["system"] = system
+            payload = json.dumps(body)
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+            req = Request(url, data=payload.encode(), headers=headers, method="POST")
+            resp = json.loads(urlopen(req, timeout=timeout_s).read())
+            content = resp.get("content", [])
+            return content[0].get("text", "") if content else ""
+
+        elif provider == "openai":
+            url = endpoint.rstrip("/") + "/v1/chat/completions"
+            api_key = os.environ.get("OPENAI_API_KEY", os.environ.get("LLM_API_KEY", ""))
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            payload = json.dumps({
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            })
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }
+            req = Request(url, data=payload.encode(), headers=headers, method="POST")
+            resp = json.loads(urlopen(req, timeout=timeout_s).read())
+            return resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+    except Exception as e:
+        log(f"LLM call failed ({provider}): {e}")
+    return ""
+
+
+def _find_similar_resolved_incidents(service, error_template):
+    """Query OpenSearch for resolved incidents with similar error patterns (Layer 5: Historical)."""
+    try:
+        q = {
+            "size": 3,
+            "query": {"bool": {
+                "must": [
+                    {"term": {"service": service}},
+                    {"terms": {"state": ["mitigated", "resolved"]}},
+                ],
+                "should": [
+                    {"match": {"description": {"query": error_template, "boost": 2}}},
+                    {"match": {"root_cause": {"query": error_template, "boost": 3}}},
+                    {"match": {"title": {"query": error_template}}},
+                ],
+                "minimum_should_match": 1,
+            }},
+            "sort": [{"created_at": "desc"}],
+            "_source": ["id", "title", "root_cause", "resolved_at", "service", "severity", "tags"],
+        }
+        r = os_req("POST", f"{INCIDENT_INDEX}/_search", q)
+        return [h["_source"] for h in r.get("hits", {}).get("hits", [])]
+    except Exception:
+        return []
+
+
+def _analyze_trace_with_llm(event):
+    """Chain-of-thought RCA using LLM with pre-computed causal analysis and historical context.
+    Returns dict with title, root_cause, impact, reproduce_steps, severity, suggested_fix, tags."""
+    defaults = {
+        "title": "",
+        "root_cause": "",
+        "impact": "",
+        "reproduce_steps": [],
+        "severity": event.get("severity", "high"),
+        "suggested_fix": "",
+        "error_pattern": "",
+        "tags": [],
+    }
+
+    cfg = get_config()
+    if cfg["llm"]["provider"] == "disabled":
+        return defaults
+
+    # Build structured trace log lines
+    trace_lines = []
+    for entry in event.get("request_trace", []):
+        ts = entry.get("timestamp", "?")
+        svc = entry.get("service", "?")
+        lvl = entry.get("level", "INFO")
+        msg = entry.get("message", "")
+        span = entry.get("span_id", "")
+        trace_lines.append(f"  [{ts}] [{svc}] [{lvl}] {msg} (span:{span})")
+    trace_block = "\n".join(trace_lines) if trace_lines else "  (no trace data)"
+
+    # Build historical context
+    similar = event.get("_similar_incidents", [])
+    history_lines = []
+    for inc in similar[:3]:
+        history_lines.append(
+            f"  - {inc.get('id', '?')}: {inc.get('title', '?')} "
+            f"(root_cause: {(inc.get('root_cause') or 'unknown')[:100]})"
+        )
+    history_block = "\n".join(history_lines) if history_lines else "  (no similar past incidents)"
+
+    # Causal analysis context
+    causal_chain = event.get("causal_chain", [])
+    blast = event.get("blast_radius", {})
+
+    system = (
+        "You are an expert Site Reliability Engineer performing root cause analysis "
+        "on production incidents. You have deep knowledge of distributed systems, "
+        "microservice architectures, and common failure patterns. "
+        "Analyze the provided trace data using systematic reasoning. Think step by step."
+    )
+
+    prompt = f"""## Incident Context
+A request failure was detected in a microservice architecture.
+
+## Causal Analysis (pre-computed from trace data)
+- Root cause service: {event.get('root_cause_service', 'unknown')}
+- Causal chain: {' -> '.join(causal_chain) if causal_chain else 'unknown'}
+- Error category: {event.get('error_category', 'unknown')}
+- Blast radius: {blast.get('impact_score', 0) * 100:.0f}% of services affected
+- Downstream impact: {', '.join(blast.get('affected_downstream', []))}
+
+## Request Trace (chronological — all logs from this request lifecycle)
+{trace_block}
+
+## Error Details
+- Primary error: {event.get('raw_error_message', event.get('error_message', 'unknown'))}
+- Normalized pattern: {event.get('error_message', 'unknown')}
+- Services in request flow: {' -> '.join(event.get('request_flow', []))}
+
+## Similar Past Incidents
+{history_block}
+
+## Task
+Perform a thorough root cause analysis. Think step by step:
+1. What is the sequence of events that led to this failure?
+2. What is the fundamental root cause (not just the symptom)?
+3. What is the business/user impact?
+4. How can this be reproduced for debugging?
+5. What is the recommended fix?
+
+Return ONLY a valid JSON object (no markdown, no code fences):
+{{"title": "Short incident title (under 120 chars)", "root_cause": "Detailed root cause (2-4 sentences)", "impact": "User/business impact (1-2 sentences)", "reproduce_steps": ["Step 1", "Step 2"], "severity": "critical|high|medium|low", "suggested_fix": "Recommended remediation (1-2 sentences)", "error_pattern": "Generalized failure mode description", "tags": ["tag1", "tag2"]}}"""
+
+    response = _call_llm(prompt, system)
+    if not response:
+        return defaults
+
+    # Parse JSON from LLM response (handle potential markdown fences)
+    text = response.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    try:
+        result = json.loads(text)
+        # Validate and merge with defaults
+        for key in defaults:
+            if key not in result:
+                result[key] = defaults[key]
+        return result
+    except (json.JSONDecodeError, ValueError) as e:
+        log(f"LLM response parse error: {e} — response: {text[:200]}")
+        return defaults
+
+
 # ── Deduplication & grouping ──────────────────────────────────────────
 dedup_registry = {}
 
 def find_groupable_ticket(dedup_key):
     now = time.time()
     entry = dedup_registry.get(dedup_key)
-    if entry and now < entry["expires"] and entry["trace_count"] < 3:
+    if entry and now < entry["expires"] and entry["trace_count"] < 5:
         return entry
     return None
 
@@ -478,7 +708,7 @@ def append_trace_to_ticket(entry, event):
             "error_message": event.get("error_message", ""),
             "timestamp": event.get("timestamp", now),
         })
-        ticket["request_traces"] = traces[:3]
+        ticket["request_traces"] = traces[:5]
     ticket["similar_count"] = ticket.get("similar_count", 1) + 1
     ticket["updated_at"] = now
     ticket["timeline"].append({
@@ -679,8 +909,12 @@ def process(event):
     atype = event.get("anomaly_type", "unknown")
 
     if atype == "request_failure":
-        error_pattern = event.get("root_cause", "")[:50]
-        dedup_key = f"{svc}:{atype}:{hashlib.md5(error_pattern.encode()).hexdigest()[:8]}"
+        # Semantic fingerprinting: normalized error template + category + root cause service
+        error_template = event.get("error_message", "")  # already normalized by bridge
+        error_category = event.get("error_category", "unknown")
+        root_svc = event.get("root_cause_service", svc)
+        fingerprint = f"{root_svc}:{error_category}:{error_template}"
+        dedup_key = f"{root_svc}:request_failure:{hashlib.md5(fingerprint.encode()).hexdigest()[:12]}"
     else:
         dedup_key = f"{svc}:{atype}"
 
@@ -708,11 +942,41 @@ def create_ticket(event, dedup_key, dedup_mins=15):
     num = next_incident_number()
     iid = f"TICK-{num:04d}"
 
+    # ── AI-powered analysis for request_failure ────────────────────────
+    ai_analysis = {}
     if atype == "request_failure":
-        title = event.get("title", f"{svc} request failure")
+        # Layer 5: Find similar resolved incidents for historical context
+        root_svc = event.get("root_cause_service", svc)
+        error_template = event.get("error_message", "")
+        similar_incidents = _find_similar_resolved_incidents(root_svc, error_template)
+        event["_similar_incidents"] = similar_incidents
+
+        # LLM chain-of-thought analysis
+        ai_analysis = _analyze_trace_with_llm(event)
+        log(f"  AI analysis: title={ai_analysis.get('title', '')[:60]}")
+
+    # ── Title ──────────────────────────────────────────────────────────
+    if atype == "request_failure":
+        root_svc = event.get("root_cause_service", svc)
+        error_cat = event.get("error_category", "unknown")
+        title = ai_analysis.get("title") or f"Request failure in {root_svc}: {error_cat}"
+        title = title[:200]  # safety limit
     else:
         raw_desc = event.get("description", "anomaly")[:120]
         title = f"[{sev.upper()}] {svc} - {raw_desc}"
+
+    # ── Severity override from AI ──────────────────────────────────────
+    if ai_analysis.get("severity") and atype == "request_failure":
+        ai_sev = ai_analysis["severity"]
+        if ai_sev in VALID_SEVERITIES:
+            # FATAL always stays critical regardless of AI
+            trigger_level = event.get("severity", "high")
+            if trigger_level == "critical":
+                sev = "critical"
+            else:
+                sev = ai_sev
+            urgency = "high" if sev in ("critical", "high") else "medium" if sev == "medium" else "low"
+            priority = PRIORITY_MATRIX.get((sev, urgency), "P3")
 
     request_traces = []
     if event.get("request_trace"):
@@ -724,8 +988,9 @@ def create_ticket(event, dedup_key, dedup_mins=15):
             "timestamp": event.get("timestamp", now),
         })
 
-    reproduce_steps = []
-    if event.get("request_trace"):
+    # ── Reproduce steps ────────────────────────────────────────────────
+    reproduce_steps = ai_analysis.get("reproduce_steps", [])
+    if not reproduce_steps and event.get("request_trace"):
         for trace_log in event["request_trace"]:
             svc_name = trace_log.get("service", "unknown")
             msg = trace_log.get("message", "")
@@ -737,6 +1002,40 @@ def create_ticket(event, dedup_key, dedup_mins=15):
                 reproduce_steps.append(f"Request reaches {svc_name} ({endpoint})")
             else:
                 reproduce_steps.append(f"{svc_name}: {msg[:60]}")
+
+    # ── Tags ───────────────────────────────────────────────────────────
+    tags = [svc, atype, sev]
+    if atype == "request_failure":
+        error_cat = event.get("error_category", "")
+        if error_cat and error_cat != "unknown":
+            tags.append(error_cat)
+        tags.extend(ai_analysis.get("tags", []))
+        # Deduplicate
+        tags = list(dict.fromkeys(tags))
+
+    # ── Custom fields (causal chain, blast radius) ─────────────────────
+    custom_fields = {}
+    if atype == "request_failure":
+        custom_fields["causal_chain"] = event.get("causal_chain", [])
+        custom_fields["blast_radius"] = event.get("blast_radius", {})
+        custom_fields["error_category"] = event.get("error_category", "unknown")
+        custom_fields["root_cause_service"] = event.get("root_cause_service", svc)
+        if ai_analysis.get("suggested_fix"):
+            custom_fields["suggested_fix"] = ai_analysis["suggested_fix"]
+        if ai_analysis.get("error_pattern"):
+            custom_fields["error_pattern"] = ai_analysis["error_pattern"]
+
+    # ── Evidence logs ──────────────────────────────────────────────────
+    evidence_logs = []
+    if atype == "request_failure" and event.get("request_trace"):
+        # Use actual trace logs as evidence (not generic service query)
+        for entry in event["request_trace"]:
+            evidence_logs.append({
+                "timestamp": entry.get("timestamp", ""),
+                "level": entry.get("level", "INFO"),
+                "message": entry.get("message", ""),
+                "service": entry.get("service", "unknown"),
+            })
 
     incident = {
         "id": iid, "number": num,
@@ -754,23 +1053,24 @@ def create_ticket(event, dedup_key, dedup_mins=15):
         "request_flow": event.get("request_flow", []),
         "affected_services": event.get("affected_services", [svc]),
         "request_traces": request_traces,
-        "root_cause": event.get("root_cause"),
+        "root_cause": ai_analysis.get("root_cause") or event.get("root_cause"),
         "reproduce_steps": reproduce_steps,
         "similar_count": 1,
         "affected_endpoint": event.get("endpoint", event.get("affected_endpoint", "")),
-        "error_type": event.get("error_type"),
+        "error_type": event.get("error_type", event.get("error_category")),
         "status_code": event.get("status_code"),
-        "impact": None, "commander": None, "assigned_to": None,
+        "impact": ai_analysis.get("impact"),
+        "commander": None, "assigned_to": None,
         "communication_channel": None, "runbook_url": None,
-        "evidence_logs": [],
+        "evidence_logs": evidence_logs,
         "created_at": now, "updated_at": now, "detected_at": now,
         "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
         "tenant_id": TENANT_ID,
         "timeline": [
             {"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": f"Anomaly detected: {event.get('description', 'unknown anomaly')[:100]}", "actor": "system"}
         ],
-        "external_refs": [], "tags": [svc, atype, sev],
-        "custom_fields": {},
+        "external_refs": [], "tags": tags,
+        "custom_fields": custom_fields,
     }
 
     if atype == "error_rate_spike":

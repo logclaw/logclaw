@@ -24,6 +24,13 @@ import {
   Loader2,
   User,
   Server,
+  Zap,
+  Brain,
+  Tag,
+  Repeat,
+  ArrowRight,
+  Shield,
+  Lightbulb,
 } from "lucide-react";
 
 export default function IncidentDetailPage() {
@@ -96,6 +103,23 @@ export default function IncidentDetailPage() {
               {incident.priority}
             </span>
           )}
+          {incident.root_cause && (
+            <span className="flex items-center gap-1 rounded-md bg-violet-50 px-2 py-1 text-[11px] font-bold uppercase text-violet-600">
+              <Brain className="h-3 w-3" />
+              AI-Analyzed
+            </span>
+          )}
+          {incident.similar_count != null && incident.similar_count > 0 && (
+            <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-600">
+              <Repeat className="h-3 w-3" />
+              {incident.similar_count} similar
+            </span>
+          )}
+          {incident.custom_fields?.error_category && (
+            <span className="rounded-md bg-[#f5f5f7] px-2 py-1 text-[11px] font-medium text-[#6e6e73]">
+              {incident.custom_fields.error_category}
+            </span>
+          )}
         </div>
         <h1 className="mt-2 text-[20px] font-bold tracking-tight text-[#1d1d1f]">
           {incident.title}
@@ -121,6 +145,19 @@ export default function IncidentDetailPage() {
             </span>
           )}
         </div>
+        {incident.tags && incident.tags.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {incident.tags.map((tag) => (
+              <span
+                key={tag}
+                className="flex items-center gap-1 rounded-full bg-[#f5f5f7] px-2.5 py-1 text-[11px] font-medium text-[#6e6e73]"
+              >
+                <Tag className="h-2.5 w-2.5" />
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -176,6 +213,149 @@ export default function IncidentDetailPage() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Causal Chain + Blast Radius */}
+      {incident.custom_fields?.causal_chain && incident.custom_fields.causal_chain.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className="flex items-center justify-between">
+            <h3 className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+              <Zap className="h-3.5 w-3.5 text-[#FF5722]" />
+              Causal Chain
+            </h3>
+            {incident.custom_fields.blast_radius?.impact_score != null && (
+              <div className="mb-4 flex items-center gap-2">
+                <Shield className="h-3.5 w-3.5 text-[#aeaeb2]" />
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+                  Blast Radius
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${
+                    incident.custom_fields.blast_radius.impact_score >= 0.6
+                      ? "bg-red-50 text-red-600"
+                      : incident.custom_fields.blast_radius.impact_score >= 0.3
+                        ? "bg-amber-50 text-amber-600"
+                        : "bg-emerald-50 text-emerald-600"
+                  }`}
+                >
+                  {Math.round(incident.custom_fields.blast_radius.impact_score * 100)}%
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {incident.custom_fields.causal_chain.map((svc, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <span
+                  className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
+                    i === 0
+                      ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                      : "bg-[#f5f5f7] text-[#1d1d1f]"
+                  }`}
+                >
+                  {i === 0 && <span className="mr-1 text-[10px] font-bold uppercase text-red-500">root</span>}
+                  {svc}
+                </span>
+                {i < incident.custom_fields!.causal_chain!.length - 1 && (
+                  <ArrowRight className="h-3.5 w-3.5 text-[#aeaeb2]" />
+                )}
+              </div>
+            ))}
+          </div>
+          {incident.custom_fields.blast_radius?.affected_downstream &&
+            incident.custom_fields.blast_radius.affected_downstream.length > 0 && (
+              <p className="mt-3 text-[12px] text-[#6e6e73]">
+                <span className="font-medium">Downstream impact:</span>{" "}
+                {incident.custom_fields.blast_radius.affected_downstream.join(", ")}
+                {incident.custom_fields.blast_radius.estimated_user_impact && (
+                  <span
+                    className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      incident.custom_fields.blast_radius.estimated_user_impact === "high"
+                        ? "bg-red-50 text-red-600"
+                        : incident.custom_fields.blast_radius.estimated_user_impact === "medium"
+                          ? "bg-amber-50 text-amber-600"
+                          : "bg-emerald-50 text-emerald-600"
+                    }`}
+                  >
+                    {incident.custom_fields.blast_radius.estimated_user_impact} user impact
+                  </span>
+                )}
+              </p>
+            )}
+        </div>
+      )}
+
+      {/* AI Root Cause Analysis */}
+      {incident.root_cause && (
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <h3 className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            <Brain className="h-3.5 w-3.5 text-violet-500" />
+            Root Cause Analysis
+            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-500">
+              AI
+            </span>
+          </h3>
+          <p className="text-[14px] leading-relaxed text-[#1d1d1f] whitespace-pre-wrap">
+            {incident.root_cause}
+          </p>
+        </div>
+      )}
+
+      {/* AI Impact + Suggested Fix */}
+      {(incident.impact || incident.custom_fields?.suggested_fix) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {incident.impact && (
+            <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <h3 className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                Impact Assessment
+                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-500">
+                  AI
+                </span>
+              </h3>
+              <p className="text-[13px] leading-relaxed text-[#1d1d1f]">
+                {incident.impact}
+              </p>
+            </div>
+          )}
+          {incident.custom_fields?.suggested_fix && (
+            <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <h3 className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+                <Lightbulb className="h-3.5 w-3.5 text-emerald-500" />
+                Suggested Fix
+                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-500">
+                  AI
+                </span>
+              </h3>
+              <p className="text-[13px] leading-relaxed text-[#1d1d1f]">
+                {incident.custom_fields.suggested_fix}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reproduce Steps */}
+      {incident.reproduce_steps && incident.reproduce_steps.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
+            <Search className="h-3.5 w-3.5 text-[#aeaeb2]" />
+            Steps to Reproduce
+            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-500">
+              AI
+            </span>
+          </h3>
+          <ol className="space-y-1.5 pl-4">
+            {incident.reproduce_steps.map((step, i) => (
+              <li
+                key={i}
+                className="list-decimal text-[13px] leading-relaxed text-[#1d1d1f] marker:text-[#aeaeb2] marker:font-medium"
+              >
+                {step}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 

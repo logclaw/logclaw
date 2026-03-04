@@ -73,6 +73,13 @@ spec:
             # ── OpenSearch ──────────────────────────────────────────────────
             - name: OPENSEARCH_ENDPOINT
               value: {{ include "logclaw-bridge.opensearchEndpoint" . | quote }}
+            - name: OPENSEARCH_USERNAME
+              value: {{ (.Values.config).opensearchUsername | default "admin" | quote }}
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ (.Values.config).opensearchCredentialsSecret | default "logclaw-logclaw-opensearch-admin-password" }}
+                  key: password
             - name: OPENSEARCH_BULK_SIZE
               value: {{ .Values.config.opensearch.bulkSize | quote }}
             - name: OPENSEARCH_BULK_INTERVAL_SECONDS
@@ -82,11 +89,15 @@ spec:
               value: {{ .Values.config.anomaly.zscoreThreshold | quote }}
             - name: ANOMALY_WINDOW_SECONDS
               value: {{ .Values.config.anomaly.windowSeconds | quote }}
-            # ── Request lifecycle detection (OTel) ────────────────────────
+            # ── Request lifecycle detection (OTel trace correlation) ──────
             - name: LIFECYCLE_TIMEOUT_SECONDS
-              value: {{ .Values.config.lifecycle.timeoutSeconds | default "30" | quote }}
+              value: {{ .Values.config.lifecycle.timeoutSeconds | default "10" | quote }}
             - name: MAX_PENDING_REQUESTS
               value: {{ .Values.config.lifecycle.maxPendingRequests | default "10000" | quote }}
+            - name: TRACE_QUERY_BATCH_SIZE
+              value: {{ .Values.config.lifecycle.traceQueryBatchSize | default "20" | quote }}
+            - name: TRACE_QUERY_INTERVAL_SECONDS
+              value: {{ .Values.config.lifecycle.traceQueryIntervalSeconds | default "5" | quote }}
           volumeMounts:
             - name: config
               mountPath: /app

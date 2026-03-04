@@ -15,6 +15,10 @@ serviceAccount:
 
 # Non-sensitive config (secrets come from ExternalSecret)
 config:
+  # ── OpenSearch credentials ───────────────────────────────────────────────────
+  opensearch:
+    username: "admin"
+    credentialsSecret: "logclaw-logclaw-opensearch-admin-password"
   # ── PagerDuty Events API v2 ───────────────────────────────────────────────────
   pagerduty:
     enabled: false

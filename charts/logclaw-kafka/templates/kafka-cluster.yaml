@@ -15,7 +15,7 @@ metadata:
 spec:
   kafka:
     version: {{ .Values.kafka.version | quote }}
-    metadataVersion: "4.0-IV1"
+    metadataVersion: "4.0-IV0"
 
     # ── Listeners ──────────────────────────────────────────────────────────
     listeners:
@@ -31,6 +31,8 @@ spec:
           type: scram-sha-512
 
     # ── Authorization ──────────────────────────────────────────────────────
+    # ANONYMOUS is used by internal services via PLAIN listener (port 9092)
+    # Protected by network policies at the namespace level
     authorization:
       type: simple
       superUsers:

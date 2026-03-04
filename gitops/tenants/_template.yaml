@@ -53,6 +53,10 @@ airflow:
   enabled: true
 ticketingAgent:
   enabled: true
+bridge:
+  enabled: false      # Enable for trace correlation engine (dev/demo alternative to Flink)
+dashboard:
+  enabled: false      # Enable for Next.js pipeline UI (incidents, anomaly viz)
 
 # ── Ticketing platform integrations (enable any combination) ─────────────────
 # Each platform is independently enabled — mix and match for your workflow.
@@ -110,3 +114,15 @@ logclaw-ticketing-agent:
 
 # logclaw-ingestion:
 #   replicaCount: 3
+
+# logclaw-bridge:
+#   bridge:
+#     kafkaBrokers: "logclaw-kafka-kafka-bootstrap:9093"
+#     opensearchEndpoint: "https://logclaw-opensearch:9200"
+
+# logclaw-dashboard:
+#   image:
+#     repository: "ghcr.io/logclaw/dashboard"
+#     tag: "latest"
+#   service:
+#     type: ClusterIP    # or LoadBalancer for external access

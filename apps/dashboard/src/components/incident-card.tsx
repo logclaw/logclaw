@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { severityColor, stateColor, timeAgo } from "@/lib/utils";
 import type { Incident } from "@/lib/api";
-import { ChevronRight, GitBranch, Clock, User } from "lucide-react";
+import { ChevronRight, GitBranch, Clock, User, Brain, Repeat, Zap } from "lucide-react";
 
 export default function IncidentCard({ incident }: { incident: Incident }) {
   return (
@@ -29,6 +29,18 @@ export default function IncidentCard({ incident }: { incident: Incident }) {
                 {incident.priority}
               </span>
             )}
+            {incident.root_cause && (
+              <span className="flex items-center gap-0.5 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-600">
+                <Brain className="h-2.5 w-2.5" />
+                AI
+              </span>
+            )}
+            {incident.similar_count != null && incident.similar_count > 0 && (
+              <span className="flex items-center gap-0.5 rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-600">
+                <Repeat className="h-2.5 w-2.5" />
+                {incident.similar_count}
+              </span>
+            )}
           </div>
           <h4 className="truncate text-[14px] font-semibold text-[#1d1d1f] group-hover:text-[#FF5722] transition-colors">
             {incident.title}
@@ -43,6 +55,12 @@ export default function IncidentCard({ incident }: { incident: Incident }) {
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" />
                 {incident.assigned_to}
+              </span>
+            )}
+            {incident.custom_fields?.root_cause_service && (
+              <span className="flex items-center gap-1 text-red-500">
+                <Zap className="h-3 w-3" />
+                root: {incident.custom_fields.root_cause_service}
               </span>
             )}
           </div>

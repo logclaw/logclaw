@@ -1,0 +1,468 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LogClaw — GKE Production Deployment
+# Full-stack enterprise config on Google Kubernetes Engine.
+# All components enabled for end-to-end pipeline operation.
+# Right-sized for 3x e2-standard-4 nodes (12 vCPU, 48GB total).
+#
+# Deploy:  GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh
+# Tear down: GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh --teardown
+# ─────────────────────────────────────────────────────────────────────────────
+
+tenantId: "gke-prod"
+clusterServer: ""
+
+global:
+  tenantId: "gke-prod"
+  tenantName: "LogClaw Production"
+  imageRegistry: ""                                     # Override umbrella default (ghcr.io/logclaw) so Bitnami sub-charts pull from Docker Hub
+  storageClass: "standard-hdd"                              # HDD for general workloads (SSD quota limited)
+  storageClassHighThroughput: "standard-rwo"
+  tier: "standard"
+
+  # ── Inter-component connectivity ─────────────────────────────────────────
+  # Release name "logclaw" → kafka bootstrap = logclaw-kafka-bootstrap.logclaw.svc
+  kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc.cluster.local:9092"
+  opensearchEndpoint: "https://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
+
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
+
+  objectStorage:
+    provider: "gcs"
+    bucket: "logclaw-prod-data"
+    region: "us-central1"
+
+  secretStore:
+    provider: "gcp"
+    projectId: "project-565165fe-d4ff-48fd-a54"
+    region: "us-central1"
+    gcp:
+      projectId: "project-565165fe-d4ff-48fd-a54"
+      clusterName: "logclaw-prod"
+      clusterLocation: "us-central1-a"
+      serviceAccount: "logclaw-sa@project-565165fe-d4ff-48fd-a54.iam.gserviceaccount.com"
+
+  # ── LLM — disabled for demo ──────────────────────────────────────────────
+  llm:
+    provider: "disabled"
+    model: "llama3.2:8b"
+
+  # ── Networking ────────────────────────────────────────────────────────────
+  clusterDomain: "cluster.local"
+  ingressClass: "nginx"
+
+  # ── TLS via cert-manager ──────────────────────────────────────────────────
+  tls:
+    enabled: true
+    issuerName: "logclaw-issuer"
+    issuerKind: "ClusterIssuer"
+    clusterIssuer: "logclaw-issuer"
+
+  # ── Pod Security Standards ────────────────────────────────────────────────
+  podSecurityStandards:
+    enforce: "privileged"
+    audit: "restricted"
+    warn: "restricted"
+  podSecurity:
+    enforceLevel: "privileged"
+    auditLevel: "restricted"
+    warnLevel: "restricted"
+    enforceVersion: "latest"
+    auditVersion: "latest"
+    warnVersion: "latest"
+
+  # ── ArgoCD (not installed, but template references it) ─────────────────────
+  argocd:
+    namespace: "argocd"
+
+  # ── Observability ─────────────────────────────────────────────────────────
+  monitoring:
+    enabled: false
+    namespace: "monitoring"
+    prometheusNamespace: "monitoring"
+    grafanaDashboards: false
+
+  resourcePreset: "small"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# COMPONENT TOGGLES — full enterprise stack
+# ═════════════════════════════════════════════════════════════════════════════
+platform:
+  enabled: true                                          # SecretStore, RBAC, certs
+ingestion:
+  enabled: true                                          # Vector log receiver
+kafka:
+  enabled: true                                          # Strimzi Kafka
+opensearch:
+  enabled: true                                          # OpenSearch cluster
+flink:
+  enabled: true                                          # Flink stream processing ETL
+mlEngine:
+  enabled: true                                          # Feast ML feature store + KServe
+airflow:
+  enabled: true                                          # ML training orchestration
+bridge:
+  enabled: true                                          # Trace correlation engine
+ticketingAgent:
+  enabled: true                                          # AI incident ticketing
+dashboard:
+  enabled: true                                          # Next.js pipeline UI
+zammad:
+  enabled: false                                         # Dashboard handles incidents natively
+
+# ═════════════════════════════════════════════════════════════════════════════
+# COMPONENT SIZING — fit on 2x e2-standard-4 (8 vCPU, 32GB RAM)
+# ═════════════════════════════════════════════════════════════════════════════
+
+logclaw-kafka:
+  kafka:
+    replicas: 1
+    version: "4.0.0"
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: "10Gi"
+          deleteClaim: false
+    config:
+      auto.create.topics.enable: "false"
+      default.replication.factor: "1"
+      min.insync.replicas: "1"
+      log.retention.hours: "24"
+      log.segment.bytes: "1073741824"
+      offsets.topic.replication.factor: "1"
+      transaction.state.log.replication.factor: "1"
+      transaction.state.log.min.isr: "1"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    jvmOptions:
+      -Xms: "512m"
+      -Xmx: "1g"
+  topics:
+    rawLogs:
+      partitions: 3
+      replicas: 1
+      retentionMs: "86400000"
+      segmentBytes: "1073741824"
+    enriched:
+      partitions: 3
+      replicas: 1
+      retentionMs: "86400000"
+    anomalies:
+      partitions: 1
+      replicas: 1
+      retentionMs: "604800000"
+    dlq:
+      partitions: 1
+      replicas: 1
+      retentionMs: "2592000000"
+  kafkaConnect:
+    enabled: false                                       # No custom image for demo
+  s3Sink:
+    enabled: false
+  mirrorMaker2:
+    enabled: false
+
+logclaw-opensearch:
+  opensearch:
+    version: "2.14.0"
+    masters:
+      replicas: 1
+      diskSize: "10Gi"
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "1536Mi"
+        limits:
+          cpu: "500m"
+          memory: "2Gi"
+      jvm:
+        xms: "1g"
+        xmx: "1g"
+    data:
+      replicas: 1
+      diskSize: "20Gi"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1536Mi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+      jvm:
+        xms: "1g"
+        xmx: "1g"
+    coordinators:
+      replicas: 0
+    security:
+      tls:
+        enabled: false
+  adminCredentialsSecret:
+    createExternalSecret: false                          # No ESO secret for demo
+  podDisruptionBudget:
+    dataNodes:
+      minAvailable: 0
+    masterNodes:
+      minAvailable: 0
+
+logclaw-ingestion:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  sources:
+    http:
+      tls:
+        enabled: false                                   # Simplify for demo
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+logclaw-bridge:
+  image:
+    repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/bridge"
+    tag: "1.1.0"
+  bridge:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+logclaw-ticketing-agent:
+  replicaCount: 1
+  image:
+    repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/ticketing-agent"
+    tag: "1.0.2"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  config:
+    anomaly:
+      minimumScore: 0.85
+
+# ── Flink — stream processing ETL (right-sized for production) ──────────────
+logclaw-flink:
+  flink:
+    version: "1.19"
+    jobImageTag: "0.1.0"
+    image:
+      repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/logclaw-flink-jobs"
+      tag: "0.1.0"
+    jobManager:
+      cpu: 0.5
+      memory: "1024m"
+      replicas: 1
+    taskManager:
+      cpu: 1
+      memory: "2048m"
+      replicas: 1
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+    etlJob:
+      enabled: true
+      parallelism: 2
+    enrichmentJob:
+      enabled: true
+      parallelism: 2
+      taskManagerCpu: 0.5
+      taskManagerMemory: "1024m"
+      resourceRequests:
+        cpu: "250m"
+        memory: "512Mi"
+      resourceLimits:
+        cpu: "500m"
+        memory: "1Gi"
+    anomalyJob:
+      enabled: true
+      parallelism: 4
+    sessionCluster:
+      enabled: false
+    config:
+      taskmanager.numberOfTaskSlots: "4"
+      state.backend: "rocksdb"
+      execution.checkpointing.interval: "30s"
+      execution.checkpointing.mode: "EXACTLY_ONCE"
+  podDisruptionBudget:
+    minAvailable: 0
+
+# ── ML Engine — Feast feature store + KServe inference ──────────────────────
+logclaw-ml-engine:
+  externalSecret:
+    secretStoreName: "logclaw-vault"
+    secretStoreKind: "ClusterSecretStore"
+  mlEngine:
+    redis:
+      bundled: true
+    feast:
+      image:
+        repository: "feastdev/feature-server"
+        tag: "0.40.0"
+        pullPolicy: IfNotPresent
+      replicaCount: 1
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+    kserve:
+      enabled: false                                     # KServe inference disabled (no model artifacts yet)
+      minReplicas: 1
+      maxReplicas: 2
+      scaleTarget: 5
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+    ollama:
+      enabled: false
+  redis:
+    global:
+      imageRegistry: ""                                     # Override umbrella default for Bitnami sub-chart
+      storageClass: "standard-hdd"
+    image:
+      registry: "docker.io"
+      repository: "bitnami/redis"
+      tag: "latest"                                         # Bitnami removed versioned tags
+    auth:
+      enabled: true
+      existingSecret: "logclaw-ml-engine-redis-credentials"
+      existingSecretPasswordKey: "redis-password"
+    master:
+      persistence:
+        enabled: true
+        storageClass: "standard-hdd"
+        size: "5Gi"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "250m"
+          memory: "256Mi"
+    replica:
+      replicaCount: 0
+  podDisruptionBudget:
+    minAvailable: 0
+
+# ── Airflow — ML training pipeline orchestration ───────────────────────────
+logclaw-airflow:
+  airflow:
+    executor: KubernetesExecutor
+    fernetKeySecretName: "logclaw-airflow-credentials"
+    webserverSecretKeySecretName: "logclaw-airflow-credentials"
+    images:
+      airflow:
+        repository: "apache/airflow"
+        tag: "2.9.3"
+        pullPolicy: IfNotPresent
+    config:
+      core:
+        load_examples: "False"
+        parallelism: "16"
+        max_active_tasks_per_dag: "8"
+      scheduler:
+        dag_dir_list_interval: "30"
+      webserver:
+        expose_config: "False"
+    dags:
+      gitSync:
+        enabled: false
+    postgresql:
+      enabled: true
+      global:
+        imageRegistry: ""                                   # Override umbrella default for Bitnami sub-chart
+        storageClass: "standard-hdd"
+      image:
+        registry: "docker.io"
+        repository: "bitnami/postgresql"
+        tag: "latest"                                       # Bitnami removed versioned tags
+      primary:
+        persistence:
+          storageClass: "standard-hdd"
+      auth:
+        existingSecret: "logclaw-airflow-credentials"
+        secretKeys:
+          adminPasswordKey: "postgresql-password"
+    redis:
+      enabled: false
+    webserver:
+      replicas: 1
+      startupProbe:
+        failureThreshold: 12                            # 120s to start (4 Gunicorn workers)
+        periodSeconds: 10
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+        limits:
+          cpu: "500m"
+          memory: "1Gi"
+    scheduler:
+      replicas: 1
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+        limits:
+          cpu: "500m"
+          memory: "1Gi"
+    workers:
+      replicas: 0
+    triggerer:
+      replicas: 0
+    flower:
+      enabled: false
+    statsd:
+      enabled: false
+    serviceAccount:
+      create: true
+      name: ""
+  podDisruptionBudget:
+    scheduler:
+      minAvailable: 0
+    webserver:
+      minAvailable: 0
+
+# Dashboard — exposed via LoadBalancer for external access
+logclaw-dashboard:
+  image:
+    repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/dashboard"
+    tag: "1.2.1"
+  service:
+    type: LoadBalancer
+    port: 3000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"

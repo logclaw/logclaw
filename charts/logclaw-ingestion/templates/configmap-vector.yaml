@@ -31,14 +31,13 @@ data:
     type = "http_server"
     address = "0.0.0.0:{{ .Values.sources.http.port }}"
     encoding = "json"
-    # Forward the X-Tenant-ID header for validation
-    headers = ["X-Tenant-ID"]
     {{- if .Values.sources.http.tls.enabled }}
     [sources.http_receiver.tls]
     enabled = true
     crt_file = "/etc/vector/tls/tls.crt"
     key_file = "/etc/vector/tls/tls.key"
     {{- end }}
+    # Headers are automatically extracted from HTTP requests by Vector
 
     {{- end }}
 
@@ -181,7 +180,6 @@ data:
     topic = "${KAFKA_TOPIC}"
     compression = "{{ .Values.sink.kafka.compression }}"
     message_timeout_ms = 30000
-    # Partition by tenant_id so consumers can filter efficiently
     key_field = "tenant_id"
 
     [sinks.kafka_out.encoding]
@@ -192,7 +190,7 @@ data:
 
     [sinks.kafka_out.buffer]
     type = "memory"
-    max_events = 500
+    max_events = 5000
     when_full = "block"
 
     # Prometheus metrics exporter — scraped by the platform monitoring stack

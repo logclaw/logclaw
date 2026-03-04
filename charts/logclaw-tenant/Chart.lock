@@ -1,0 +1,36 @@
+dependencies:
+- name: logclaw-platform
+  repository: file://../logclaw-platform
+  version: 0.1.0
+- name: logclaw-ingestion
+  repository: file://../logclaw-ingestion
+  version: 0.1.0
+- name: logclaw-kafka
+  repository: file://../logclaw-kafka
+  version: 0.1.0
+- name: logclaw-flink
+  repository: file://../logclaw-flink
+  version: 0.1.0
+- name: logclaw-opensearch
+  repository: file://../logclaw-opensearch
+  version: 0.1.0
+- name: logclaw-ml-engine
+  repository: file://../logclaw-ml-engine
+  version: 0.1.0
+- name: logclaw-airflow
+  repository: file://../logclaw-airflow
+  version: 0.1.0
+- name: logclaw-ticketing-agent
+  repository: file://../logclaw-ticketing-agent
+  version: 0.1.0
+- name: logclaw-bridge
+  repository: file://../logclaw-bridge
+  version: 0.1.0
+- name: logclaw-dashboard
+  repository: file://../logclaw-dashboard
+  version: 0.2.0
+- name: logclaw-zammad
+  repository: file://../logclaw-zammad
+  version: 0.1.0
+digest: sha256:2e9d962b847c8126536c6cd5bf23b72f7ef124ac607494b1bcdcc82f966a2de1
+generated: "2026-03-03T12:47:56.41606-06:00"

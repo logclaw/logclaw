@@ -61,8 +61,10 @@ config:
     zscoreThreshold: 2.0
     windowSeconds: 300
   lifecycle:
-    timeoutSeconds: 30
+    timeoutSeconds: 10
     maxPendingRequests: 10000
+    traceQueryBatchSize: 20
+    traceQueryIntervalSeconds: 5
   opensearch:
     bulkSize: 200
     bulkIntervalSeconds: 3
