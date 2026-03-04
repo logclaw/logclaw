@@ -5,6 +5,9 @@ dependencies:
 - name: logclaw-ingestion
   repository: file://../logclaw-ingestion
   version: 0.1.0
+- name: logclaw-otel-collector
+  repository: file://../logclaw-otel-collector
+  version: 0.1.0
 - name: logclaw-kafka
   repository: file://../logclaw-kafka
   version: 0.1.0
@@ -29,5 +32,5 @@ dependencies:
 - name: logclaw-dashboard
   repository: file://../logclaw-dashboard
   version: 0.2.0
-digest: sha256:a8b45479fc0e978e429b0a23069e63f7960b10d2a50caa04d9a7e317b55ea07a
-generated: "2026-03-03T20:39:10.660693-06:00"
+digest: sha256:822ebfdd64c9cd4a7e99e00fae3f56926816cab1fb9460adc791296295bf02d9
+generated: "2026-03-04T01:41:33.011086-06:00"
