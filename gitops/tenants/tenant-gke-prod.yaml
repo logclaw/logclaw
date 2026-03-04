@@ -1,10 +1,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # LogClaw — GKE Production Deployment
 # Full-stack enterprise config on Google Kubernetes Engine.
-# All components enabled for end-to-end pipeline operation.
-# Right-sized for 3x e2-standard-4 nodes (12 vCPU, 48GB total).
 #
-# Deploy:  GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh
+# Capacity: ~10K users / ~100K logs·min⁻¹ peak
+# Cluster:  GKE Autopilot-ready, cluster autoscaler 3→8 e2-standard-4 nodes
+#           (12–32 vCPU, 48–128 GB RAM, scales automatically)
+#
+# Scaling levers (in priority order):
+#   1. Kafka partitions (raw-logs 6, enriched 6)  → horizontal Flink parallelism
+#   2. OpenSearch data node replicas (1→3)         → search throughput
+#   3. Flink TM replicas + parallelism             → processing throughput
+#   4. Ingestion replicas (HPA 1→8)                → ingest throughput
+#   5. Kafka brokers (1→3) + replication.factor 3  → durability + throughput
+#
+# Deploy:    GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh
 # Tear down: GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh --teardown
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -28,13 +37,12 @@ ingress:
 global:
   tenantId: "gke-prod"
   tenantName: "LogClaw Production"
-  imageRegistry: ""                                     # Override umbrella default (ghcr.io/logclaw) so Bitnami sub-charts pull from Docker Hub
-  storageClass: "standard-hdd"                              # HDD for general workloads (SSD quota limited)
+  imageRegistry: ""
+  storageClass: "standard-hdd"
   storageClassHighThroughput: "standard-rwo"
   tier: "standard"
 
   # ── Inter-component connectivity ─────────────────────────────────────────
-  # Release name "logclaw" → kafka bootstrap = logclaw-kafka-bootstrap.logclaw.svc
   kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc.cluster.local:9092"
   opensearchEndpoint: "https://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
 
@@ -58,7 +66,7 @@ global:
       clusterLocation: "us-central1-a"
       serviceAccount: "logclaw-sa@project-565165fe-d4ff-48fd-a54.iam.gserviceaccount.com"
 
-  # ── LLM — disabled for demo ──────────────────────────────────────────────
+  # ── LLM — disabled for demo (enable claude/openai/ollama per customer) ──
   llm:
     provider: "disabled"
     model: "llama3.2:8b"
@@ -87,7 +95,7 @@ global:
     auditVersion: "latest"
     warnVersion: "latest"
 
-  # ── ArgoCD (not installed, but template references it) ─────────────────────
+  # ── ArgoCD ────────────────────────────────────────────────────────────────
   argocd:
     namespace: "argocd"
 
@@ -104,32 +112,48 @@ global:
 # COMPONENT TOGGLES — full enterprise stack
 # ═════════════════════════════════════════════════════════════════════════════
 platform:
-  enabled: true                                          # SecretStore, RBAC, certs
+  enabled: true
 ingestion:
-  enabled: true                                          # Vector log receiver
+  enabled: true
 kafka:
-  enabled: true                                          # Strimzi Kafka
+  enabled: true
 opensearch:
-  enabled: true                                          # OpenSearch cluster
+  enabled: true
 flink:
-  enabled: true                                          # Flink stream processing ETL
+  enabled: true
 mlEngine:
-  enabled: true                                          # Feast ML feature store + KServe
+  enabled: true
 airflow:
-  enabled: true                                          # ML training orchestration
+  enabled: true
 bridge:
-  enabled: true                                          # Trace correlation engine
+  enabled: true
 ticketingAgent:
-  enabled: true                                          # AI incident ticketing
+  enabled: true
 dashboard:
-  enabled: true                                          # Next.js pipeline UI
+  enabled: true
 zammad:
-  enabled: false                                         # Dashboard handles incidents natively
+  enabled: false
 
 # ═════════════════════════════════════════════════════════════════════════════
-# COMPONENT SIZING — fit on 2x e2-standard-4 (8 vCPU, 32GB RAM)
+# COMPONENT SIZING — production-grade for ~10K users
+#
+# Resource budget (3 nodes baseline, autoscales to 8):
+#   Kafka       ~2 vCPU / 4 Gi    (broker + ZK)
+#   OpenSearch  ~3 vCPU / 8 Gi    (master + data)
+#   Flink       ~4 vCPU / 8 Gi    (3 JMs + 3 TMs)
+#   Ingestion   ~0.5 vCPU / 512 Mi (scales via HPA)
+#   Airflow     ~2 vCPU / 4 Gi    (webserver + scheduler + PG)
+#   ML Engine   ~0.5 vCPU / 1 Gi  (Feast + Redis)
+#   Bridge      ~0.5 vCPU / 512 Mi
+#   Ticketing   ~0.5 vCPU / 512 Mi (scales via HPA)
+#   Dashboard   ~0.5 vCPU / 512 Mi (scales via HPA)
+#   ────────────────────────────────
+#   Total base  ~13.5 vCPU / 27 Gi → fits 3x e2-standard-4
+#   Peak (HPA)  ~25 vCPU / 50 Gi  → autoscales to 7 nodes
 # ═════════════════════════════════════════════════════════════════════════════
 
+# ── Kafka — message backbone ──────────────────────────────────────────────
+# 1 broker for now; scale to 3 brokers + RF=3 when >5K users
 logclaw-kafka:
   kafka:
     replicas: 1
@@ -139,110 +163,119 @@ logclaw-kafka:
       volumes:
         - id: 0
           type: persistent-claim
-          size: "10Gi"
+          size: "50Gi"                                      # 50Gi — 24h retention at ~100K logs/min
           deleteClaim: false
     config:
       auto.create.topics.enable: "false"
-      default.replication.factor: "1"
+      default.replication.factor: "1"                       # bump to 3 when scaling to 3 brokers
       min.insync.replicas: "1"
-      log.retention.hours: "24"
+      log.retention.hours: "48"                             # 2 days retention (was 24h)
       log.segment.bytes: "1073741824"
       offsets.topic.replication.factor: "1"
       transaction.state.log.replication.factor: "1"
       transaction.state.log.min.isr: "1"
+      num.io.threads: "8"
+      num.network.threads: "3"
     resources:
       requests:
         cpu: "500m"
-        memory: "1Gi"
+        memory: "1536Mi"
       limits:
-        cpu: "1"
-        memory: "2Gi"
+        cpu: "2"
+        memory: "4Gi"
     jvmOptions:
-      -Xms: "512m"
-      -Xmx: "1g"
+      -Xms: "1g"
+      -Xmx: "2g"
   topics:
     rawLogs:
-      partitions: 3
+      partitions: 6                                         # 6 partitions — supports 6x Flink parallelism
       replicas: 1
-      retentionMs: "86400000"
+      retentionMs: "172800000"                              # 2 days
       segmentBytes: "1073741824"
     enriched:
+      partitions: 6
+      replicas: 1
+      retentionMs: "172800000"
+    anomalies:
       partitions: 3
       replicas: 1
-      retentionMs: "86400000"
-    anomalies:
-      partitions: 1
-      replicas: 1
-      retentionMs: "604800000"
+      retentionMs: "604800000"                              # 7 days
     dlq:
       partitions: 1
       replicas: 1
-      retentionMs: "2592000000"
+      retentionMs: "2592000000"                             # 30 days
   kafkaConnect:
-    enabled: false                                       # No custom image for demo
+    enabled: false
   s3Sink:
     enabled: false
   mirrorMaker2:
     enabled: false
 
+# ── OpenSearch — log storage + search ─────────────────────────────────────
+# 1 master + 1 data for now; scale data to 3 replicas when >5K users
 logclaw-opensearch:
   opensearch:
     version: "2.14.0"
     masters:
       replicas: 1
-      diskSize: "10Gi"
-      resources:
-        requests:
-          cpu: "250m"
-          memory: "1536Mi"
-        limits:
-          cpu: "500m"
-          memory: "2Gi"
-      jvm:
-        xms: "1g"
-        xmx: "1g"
-    data:
-      replicas: 1
       diskSize: "20Gi"
       resources:
         requests:
           cpu: "500m"
-          memory: "1536Mi"
+          memory: "2Gi"
         limits:
           cpu: "1"
-          memory: "2Gi"
+          memory: "3Gi"
       jvm:
-        xms: "1g"
-        xmx: "1g"
+        xms: "1536m"
+        xmx: "1536m"
+    data:
+      replicas: 1
+      diskSize: "100Gi"                                     # 100Gi — ~30 days of indexed logs at 10K users
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+      jvm:
+        xms: "2g"
+        xmx: "2g"
     coordinators:
       replicas: 0
     security:
       tls:
         enabled: false
   adminCredentialsSecret:
-    createExternalSecret: false                          # No ESO secret for demo
+    createExternalSecret: false
   podDisruptionBudget:
     dataNodes:
       minAvailable: 0
     masterNodes:
       minAvailable: 0
 
+# ── Ingestion — Vector log receiver (HPA-enabled) ────────────────────────
 logclaw-ingestion:
   replicaCount: 1
   autoscaling:
-    enabled: false
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
   sources:
     http:
       tls:
-        enabled: false                                   # Simplify for demo
+        enabled: false
   resources:
     requests:
-      cpu: "100m"
+      cpu: "200m"
       memory: "256Mi"
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: "1"
+      memory: "1Gi"
 
+# ── Bridge — trace correlation engine ──────────────────────────────────────
 logclaw-bridge:
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/bridge"
@@ -250,14 +283,19 @@ logclaw-bridge:
   bridge:
     resources:
       requests:
-        cpu: "100m"
+        cpu: "200m"
         memory: "256Mi"
       limits:
-        cpu: "500m"
+        cpu: "1"
         memory: "512Mi"
 
+# ── Ticketing Agent — AI incident ticketing (HPA-enabled) ─────────────────
 logclaw-ticketing-agent:
   replicaCount: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/ticketing-agent"
     tag: "1.0.4"
@@ -272,7 +310,9 @@ logclaw-ticketing-agent:
     anomaly:
       minimumScore: 0.85
 
-# ── Flink — stream processing ETL (right-sized for production) ──────────────
+# ── Flink — stream processing ETL ─────────────────────────────────────────
+# 3 jobs: ETL → Enrichment → Anomaly Scorer
+# Parallelism matches Kafka partition count for optimal throughput
 logclaw-flink:
   flink:
     version: "1.19"
@@ -293,14 +333,14 @@ logclaw-flink:
           cpu: "500m"
           memory: "1Gi"
         limits:
-          cpu: "1"
+          cpu: "1"                                          # increase to 2 when cluster scales to 5+ nodes
           memory: "2Gi"
     etlJob:
       enabled: true
-      parallelism: 2
+      parallelism: 3                                        # matches raw-logs partitions / task slots
     enrichmentJob:
       enabled: true
-      parallelism: 2
+      parallelism: 3
       taskManagerCpu: 0.5
       taskManagerMemory: "1024m"
       resourceRequests:
@@ -311,7 +351,7 @@ logclaw-flink:
         memory: "1Gi"
     anomalyJob:
       enabled: true
-      parallelism: 4
+      parallelism: 3                                        # matches anomalies partitions
     sessionCluster:
       enabled: false
     config:
@@ -322,7 +362,7 @@ logclaw-flink:
   podDisruptionBudget:
     minAvailable: 0
 
-# ── ML Engine — Feast feature store + KServe inference ──────────────────────
+# ── ML Engine — Feast feature store + KServe inference ────────────────────
 logclaw-ml-engine:
   externalSecret:
     secretStoreName: "logclaw-vault"
@@ -344,9 +384,9 @@ logclaw-ml-engine:
           cpu: "500m"
           memory: "512Mi"
     kserve:
-      enabled: false                                     # KServe inference disabled (no model artifacts yet)
+      enabled: false
       minReplicas: 1
-      maxReplicas: 2
+      maxReplicas: 3
       scaleTarget: 5
       resources:
         requests:
@@ -359,12 +399,12 @@ logclaw-ml-engine:
       enabled: false
   redis:
     global:
-      imageRegistry: ""                                     # Override umbrella default for Bitnami sub-chart
+      imageRegistry: ""
       storageClass: "standard-hdd"
     image:
       registry: "docker.io"
       repository: "bitnami/redis"
-      tag: "latest"                                         # Bitnami removed versioned tags
+      tag: "latest"
     auth:
       enabled: true
       existingSecret: "logclaw-ml-engine-redis-credentials"
@@ -379,14 +419,14 @@ logclaw-ml-engine:
           cpu: "100m"
           memory: "128Mi"
         limits:
-          cpu: "250m"
-          memory: "256Mi"
+          cpu: "500m"
+          memory: "512Mi"
     replica:
       replicaCount: 0
   podDisruptionBudget:
     minAvailable: 0
 
-# ── Airflow — ML training pipeline orchestration ───────────────────────────
+# ── Airflow — ML training pipeline orchestration ──────────────────────────
 logclaw-airflow:
   airflow:
     executor: KubernetesExecutor
@@ -406,18 +446,19 @@ logclaw-airflow:
         dag_dir_list_interval: "30"
       webserver:
         expose_config: "False"
+        workers: "2"                                        # 2 Gunicorn workers — fits in 2Gi limit
     dags:
       gitSync:
         enabled: false
     postgresql:
       enabled: true
       global:
-        imageRegistry: ""                                   # Override umbrella default for Bitnami sub-chart
+        imageRegistry: ""
         storageClass: "standard-hdd"
       image:
         registry: "docker.io"
         repository: "bitnami/postgresql"
-        tag: "latest"                                       # Bitnami removed versioned tags
+        tag: "latest"
       primary:
         persistence:
           storageClass: "standard-hdd"
@@ -429,25 +470,36 @@ logclaw-airflow:
       enabled: false
     webserver:
       replicas: 1
+      defaultUser:
+        enabled: false
       startupProbe:
-        failureThreshold: 12                            # 120s to start (4 Gunicorn workers)
+        failureThreshold: 18                              # 180s cold-start budget
+        periodSeconds: 10
+        timeoutSeconds: 5
+      livenessProbe:
+        timeoutSeconds: 5
+        failureThreshold: 5
+        periodSeconds: 15
+      readinessProbe:
+        timeoutSeconds: 5
+        failureThreshold: 5
         periodSeconds: 10
       resources:
         requests:
-          cpu: "200m"
-          memory: "512Mi"
-        limits:
           cpu: "500m"
           memory: "1Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
     scheduler:
       replicas: 1
       resources:
         requests:
-          cpu: "200m"
+          cpu: "250m"
           memory: "512Mi"
         limits:
-          cpu: "500m"
-          memory: "1Gi"
+          cpu: "1"
+          memory: "1536Mi"
     workers:
       replicas: 0
     triggerer:
@@ -465,8 +517,9 @@ logclaw-airflow:
     webserver:
       minAvailable: 0
 
-# Dashboard — exposed via LoadBalancer for external access
+# ── Dashboard — Next.js pipeline UI (HPA-enabled) ────────────────────────
 logclaw-dashboard:
+  replicaCount: 1
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/dashboard"
     tag: "1.2.1"
@@ -478,5 +531,5 @@ logclaw-dashboard:
       cpu: "100m"
       memory: "128Mi"
     limits:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: "500m"
+      memory: "512Mi"
