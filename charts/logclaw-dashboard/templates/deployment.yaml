@@ -74,8 +74,8 @@ spec:
                   name: {{ (.Values.config).opensearchCredentialsSecret | default "logclaw-logclaw-opensearch-admin-password" }}
                   key: password
                   optional: true
-            - name: VECTOR_ENDPOINT
-              value: {{ include "logclaw-dashboard.vectorEndpoint" . | quote }}
+            - name: OTEL_COLLECTOR_ENDPOINT
+              value: {{ include "logclaw-dashboard.otelCollectorEndpoint" . | quote }}
             - name: TICKETING_ENDPOINT
               value: {{ include "logclaw-dashboard.ticketingEndpoint" . | quote }}
             - name: BRIDGE_ENDPOINT

@@ -387,17 +387,69 @@ export async function fetchPipelineThroughput(): Promise<PipelineThroughput> {
   };
 }
 
-// ── Ingestion helpers ───────────────────────────────────────
+// ── Ingestion helpers (OTLP) ────────────────────────────────
+
+/**
+ * Convert flat LogClaw log objects into an OTLP ExportLogsServiceRequest.
+ * Groups logs by service name so each service gets its own ResourceLogs entry.
+ */
+function logsToOtlp(logs: object[]): object {
+  const byService = new Map<string, Record<string, unknown>[]>();
+  for (const log of logs) {
+    const svc = (log as any).service || "unknown";
+    if (!byService.has(svc)) byService.set(svc, []);
+    byService.get(svc)!.push(log as Record<string, unknown>);
+  }
+
+  const RESERVED = new Set(["message", "level", "service", "timestamp", "trace_id", "span_id", "host"]);
+
+  const resourceLogs = Array.from(byService.entries()).map(([service, svcLogs]) => ({
+    resource: {
+      attributes: [
+        { key: "service.name", value: { stringValue: service } },
+      ],
+    },
+    scopeLogs: [{
+      scope: { name: "logclaw.dashboard" },
+      logRecords: svcLogs.map((log) => {
+        const ts = log.timestamp
+          ? new Date(String(log.timestamp)).getTime() * 1_000_000
+          : Date.now() * 1_000_000;
+
+        const attrs = Object.entries(log)
+          .filter(([k]) => !RESERVED.has(k))
+          .map(([key, value]) => ({
+            key,
+            value: { stringValue: String(value) },
+          }));
+
+        if (log.host) {
+          attrs.push({ key: "host.name", value: { stringValue: String(log.host) } });
+        }
+
+        return {
+          timeUnixNano: String(ts),
+          severityText: String(log.level || "INFO").toUpperCase(),
+          body: { stringValue: String(log.message || "") },
+          attributes: attrs,
+          ...(log.trace_id ? { traceId: String(log.trace_id) } : {}),
+          ...(log.span_id ? { spanId: String(log.span_id) } : {}),
+        };
+      }),
+    }],
+  }));
+
+  return { resourceLogs };
+}
 
 export async function uploadLogs(logs: object[]): Promise<{ accepted: number }> {
-  // NOTE: No trailing slash — Next.js 308-redirects /api/vector/ → /api/vector
-  // which loses the POST body.
-  const res = await fetch("/api/vector", {
+  const otlpPayload = logsToOtlp(logs);
+  const res = await fetch("/api/otel/v1/logs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(logs),
+    body: JSON.stringify(otlpPayload),
   });
-  if (!res.ok) throw new Error(`Upload ${res.status}`);
+  if (!res.ok) throw new Error(`OTLP upload ${res.status}`);
   return { accepted: logs.length };
 }
 
@@ -579,13 +631,13 @@ export interface ServiceHealth {
 
 /**
  * Check health of all integrated services.
- * Some services (like Vector) only accept POST on their HTTP source,
- * returning 405 on GET — we treat 405 as "healthy" (service is alive).
+ * The OTel Collector OTLP HTTP port returns 405 on GET /v1/logs
+ * (only POST accepted) — we treat 405 as "healthy" (service is alive).
  */
 export async function checkServiceHealth(): Promise<ServiceHealth[]> {
   const services = [
     { name: "OpenSearch", url: "/api/opensearch/_cluster/health" },
-    { name: "Vector (Ingestion)", url: "/api/vector", acceptCodes: [200, 405] },
+    { name: "OTel Collector", url: "/api/otel/v1/logs", acceptCodes: [200, 405] },
     { name: "Ticketing Agent", url: "/api/ticketing/api/incidents?limit=1" },
     { name: "Bridge", url: "/api/bridge/health" },
     { name: "Feast (ML)", url: "/api/feast/health" },

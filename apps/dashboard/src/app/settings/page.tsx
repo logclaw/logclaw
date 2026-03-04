@@ -210,7 +210,7 @@ export default function SettingsPage() {
             <div className="space-y-1.5">
               {[
                 { method: "GET", path: "/api/opensearch/_cat/indices", desc: "List all indices" },
-                { method: "POST", path: "/api/vector/", desc: "Ingest logs via Vector" },
+                { method: "POST", path: "/api/otel/v1/logs", desc: "Ingest logs via OTLP" },
                 { method: "GET", path: "/api/ticketing/api/incidents", desc: "List incidents" },
                 { method: "POST", path: "/api/ticketing/api/incidents/:id/:action", desc: "Transition incident" },
                 { method: "GET", path: "/api/ticketing/api/v1/config", desc: "Runtime config" },

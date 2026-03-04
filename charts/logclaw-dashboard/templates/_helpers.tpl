@@ -95,11 +95,11 @@ Resolve opensearchEndpoint — required global value.
 {{- end }}
 
 {{/*
-Resolve vectorEndpoint — Vector log ingestion service.
+Resolve otelCollectorEndpoint — OTel Collector OTLP HTTP ingestion service.
 Uses Helm release name to match the actual K8s service created by the umbrella chart.
 */}}
-{{- define "logclaw-dashboard.vectorEndpoint" -}}
-http://{{ .Release.Name }}-logclaw-ingestion.{{ .Release.Namespace }}.svc:8080
+{{- define "logclaw-dashboard.otelCollectorEndpoint" -}}
+http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc:4318
 {{- end }}
 
 {{/*

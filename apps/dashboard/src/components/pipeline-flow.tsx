@@ -126,7 +126,7 @@ export default function PipelineFlow({ throughput }: Props) {
         Data Pipeline
       </h3>
       <div className="stagger-children flex items-start justify-between gap-1 overflow-x-auto pb-4">
-        {/* Ingest — Vector */}
+        {/* Ingest — OTel Collector */}
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
@@ -139,7 +139,7 @@ export default function PipelineFlow({ throughput }: Props) {
               <span className="block text-[12px] font-semibold text-[#1d1d1f]">
                 Ingest
               </span>
-              <span className="block text-[10px] text-[#aeaeb2]">Vector</span>
+              <span className="block text-[10px] text-[#aeaeb2]">OTel</span>
             </div>
             <StageStat
               count={tp?.ingestCount}

@@ -36,13 +36,13 @@ spec:
       ports:
         - port: 9200
           protocol: TCP
-    # Vector — log ingestion (file upload proxy)
+    # OTel Collector — OTLP log ingestion (file upload proxy)
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: ingestion
+              logclaw.io/component: otel-collector
       ports:
-        - port: 8080
+        - port: 4318
           protocol: TCP
     # Ticketing Agent — ticket API
     - to:
