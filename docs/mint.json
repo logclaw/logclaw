@@ -44,7 +44,17 @@
       "pages": [
         "introduction",
         "architecture",
-        "onboarding"
+        "onboarding",
+        "local-development"
+      ]
+    },
+    {
+      "group": "Components",
+      "pages": [
+        "components/otel-collector",
+        "components/bridge",
+        "components/ticketing-agent",
+        "components/dashboard"
       ]
     },
     {
@@ -60,9 +70,19 @@
       ]
     },
     {
-      "group": "API Reference",
+      "group": "Overview",
       "pages": [
         "api-reference/overview"
+      ]
+    },
+    {
+      "group": "Endpoints",
+      "pages": [
+        "api-reference/ingestion",
+        "api-reference/bridge",
+        "api-reference/opensearch",
+        "api-reference/ticketing",
+        "api-reference/agent"
       ]
     }
   ],

@@ -76,7 +76,7 @@ export default function IncidentsPage() {
             <ShieldAlert className="h-5 w-5 text-red-500" />
           </div>
           <div>
-            <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+            <h1 className="text-[18px] font-bold tracking-tight text-[#1d1d1f] sm:text-[22px]">
               Incidents
             </h1>
             <p className="text-[13px] text-[#6e6e73]">
@@ -110,7 +110,7 @@ export default function IncidentsPage() {
       )}
 
       {/* Filters */}
-      <div className="animate-fade-in flex flex-wrap items-center gap-3">
+      <div className="animate-fade-in space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#aeaeb2]" />
           <input
@@ -121,46 +121,52 @@ export default function IncidentsPage() {
               setSearch(e.target.value);
               setPage(0);
             }}
-            className="rounded-xl border border-[#e5e5ea] bg-white pl-9 pr-4 py-2.5 text-[13px] text-[#1d1d1f] placeholder:text-[#d1d1d6] focus:border-[#FF5722] focus:outline-none focus:ring-2 focus:ring-orange-100 shadow-sm transition-all"
+            className="w-full rounded-xl border border-[#e5e5ea] bg-white pl-9 pr-4 py-2.5 text-[13px] text-[#1d1d1f] placeholder:text-[#d1d1d6] focus:border-[#FF5722] focus:outline-none focus:ring-2 focus:ring-orange-100 shadow-sm transition-all sm:w-auto"
           />
         </div>
 
-        <div className="flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          {SEVERITIES.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setSeverity(s);
-                setPage(0);
-              }}
-              className={`rounded-lg px-3 py-1.5 text-[12px] font-medium capitalize transition-all ${
-                severity === s
-                  ? "bg-[#FF5722] text-white shadow-sm"
-                  : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
+        <div className="flex flex-wrap gap-2 sm:gap-3">
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <div className="flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06)] min-w-max">
+              {SEVERITIES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setSeverity(s);
+                    setPage(0);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-[12px] font-medium capitalize transition-all whitespace-nowrap ${
+                    severity === s
+                      ? "bg-[#FF5722] text-white shadow-sm"
+                      : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div className="flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          {STATES.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setState(s);
-                setPage(0);
-              }}
-              className={`rounded-lg px-3 py-1.5 text-[12px] font-medium capitalize transition-all ${
-                state === s
-                  ? "bg-[#FF5722] text-white shadow-sm"
-                  : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <div className="flex gap-0.5 rounded-xl bg-white p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06)] min-w-max">
+              {STATES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setState(s);
+                    setPage(0);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-[12px] font-medium capitalize transition-all whitespace-nowrap ${
+                    state === s
+                      ? "bg-[#FF5722] text-white shadow-sm"
+                      : "text-[#6e6e73] hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

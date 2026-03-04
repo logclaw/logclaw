@@ -51,7 +51,7 @@ export default function ServiceHealthPanel() {
 
   return (
     <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -81,24 +81,24 @@ export default function ServiceHealthPanel() {
           services.map((svc) => (
             <div
               key={svc.name}
-              className="flex items-center justify-between px-5 py-3 transition-colors duration-200 hover:bg-[#fafafa]"
+              className="flex items-center justify-between px-4 py-3 transition-colors duration-200 hover:bg-[#fafafa] sm:px-5"
             >
-              <div className="flex items-center gap-3">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${statusBg(svc.status)}`}>
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${statusBg(svc.status)}`}>
                   <StatusIcon status={svc.status} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-[13px] font-medium text-[#1d1d1f]">
                     {svc.name}
                   </p>
-                  <p className="font-mono text-[10px] text-[#aeaeb2]">
+                  <p className="hidden truncate font-mono text-[10px] text-[#aeaeb2] sm:block">
                     {svc.url}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 {svc.latencyMs !== undefined && (
-                  <span className="font-mono text-[11px] text-[#aeaeb2]">
+                  <span className="hidden font-mono text-[11px] text-[#aeaeb2] sm:inline">
                     {svc.latencyMs}ms
                   </span>
                 )}

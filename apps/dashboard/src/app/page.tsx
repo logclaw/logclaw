@@ -106,10 +106,10 @@ export default function OverviewPage() {
       {/* Header */}
       <div className="animate-fade-in-up flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+          <h1 className="text-[18px] font-bold tracking-tight text-[#1d1d1f] sm:text-[22px]">
             Overview
           </h1>
-          <p className="text-[13px] text-[#6e6e73]">
+          <p className="text-[12px] text-[#6e6e73] sm:text-[13px]">
             Your AI SRE is watching. Here&apos;s what it found.
           </p>
         </div>
@@ -256,17 +256,17 @@ export default function OverviewPage() {
       </div>
 
       {/* Log Explorer banner — nudge to OpenSearch Dashboards */}
-      <div className="animate-fade-in-up rounded-2xl border border-[#f2f2f7] bg-gradient-to-r from-[#fafafa] to-white px-5 py-4">
-        <div className="flex items-center justify-between">
+      <div className="animate-fade-in-up rounded-2xl border border-[#f2f2f7] bg-gradient-to-r from-[#fafafa] to-white px-4 py-3 sm:px-5 sm:py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f5f5f7]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f5f5f7]">
               <Database className="h-4.5 w-4.5 text-[#6e6e73]" />
             </div>
             <div>
               <p className="text-[13px] font-semibold text-[#1d1d1f]">
                 Need to explore raw logs?
               </p>
-              <p className="text-[12px] text-[#6e6e73]">
+              <p className="hidden text-[12px] text-[#6e6e73] sm:block">
                 Launch OpenSearch Dashboards for full-text search, filtering, and
                 visualizations
               </p>
@@ -280,7 +280,7 @@ export default function OverviewPage() {
             }
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-full bg-[#f5f5f7] px-4 py-2 text-[12px] font-medium text-[#6e6e73] transition-all hover:bg-[#e5e5ea] hover:text-[#1d1d1f]"
+            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-[#f5f5f7] px-4 py-2 text-[12px] font-medium text-[#6e6e73] transition-all hover:bg-[#e5e5ea] hover:text-[#1d1d1f] sm:w-auto"
           >
             <ExternalLink className="h-3.5 w-3.5" />
             Open Log Explorer

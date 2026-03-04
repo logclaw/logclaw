@@ -18,7 +18,7 @@ export default function IngestionPage() {
           <Upload className="h-5 w-5 text-[#FF5722]" />
         </div>
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight text-[#1d1d1f]">
+          <h1 className="text-[18px] font-bold tracking-tight text-[#1d1d1f] sm:text-[22px]">
             Log Ingestion
           </h1>
           <p className="text-[13px] text-[#6e6e73]">
@@ -30,8 +30,8 @@ export default function IngestionPage() {
       <FileUploader />
 
       {/* API docs reference */}
-      <div className="animate-fade-in-up rounded-2xl bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-        <div className="mb-5 flex items-center gap-2">
+      <div className="animate-fade-in-up rounded-2xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] sm:p-6">
+        <div className="mb-4 flex items-center gap-2 sm:mb-5">
           <Terminal className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
             API Reference
@@ -50,7 +50,7 @@ export default function IngestionPage() {
             <p className="mt-1.5 text-[13px] text-[#6e6e73]">
               Send log entries via OTLP HTTP to the OpenTelemetry Collector.
             </p>
-            <pre className="mt-3 overflow-x-auto rounded-xl bg-[#1d1d1f] p-4 text-[12px] text-[#aeaeb2] font-mono">
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-[#1d1d1f] p-3 text-[10px] text-[#aeaeb2] font-mono sm:p-4 sm:text-[12px]">
 {`curl -X POST http://localhost:3000/api/otel/v1/logs \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -79,7 +79,7 @@ export default function IngestionPage() {
             <h4 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
               Supported Formats
             </h4>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
               {[
                 { format: "JSON", ext: ".json", desc: "Array or single object", icon: FileJson },
                 { format: "NDJSON", ext: ".ndjson", desc: "One JSON per line", icon: FileJson },

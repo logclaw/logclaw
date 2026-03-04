@@ -121,7 +121,7 @@ export default function IncidentDetailPage() {
             </span>
           )}
         </div>
-        <h1 className="mt-2 text-[20px] font-bold tracking-tight text-[#1d1d1f]">
+        <h1 className="mt-2 text-[16px] font-bold tracking-tight text-[#1d1d1f] sm:text-[20px]">
           {incident.title}
         </h1>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px] text-[#6e6e73]">
@@ -162,7 +162,7 @@ export default function IncidentDetailPage() {
 
       {/* Actions */}
       {actions.length > 0 && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {actions.map((a) => {
             const Icon = a.icon;
             return (
@@ -170,7 +170,7 @@ export default function IncidentDetailPage() {
                 key={a.action}
                 onClick={() => doTransition(a.action)}
                 disabled={transitioning}
-                className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-medium transition-all duration-200 ${a.className} disabled:opacity-50 active:scale-[0.98]`}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-all duration-200 sm:flex-initial sm:px-5 ${a.className} disabled:opacity-50 active:scale-[0.98]`}
               >
                 {transitioning ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

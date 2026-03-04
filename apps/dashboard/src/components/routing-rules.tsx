@@ -91,7 +91,7 @@ export default function RoutingRulesPanel({
 
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <Route className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -100,7 +100,7 @@ export default function RoutingRulesPanel({
         </div>
         <div className="flex items-center gap-2">
           {isDirty && (
-            <span className="text-[10px] text-amber-500 font-medium">
+            <span className="hidden text-[10px] text-amber-500 font-medium sm:inline">
               Unsaved changes
             </span>
           )}
@@ -119,7 +119,7 @@ export default function RoutingRulesPanel({
         </div>
       </div>
 
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <p className="mb-3 text-[11px] text-[#aeaeb2]">
           Choose which platforms receive alerts for each severity. Empty rows
           route to all enabled platforms (backward compatible).

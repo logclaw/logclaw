@@ -50,7 +50,7 @@ export default function AnomalyConfigPanel({
 
   return (
     <div className="rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-5 py-3.5">
+      <div className="flex items-center justify-between border-b border-[#f2f2f7] px-4 py-3.5 sm:px-5">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-[#aeaeb2]" />
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#aeaeb2]">
@@ -71,7 +71,7 @@ export default function AnomalyConfigPanel({
         </button>
       </div>
 
-      <div className="p-5 space-y-5">
+      <div className="p-4 space-y-5 sm:p-5">
         {/* Bridge thresholds */}
         <div>
           <h4 className="mb-3 text-[12px] font-semibold text-[#1d1d1f]">

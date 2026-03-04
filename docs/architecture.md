@@ -3,139 +3,162 @@ title: Architecture
 description: Deployment model, data flow, and component roles for the LogClaw platform.
 ---
 
-# LogClaw Architecture Overview
+# Architecture
 
 ## Deployment Model
 
-LogClaw uses a **namespace-per-tenant, dedicated-instance** model. Every tenant receives
-its own isolated Kubernetes namespace (`logclaw-<tenantId>`) containing a full, dedicated
-copy of every component. There is no shared data plane between tenants.
+LogClaw uses a **namespace-per-tenant, dedicated-instance** model. Every tenant receives its own isolated Kubernetes namespace (`logclaw-<tenantId>`) containing a full, dedicated copy of every component. There is no shared data plane between tenants.
 
-Cluster-scoped operators (Strimzi, Flink Operator, ESO, cert-manager, OpenSearch Operator)
-are installed once per cluster and watch all tenant namespaces via label selectors. Tenant
-workloads are provisioned and reconciled through ArgoCD ApplicationSet, which generates one
-ArgoCD Application per tenant values file committed to `gitops/tenants/`.
+Cluster-scoped operators (Strimzi, Flink Operator, ESO, cert-manager, OpenSearch Operator) are installed once per cluster and watch all tenant namespaces via label selectors. Tenant workloads are provisioned and reconciled through ArgoCD ApplicationSet, which generates one ArgoCD Application per tenant values file committed to `gitops/tenants/`.
 
 ## Data Flow
 
 ```
-External Log Sources (apps, infra, cloud)
-     |                         |
-     | OTLP/gRPC :4317         | OTLP/HTTP :4318
-     v                         v
-  +-----------------------------+
-  |   logclaw-otel-collector    |  OpenTelemetry Collector
-  |   (OTLP-native ingestion)  |  batching, tenant enrichment
-  +-----------------------------+
-           |  Kafka produce (otlp_json)
-           v
-  +-----------------+
-  |  logclaw-kafka  |  Apache Kafka (KRaft mode)
-  |  (Event Bus)    |  raw-logs topic, per-tenant
-  +-----------------+
-        |         |
-        |         +-----> logclaw-flink (stream processing)
-        |         |            |  anomaly scores, aggregations
-        |         |            v
-        |         +-----> logclaw-bridge (OTLP ETL + trace
-        |                      |  correlation + anomaly detection)
-        |                      v
-        |              logclaw-opensearch
-        |              (search + analytics)
-        |                      |
-        v                      v
-  logclaw-platform       logclaw-ml-engine
-  (RBAC, NetworkPolicy,  (KServe inference,
-   SecretStore)           model serving)
-                               |
-                        logclaw-airflow
-                        (ML pipeline DAGs,
-                         retraining jobs)
-                               |
-                        logclaw-ticketing-agent
-                        (AI SRE: PagerDuty,
-                         Jira, ServiceNow)
-                               |
-                        logclaw-dashboard
-                        (Next.js UI: incidents,
-                         anomaly viz, log ingestion)
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Log Sources                                  │
+│   Apps, Infrastructure, Cloud Services, CI/CD, Kubernetes Pods      │
+└──────────────┬──────────────────────────┬───────────────────────────┘
+               │ OTLP/gRPC :4317          │ OTLP/HTTP :4318
+               ▼                          ▼
+        ┌──────────────────────────────────────┐
+        │       logclaw-otel-collector         │
+        │   OTLP receiver → batch → enrich    │
+        │   (tenant_id injection, batching)    │
+        └──────────────────┬───────────────────┘
+                           │ Kafka produce (otlp_json, lz4)
+                           ▼
+        ┌──────────────────────────────────────┐
+        │          logclaw-kafka               │
+        │   KRaft mode (Strimzi)               │
+        │   Topics: raw-logs, enriched-logs    │
+        └──────┬──────────────────┬────────────┘
+               │                  │
+     ┌─────────▼──────┐   ┌──────▼────────────────────────────────┐
+     │ logclaw-flink  │   │         logclaw-bridge                │
+     │ Stream jobs    │   │  Thread 1: OTLP ETL (flatten→enrich) │
+     │ (production)   │   │  Thread 2: Anomaly detection (Z-score)│
+     │                │   │  Thread 3: OpenSearch indexer          │
+     │                │   │  Thread 4: Request lifecycle engine    │
+     └────────────────┘   │           (5-layer trace correlation) │
+                          └──────┬────────────────┬───────────────┘
+                                 │                │
+                    ┌────────────▼──┐    ┌────────▼──────────────┐
+                    │  OpenSearch   │    │  logclaw-ticketing    │
+                    │  (search +   │    │  AI SRE Agent         │
+                    │   analytics) │    │  (PagerDuty, Jira,    │
+                    └──────┬───────┘    │   ServiceNow, etc.)   │
+                           │            └───────────────────────┘
+                    ┌──────▼───────┐
+                    │  Dashboard   │◄── logclaw-agent
+                    │  (Next.js)   │    (infra health metrics)
+                    └──────────────┘
 ```
 
-## Component Roles
+## Component Details
 
-| Chart | Role | Key Technology |
-|---|---|---|
-| `logclaw-platform` | API gateway, tenant dashboard, RBAC bootstrap | Kubernetes Ingress, OIDC |
-| `logclaw-otel-collector` | OTLP-native log ingestion gateway | OpenTelemetry Collector Contrib |
-| `logclaw-kafka` | Durable event bus, log retention | Strimzi KRaft Kafka |
-| `logclaw-flink` | Real-time stream processing, anomaly detection | Apache Flink |
-| `logclaw-opensearch` | Log search, dashboards, alerting | OpenSearch + Dashboards |
-| `logclaw-ml-engine` | Model inference serving | KServe InferenceService |
-| `logclaw-airflow` | ML pipeline orchestration, DAG scheduling | Apache Airflow |
-| `logclaw-ticketing-agent` | AI SRE agent, ticket creation and routing | Python, LangChain |
-| `logclaw-bridge` | OTLP ETL translator, trace correlation, anomaly detection, lifecycle manager | Python, Kafka consumer |
-| `logclaw-dashboard` | Pipeline UI: log ingestion, incident management, anomaly viz | Next.js 16 |
+### OTel Collector — Ingestion Gateway
 
-> **Bridge vs Flink:** The Bridge provides trace correlation, anomaly detection, and OpenSearch indexing
-> in a single lightweight Python service. In production, Flink handles high-throughput stream processing.
-> For dev/demo environments and early-stage deployments, the Bridge is a simpler alternative that runs
-> without the Flink Operator. Enable both for maximum capability — they process complementary Kafka topics.
+The OpenTelemetry Collector is the **sole entry point** for all log data. It accepts OTLP over both gRPC (`:4317`) and HTTP (`:4318`), the CNCF industry standard supported by Datadog, Splunk, Grafana, AWS, GCP, and Azure.
+
+**Pipeline:** `otlp receiver` → `memory_limiter` → `resource processor` (inject `tenant_id`) → `batch` → `kafka exporter` (`otlp_json`, lz4 compression)
+
+### Kafka — Event Bus
+
+Apache Kafka (Strimzi, KRaft mode — no ZooKeeper) provides the durable event bus. Two primary topics:
+
+| Topic | Producer | Consumer | Format |
+|-------|----------|----------|--------|
+| `raw-logs` | OTel Collector | Bridge / Flink | OTLP JSON |
+| `enriched-logs` | Bridge / Flink | Ticketing Agent | Flat JSON (normalized) |
+
+### Bridge — ETL + Intelligence Engine
+
+The Bridge is a Python service running 4 concurrent threads:
+
+| Thread | Role | Details |
+|--------|------|---------|
+| **OTLP ETL** | Flatten OTLP JSON → normalized documents | Unwraps `resourceLogs → scopeLogs → logRecords`, extracts body, severity, traceId, spanId, timestamps |
+| **Anomaly Detection** | Z-score based anomaly scoring | Sliding window over error rates per service, configurable threshold and window size |
+| **OpenSearch Indexer** | Bulk index enriched documents | Reads from `enriched-logs`, writes to `logclaw-logs-YYYY.MM.dd` indices |
+| **Request Lifecycle** | 5-layer trace correlation engine | Groups logs by traceId → builds request timelines → computes blast radius → generates incident context |
+
+<Note>
+**Bridge vs Flink:** The Bridge provides trace correlation, anomaly detection, and OpenSearch indexing in a single lightweight Python service. For high-throughput production, Flink handles stream processing. For dev/demo and early-stage deployments, the Bridge is simpler — no Flink Operator needed. Enable both for maximum capability.
+</Note>
+
+### OpenSearch — Search & Analytics
+
+OpenSearch provides full-text search, log analytics, and visualization. Deployed with dedicated master and data nodes for production tiers. Index pattern: `logclaw-logs-YYYY.MM.dd` with automatic ILM policies.
+
+### Ticketing Agent — AI SRE
+
+The Ticketing Agent consumes anomalies from Kafka, correlates them with trace data, and creates deduplicated incident tickets across 6 platforms:
+
+- **PagerDuty** — severity-based routing with auto-acknowledgment
+- **Jira** — project/issue type mapping with custom fields
+- **ServiceNow** — CMDB integration with assignment groups
+- **OpsGenie** — team-based routing with schedules
+- **Slack** — webhook notifications with thread updates
+- **Zammad** — in-cluster ticketing (self-hosted option)
+
+### ML Engine — Model Inference
+
+Feast Feature Store + KServe InferenceService for serving anomaly detection models. Airflow orchestrates retraining DAGs that pull features from Feast, train models, and deploy updated InferenceServices.
+
+### Infrastructure Agent — Cluster Health
+
+A Go-based sidecar that collects infrastructure health metrics:
+
+| Collector | Data Source | Metrics |
+|-----------|-------------|---------|
+| **Kafka** | Strimzi CRDs | Consumer lag, broker status, topic health |
+| **Flink** | Flink Operator CRDs | Job state, task manager status |
+| **OpenSearch** | OpenSearch REST API | Cluster health, index stats, node stats |
+| **ESO** | External Secrets CRDs | Secret sync status, last sync time |
+
+Exposes `/health`, `/ready`, and `/metrics` endpoints consumed by the Dashboard.
+
+### Dashboard — Web UI
+
+Next.js application providing:
+- **Log ingestion** — drag-and-drop JSON/NDJSON file upload via OTLP proxy
+- **Pipeline monitoring** — real-time throughput visualization (Ingest → Stream → Process → Index)
+- **Incident management** — view, acknowledge, resolve, escalate incidents
+- **Anomaly visualization** — charts showing anomaly scores and affected services
+- **System configuration** — runtime config for ticketing platforms, anomaly thresholds, LLM settings
 
 ## Multi-Cloud Abstraction
 
 LogClaw abstracts provider-specific details through two global configuration surfaces:
 
-**Object Storage** (`global.objectStorage`):
-- `provider: s3` — AWS S3 or any S3-compatible endpoint (MinIO, Ceph)
-- `provider: gcs` — Google Cloud Storage
-- `provider: azure` — Azure Blob Storage
+<CardGroup cols={2}>
+  <Card title="Object Storage" icon="bucket">
+    `s3` — AWS S3 or S3-compatible (MinIO, Ceph)
+    `gcs` — Google Cloud Storage
+    `azure` — Azure Blob Storage
+  </Card>
+  <Card title="Secret Management" icon="key">
+    `aws` — AWS Secrets Manager (ESO)
+    `gcp` — Google Secret Manager
+    `vault` — HashiCorp Vault
+    `azure` — Azure Key Vault
+  </Card>
+</CardGroup>
 
-**Secret Management** (`global.secretStore`):
-- `provider: aws` — AWS Secrets Manager via ESO ClusterSecretStore
-- `provider: gcp` — Google Secret Manager
-- `provider: vault` — HashiCorp Vault
-- `provider: azure` — Azure Key Vault
+The same Helm chart works across AWS, GCP, Azure, and on-prem clusters. Only the provider, region, and bucket/endpoint fields differ.
 
-The same Helm chart values file works across AWS, GCP, Azure, and on-prem clusters.
-Only the `provider`, `region`/`projectId`, and bucket/endpoint fields differ.
+## Tier Profiles
 
-## 30-Minute Tenant Onboarding Flow
-
-```
-t=0m   Operator copies _template.yaml -> gitops/tenants/<tenantId>.yaml
-       fills required fields, commits and pushes to main branch
-
-t=1m   ArgoCD ApplicationSet detects new file via Git generator
-       creates ArgoCD Application: logclaw-tenant-<tenantId>
-
-t=2m   ArgoCD begins sync: creates namespace logclaw-<tenantId>
-       applies namespace labels (PSA, tenant metadata)
-
-t=5m   logclaw-platform deploys: RBAC, NetworkPolicy, ClusterSecretStore
-
-t=8m   logclaw-kafka deploys: KafkaNodePool + Kafka CR reconciled by Strimzi
-       ZooKeeper-free KRaft cluster initialises
-
-t=12m  logclaw-otel-collector deploys: OTel Collector connects to Kafka bootstrap
-
-t=15m  logclaw-opensearch deploys: OpenSearch cluster reaches green status
-
-t=18m  logclaw-flink deploys: FlinkDeployment CR reconciled,
-       anomaly detection job enters RUNNING state
-
-t=22m  logclaw-ml-engine deploys: KServe InferenceService becomes Ready
-
-t=25m  logclaw-airflow deploys: Airflow webserver + scheduler healthy
-
-t=28m  logclaw-ticketing-agent deploys: agent connects to Kafka,
-       validates ticketing provider credentials
-
-t=29m  logclaw-bridge deploys (if enabled): trace correlation engine
-       connects to Kafka + OpenSearch
-
-t=30m  logclaw-dashboard deploys (if enabled): Next.js UI available
-       on ClusterIP or LoadBalancer
-
-t=30m  All ArgoCD Application health checks green
-       Tenant is fully operational
-```
+| Setting | standard | ha | ultra-ha |
+|---------|----------|-----|----------|
+| Kafka brokers | 1 | 3 | 5 |
+| Kafka storage / broker | 100 Gi | 1 Ti | 2 Ti |
+| OpenSearch masters | 1 | 3 | 3 |
+| OpenSearch data nodes | 1 | 3 | 5 |
+| OpenSearch disk / node | 100 Gi | 1 Ti | 2 Ti |
+| OTel Collector replicas | 1 | 3 | 5 |
+| Flink task managers | 1 | 2 | 4 |
+| Ticketing agent replicas | 1 | 2 | 3 |
+| ML Engine replicas | 1 | 2 | 3 |
+| PodDisruptionBudget | No | Yes | Yes |
+| TopologySpread | No | Zone | Zone + Node |
