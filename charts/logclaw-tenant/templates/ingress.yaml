@@ -1,6 +1,44 @@
 {{- if and .Values.ingress .Values.ingress.enabled }}
 {{- /* ════════════════════════════════════════════════════════════════════
-     Ingress: API endpoint (log ingestion)
+     Ingress: OTLP endpoint (OTel Collector — gRPC :4317, HTTP :4318)
+     ════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.ingress.otel }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-otel
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.otel.host }}
+      secretName: {{ .Release.Name }}-otel-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.otel.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-logclaw-otel-collector
+                port:
+                  number: 4318
+{{- end }}
+---
+{{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: API endpoint (legacy — routes to OTel Collector)
      ════════════════════════════════════════════════════════════════════ */}}
 {{- if .Values.ingress.api }}
 apiVersion: networking.k8s.io/v1
@@ -12,7 +50,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
 spec:
-  ingressClassName: nginx
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
   rules:
     - host: {{ .Values.ingress.api.host }}
       http:
@@ -21,9 +59,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-logclaw-ingestion
+                name: {{ .Release.Name }}-logclaw-otel-collector
                 port:
-                  number: 8080
+                  number: 4318
 {{- end }}
 ---
 {{- /* ════════════════════════════════════════════════════════════════════

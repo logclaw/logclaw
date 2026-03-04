@@ -25,10 +25,12 @@ clusterServer: ""
 # ═════════════════════════════════════════════════════════════════════════════
 ingress:
   enabled: true
+  otel:
+    host: "otel.logclaw.ai"         # OTLP HTTP ingestion (POST /v1/logs)
   dashboard:
     host: "app.logclaw.ai"
   api:
-    host: "api.logclaw.ai"
+    host: "api.logclaw.ai"          # legacy — routes to OTel Collector
   airflow:
     host: "airflow.logclaw.ai"
   flink:
