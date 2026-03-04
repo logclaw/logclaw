@@ -10,7 +10,7 @@
 #   1. Kafka partitions (raw-logs 6, enriched 6)  → horizontal Flink parallelism
 #   2. OpenSearch data node replicas (1→3)         → search throughput
 #   3. Flink TM replicas + parallelism             → processing throughput
-#   4. Ingestion replicas (HPA 1→8)                → ingest throughput
+#   4. OTel Collector replicas (2→8)                → ingest throughput
 #   5. Kafka brokers (1→3) + replication.factor 3  → durability + throughput
 #
 # Deploy:    GCP_PROJECT_ID=project-565165fe-d4ff-48fd-a54 ./scripts/setup-gke.sh
@@ -114,7 +114,9 @@ global:
 platform:
   enabled: true
 ingestion:
-  enabled: true
+  enabled: false               # deprecated: replaced by OTel Collector
+otelCollector:
+  enabled: true                # OTLP ingestion gateway (gRPC :4317, HTTP :4318)
 kafka:
   enabled: true
 opensearch:
@@ -141,7 +143,7 @@ zammad:
 #   Kafka       ~2 vCPU / 4 Gi    (broker + ZK)
 #   OpenSearch  ~3 vCPU / 8 Gi    (master + data)
 #   Flink       ~4 vCPU / 8 Gi    (3 JMs + 3 TMs)
-#   Ingestion   ~0.5 vCPU / 512 Mi (scales via HPA)
+#   OTel Coll.  ~0.5 vCPU / 512 Mi (2 replicas)
 #   Airflow     ~2 vCPU / 4 Gi    (webserver + scheduler + PG)
 #   ML Engine   ~0.5 vCPU / 1 Gi  (Feast + Redis)
 #   Bridge      ~0.5 vCPU / 512 Mi
@@ -255,18 +257,9 @@ logclaw-opensearch:
     masterNodes:
       minAvailable: 0
 
-# ── Ingestion — Vector log receiver (HPA-enabled) ────────────────────────
-logclaw-ingestion:
-  replicaCount: 1
-  autoscaling:
-    enabled: true
-    minReplicas: 1
-    maxReplicas: 8
-    targetCPUUtilizationPercentage: 70
-  sources:
-    http:
-      tls:
-        enabled: false
+# ── OTel Collector — OTLP ingestion gateway ──────────────────────────────
+logclaw-otel-collector:
+  replicaCount: 2
   resources:
     requests:
       cpu: "200m"

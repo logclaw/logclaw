@@ -2,7 +2,7 @@ apiVersion: v2
 name: logclaw-tenant
 description: >
   LogClaw AI-powered SRE Agent — Umbrella chart for a single tenant deployment.
-  Installs all subsystems: ingestion edge, Kafka, Flink, OpenSearch,
+  Installs all subsystems: OTel Collector (OTLP ingestion), Kafka, Flink, OpenSearch,
   ML engine, Airflow, Ticketing Agent, Bridge (trace correlation), and Dashboard.
 type: application
 version: 0.1.0
@@ -27,6 +27,10 @@ dependencies:
     version: "0.1.0"
     repository: "file://../logclaw-ingestion"
     condition: ingestion.enabled
+  - name: logclaw-otel-collector
+    version: "0.1.0"
+    repository: "file://../logclaw-otel-collector"
+    condition: otelCollector.enabled
   - name: logclaw-kafka
     version: "0.1.0"
     repository: "file://../logclaw-kafka"

@@ -1,0 +1,83 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-otel-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-otel-collector.labels" . | nindent 4 }}
+  annotations:
+    logclaw.io/purpose: >
+      Controls ingress/egress for the OTel Collector pods.
+      Allows: OTLP ingest (gRPC 4317, HTTP 4318), Kafka egress,
+      DNS resolution, and Prometheus scraping.
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-otel-collector.selectorLabels" . | nindent 6 }}
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # --- Allow inbound OTLP logs via gRPC and HTTP from any source ---
+    # Enterprise apps send logs via OTLP protocol; the cloud provider's
+    # NLB / PrivateLink enforces network-level restrictions.
+    - ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+      # No `from` block = allow from all sources (required for PrivateLink NLB health checks)
+
+    # --- Allow Prometheus scraping on metrics port ---
+    - ports:
+        - port: 8888
+          protocol: TCP
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ ((.Values.global).monitoring).prometheusNamespace | default "monitoring" }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        # Allow scraping from Prometheus in the same namespace
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+
+    # --- Allow health check port from within the namespace ---
+    - ports:
+        - port: 13133
+          protocol: TCP
+      from:
+        - podSelector: {}
+
+  egress:
+    # --- Allow outbound to Kafka brokers on port 9093 (TLS) ---
+    - ports:
+        - port: 9093
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+
+    # --- Also allow plaintext Kafka port 9092 (for environments without mTLS) ---
+    - ports:
+        - port: 9092
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+
+    # --- Allow DNS resolution via kube-dns ---
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns

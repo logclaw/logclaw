@@ -1,0 +1,13 @@
+apiVersion: v2
+name: logclaw-otel-collector
+description: >
+  LogClaw OpenTelemetry Collector ingestion gateway.
+  Receives logs via OTLP (gRPC :4317, HTTP :4318), applies memory limiting,
+  resource enrichment, and batching, then exports to Kafka in otlp_json encoding.
+type: application
+version: 0.1.0
+appVersion: "0.114.0"
+kubeVersion: ">=1.27.0-0"
+maintainers:
+  - name: LogClaw Platform Team
+    email: platform@logclaw.io

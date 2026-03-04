@@ -1,0 +1,63 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: "otel/opentelemetry-collector-contrib"
+  tag: "0.114.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+
+# OTel Collector pipeline configuration
+config:
+  processors:
+    memoryLimiter:
+      checkIntervalMs: 1000
+      limitMib: 800
+      spikeLimitMib: 200
+    batch:
+      sendBatchSize: 1000
+      timeout: "5s"
+  exporters:
+    kafka:
+      encoding: "otlp_json"
+      compression: "lz4"
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+  prometheus.io/path: "/metrics"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

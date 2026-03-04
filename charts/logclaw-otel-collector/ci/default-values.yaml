@@ -1,0 +1,5 @@
+global:
+  tenantId: "ci-test"
+  kafkaBrokers: "localhost:9092"
+  kafkaTopics:
+    rawLogs: "raw-logs"

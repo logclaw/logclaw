@@ -40,7 +40,9 @@ global:
 platform:
   enabled: true
 ingestion:
-  enabled: true
+  enabled: false               # deprecated: replaced by OTel Collector
+otelCollector:
+  enabled: true                # OTLP ingestion gateway (gRPC :4317, HTTP :4318)
 kafka:
   enabled: true
 flink:
@@ -112,7 +114,7 @@ logclaw-ticketing-agent:
 #     data:
 #       diskSize: "500Gi"
 
-# logclaw-ingestion:
+# logclaw-otel-collector:
 #   replicaCount: 3
 
 # logclaw-bridge:
