@@ -1,3 +1,8 @@
+---
+title: Values Reference
+description: Full configuration reference for all LogClaw Helm chart values.
+---
+
 # Values Reference
 
 This document describes all top-level `global.*` values accepted by the LogClaw umbrella
@@ -31,14 +36,14 @@ These top-level boolean maps control which sub-charts are rendered by the umbrel
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `platform.enabled` | bool | No | `true` | Deploy `logclaw-platform` (API gateway, RBAC, NetworkPolicy). Disabling also disables the ingress entry point. |
-| `ingestion.enabled` | bool | No | `true` | Deploy `logclaw-ingestion` (OpenTelemetry Collector). Disable if you use a separate log shipping solution. |
+| `otelCollector.enabled` | bool | No | `true` | Deploy `logclaw-otel-collector` (OpenTelemetry Collector). OTLP-native log ingestion gateway accepting gRPC (:4317) and HTTP (:4318). Disable if you use a separate log shipping solution. |
 | `kafka.enabled` | bool | No | `true` | Deploy `logclaw-kafka` (Strimzi Kafka cluster). Required by `flink` and `ticketingAgent`. |
 | `flink.enabled` | bool | No | `true` | Deploy `logclaw-flink` (stream processing jobs). Requires `kafka.enabled=true`. |
 | `opensearch.enabled` | bool | No | `true` | Deploy `logclaw-opensearch` (search cluster + dashboards). Required by `ticketingAgent`. |
 | `mlEngine.enabled` | bool | No | `true` | Deploy `logclaw-ml-engine` (KServe InferenceService). Requires GPU nodes or CPU-only inference image override. |
 | `airflow.enabled` | bool | No | `true` | Deploy `logclaw-airflow` (pipeline orchestration). |
 | `ticketingAgent.enabled` | bool | No | `true` | Deploy `logclaw-ticketing-agent` (AI SRE agent). Requires `kafka.enabled=true` and `opensearch.enabled=true`. |
-| `bridge.enabled` | bool | No | `false` | Deploy `logclaw-bridge` (trace correlation engine). Dev/demo alternative to Flink — provides anomaly detection, trace correlation, and OpenSearch indexing in a single service. Can run alongside Flink. |
+| `bridge.enabled` | bool | No | `false` | Deploy `logclaw-bridge` (OTLP ETL + trace correlation engine). Flattens OTLP JSON from Kafka `raw-logs` into canonical log documents, performs anomaly detection, trace correlation, and OpenSearch indexing. Dev/demo alternative to Flink. Can run alongside Flink. |
 | `dashboard.enabled` | bool | No | `false` | Deploy `logclaw-dashboard` (Next.js pipeline UI). Provides log ingestion drag-and-drop, incident management, anomaly visualization, and real-time pipeline monitoring. |
 
 ## Per-Chart Override Syntax
@@ -64,7 +69,7 @@ logclaw-opensearch:
     masters:
       replicas: 3
 
-logclaw-ingestion:
+logclaw-otel-collector:
   replicaCount: 10
   autoscaling:
     enabled: true
@@ -132,7 +137,7 @@ logclaw-dashboard:
 | OpenSearch masters | 1 | 3 | 3 |
 | OpenSearch data nodes | 1 | 3 | 5 |
 | OpenSearch disk per data node | 100Gi | 1Ti | 2Ti |
-| Ingestion replicas | 1 | 3 | 5 |
+| OTel Collector replicas | 1 | 3 | 5 |
 | Flink task managers | 1 | 2 | 4 |
 | Ticketing agent replicas | 1 | 2 | 3 |
 | ML Engine replicas | 1 | 2 | 3 |
@@ -147,7 +152,7 @@ When using `helmfile`, the following environment variables are consumed by `helm
 |---|---|---|---|
 | `TENANT_ID` | all helmfile.d files | `dev-local` | Tenant identifier, injected into release names and namespaces |
 | `STORAGE_CLASS` | `10-platform`, `20-kafka`, `40-opensearch` | `standard` | Overrides `global.storageClass` |
-| `KAFKA_BROKERS` | `30-ingestion`, `50-flink`, `80-ticketing-agent` | `logclaw-kafka-kafka-bootstrap:9093` | Kafka bootstrap server address |
+| `KAFKA_BROKERS` | `30-otel-collector`, `50-flink`, `80-ticketing-agent` | `logclaw-kafka-kafka-bootstrap:9093` | Kafka bootstrap server address |
 | `OBJECT_STORAGE_BUCKET` | `50-flink`, `60-ml-engine` | `logclaw-dev-local` | Object storage bucket name |
 | `OBJECT_STORAGE_PROVIDER` | `50-flink` | `s3` | Object storage provider |
 | `OPENSEARCH_ENDPOINT` | `80-ticketing-agent` | `https://logclaw-opensearch:9200` | OpenSearch base URL |

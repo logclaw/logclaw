@@ -1,3 +1,8 @@
+---
+title: Architecture
+description: Deployment model, data flow, and component roles for the LogClaw platform.
+---
+
 # LogClaw Architecture Overview
 
 ## Deployment Model
@@ -15,24 +20,25 @@ ArgoCD Application per tenant values file committed to `gitops/tenants/`.
 
 ```
 External Log Sources (apps, infra, cloud)
-           |
-           v
-  +-----------------+
-  | logclaw-ingestion|  HTTP/gRPC/syslog ingest
-  |  (Collector)    |  schema validation, enrichment
-  +-----------------+
-           |  Kafka produce
+     |                         |
+     | OTLP/gRPC :4317         | OTLP/HTTP :4318
+     v                         v
+  +-----------------------------+
+  |   logclaw-otel-collector    |  OpenTelemetry Collector
+  |   (OTLP-native ingestion)  |  batching, tenant enrichment
+  +-----------------------------+
+           |  Kafka produce (otlp_json)
            v
   +-----------------+
   |  logclaw-kafka  |  Apache Kafka (KRaft mode)
-  |  (Event Bus)    |  multi-topic, per-tenant
+  |  (Event Bus)    |  raw-logs topic, per-tenant
   +-----------------+
         |         |
         |         +-----> logclaw-flink (stream processing)
         |         |            |  anomaly scores, aggregations
         |         |            v
-        |         +-----> logclaw-bridge (trace correlation,
-        |                      |  dev/demo alternative to Flink)
+        |         +-----> logclaw-bridge (OTLP ETL + trace
+        |                      |  correlation + anomaly detection)
         |                      v
         |              logclaw-opensearch
         |              (search + analytics)
@@ -60,14 +66,14 @@ External Log Sources (apps, infra, cloud)
 | Chart | Role | Key Technology |
 |---|---|---|
 | `logclaw-platform` | API gateway, tenant dashboard, RBAC bootstrap | Kubernetes Ingress, OIDC |
-| `logclaw-ingestion` | Multi-protocol log collector and forwarder | OpenTelemetry Collector |
+| `logclaw-otel-collector` | OTLP-native log ingestion gateway | OpenTelemetry Collector Contrib |
 | `logclaw-kafka` | Durable event bus, log retention | Strimzi KRaft Kafka |
 | `logclaw-flink` | Real-time stream processing, anomaly detection | Apache Flink |
 | `logclaw-opensearch` | Log search, dashboards, alerting | OpenSearch + Dashboards |
 | `logclaw-ml-engine` | Model inference serving | KServe InferenceService |
 | `logclaw-airflow` | ML pipeline orchestration, DAG scheduling | Apache Airflow |
 | `logclaw-ticketing-agent` | AI SRE agent, ticket creation and routing | Python, LangChain |
-| `logclaw-bridge` | Trace correlation engine, anomaly detection, lifecycle manager | Python, Kafka consumer |
+| `logclaw-bridge` | OTLP ETL translator, trace correlation, anomaly detection, lifecycle manager | Python, Kafka consumer |
 | `logclaw-dashboard` | Pipeline UI: log ingestion, incident management, anomaly viz | Next.js 16 |
 
 > **Bridge vs Flink:** The Bridge provides trace correlation, anomaly detection, and OpenSearch indexing
@@ -110,7 +116,7 @@ t=5m   logclaw-platform deploys: RBAC, NetworkPolicy, ClusterSecretStore
 t=8m   logclaw-kafka deploys: KafkaNodePool + Kafka CR reconciled by Strimzi
        ZooKeeper-free KRaft cluster initialises
 
-t=12m  logclaw-ingestion deploys: OTel Collector connects to Kafka bootstrap
+t=12m  logclaw-otel-collector deploys: OTel Collector connects to Kafka bootstrap
 
 t=15m  logclaw-opensearch deploys: OpenSearch cluster reaches green status
 

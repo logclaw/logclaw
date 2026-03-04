@@ -1,3 +1,8 @@
+---
+title: Tenant Onboarding
+description: Provision a new LogClaw tenant from zero to fully operational in 30 minutes.
+---
+
 # Tenant Onboarding Guide
 
 This guide walks through provisioning a new LogClaw tenant from zero to fully operational.
@@ -63,14 +68,14 @@ Enable or disable components as needed:
 
 ```yaml
 platform:       { enabled: true }
-ingestion:      { enabled: true }
+otelCollector:  { enabled: true }   # OTLP-native log ingestion (gRPC :4317, HTTP :4318)
 kafka:          { enabled: true }
 flink:          { enabled: true }
 opensearch:     { enabled: true }
 mlEngine:       { enabled: true }
 airflow:        { enabled: true }
 ticketingAgent: { enabled: true }
-bridge:         { enabled: false }  # Trace correlation engine (dev/demo alternative to Flink)
+bridge:         { enabled: false }  # OTLP ETL + trace correlation (dev/demo alternative to Flink)
 dashboard:      { enabled: false }  # Next.js pipeline UI
 ```
 
@@ -113,7 +118,7 @@ Expected sync wave order:
 1. Namespace creation and labeling
 2. `logclaw-platform` (RBAC, NetworkPolicy)
 3. `logclaw-kafka` (Strimzi reconciles Kafka cluster)
-4. `logclaw-ingestion`, `logclaw-opensearch` (parallel)
+4. `logclaw-otel-collector`, `logclaw-opensearch` (parallel)
 5. `logclaw-flink` (depends on Kafka)
 6. `logclaw-ml-engine`, `logclaw-airflow` (parallel)
 7. `logclaw-ticketing-agent`
@@ -154,10 +159,17 @@ kubectl get flinkdeployment -n logclaw-<tenantId>
 # Expected: LIFECYCLE_STATE=STABLE, JOB_STATE=RUNNING
 ```
 
-**Ingestion**
+**OTel Collector (Ingestion)**
 ```bash
-kubectl get pods -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-ingestion
+kubectl get pods -n logclaw-<tenantId> -l app.kubernetes.io/name=logclaw-otel-collector
 # Expected: all pods Running
+
+# Verify OTLP endpoint is accepting logs
+kubectl port-forward svc/logclaw-otel-collector-<tenantId> 4318:4318 -n logclaw-<tenantId>
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:4318/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '{"resourceLogs":[]}'
+# Expected: 200
 ```
 
 **ML Engine**
