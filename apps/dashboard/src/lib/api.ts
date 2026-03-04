@@ -320,6 +320,7 @@ export async function fetchPipelineThroughput(): Promise<PipelineThroughput> {
   };
 
   const etlConsumed = metric("logclaw_bridge_etl_consumed_total");
+  const etlRecordsReceived = metric("logclaw_bridge_etl_records_received_total");
   const etlProduced = metric("logclaw_bridge_etl_produced_total");
   const anomalyDetected = metric("logclaw_bridge_anomaly_detected_total");
   const indexerIndexed = metric("logclaw_bridge_indexer_indexed_total");
@@ -367,8 +368,11 @@ export async function fetchPipelineThroughput(): Promise<PipelineThroughput> {
     : "down";
 
   return {
-    ingestCount: etlConsumed || logsDocCount,
-    streamCount: etlConsumed || logsDocCount,
+    // ingestCount: individual OTLP log records received by Bridge
+    // (falls back to etlProduced, then OpenSearch doc count)
+    ingestCount: etlRecordsReceived || etlProduced || logsDocCount,
+    // streamCount: individual docs written to Kafka enriched-logs
+    streamCount: etlProduced || logsDocCount,
     processCount: etlProduced || logsDocCount,
     processErrors: indexerErrors,
     indexCount: indexerIndexed || logsDocCount + anomaliesDocCount,

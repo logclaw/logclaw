@@ -108,6 +108,7 @@ anomaly_queue: deque = deque(maxlen=10_000)  # Thread 2 -> Thread 3
 # Metrics counters (simple atomic-ish ints protected by the GIL)
 metrics = {
     "etl_consumed": 0,
+    "etl_records_received": 0,
     "etl_produced": 0,
     "etl_errors": 0,
     "anomaly_consumed": 0,
@@ -192,6 +193,7 @@ def etl_consumer_loop():
                         metrics["etl_consumed"] += 1
                         try:
                             flat_docs = _flatten_otlp(msg.value)
+                            metrics["etl_records_received"] += len(flat_docs)
                             for doc in flat_docs:
                                 producer.send(KAFKA_TOPIC_ENRICHED, value=doc)
                                 metrics["etl_produced"] += 1
