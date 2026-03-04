@@ -279,7 +279,7 @@ logclaw-ingestion:
 logclaw-bridge:
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/bridge"
-    tag: "1.1.0"
+    tag: "1.3.0"
   bridge:
     resources:
       requests:

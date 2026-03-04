@@ -32,7 +32,7 @@ spec:
     jarURI: local:///opt/flink/jobs/logclaw-enrichment-{{ .Values.flink.jobImageTag }}.jar
     entryClass: "io.logclaw.flink.EnrichmentJob"
     parallelism: {{ .Values.flink.enrichmentJob.parallelism }}
-    upgradeMode: stateless
+    upgradeMode: last-state
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"

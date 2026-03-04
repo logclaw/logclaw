@@ -12,6 +12,7 @@ Architecture:
   Main thread         : HTTP health/ready/metrics server on :8080
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -381,20 +382,48 @@ def opensearch_indexer_loop():
                         metrics["indexer_consumed"] += 1
                         doc = msg.value
                         today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-                        buffer.append({
+                        action = {
                             "_index": f"logclaw-logs-{today}",
                             "_source": doc,
-                        })
+                        }
+                        # Idempotent writes: use a deterministic _id so duplicate
+                        # Kafka messages (e.g. from Flink restarts) overwrite instead
+                        # of creating extra documents.
+                        if isinstance(doc, dict):
+                            doc_id = doc.get("log_id")
+                            if not doc_id:
+                                # Fallback: hash trace_id + span_id + timestamp
+                                tid = doc.get("trace_id", "")
+                                sid = doc.get("span_id", "")
+                                ts = doc.get("timestamp", "")
+                                if tid and ts:
+                                    key = f"{tid}|{sid}|{ts}"
+                                    doc_id = hashlib.sha256(key.encode()).hexdigest()[:20]
+                            if doc_id:
+                                action["_id"] = doc_id
+                        buffer.append(action)
 
                 # Drain anomaly queue into buffer
                 while anomaly_queue:
                     try:
                         anomaly = anomaly_queue.popleft()
                         today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-                        buffer.append({
+                        a_action = {
                             "_index": f"logclaw-anomalies-{today}",
                             "_source": anomaly,
-                        })
+                        }
+                        if isinstance(anomaly, dict):
+                            a_id = anomaly.get("anomaly_id")
+                            if not a_id:
+                                # Deterministic fallback for anomalies
+                                svc = anomaly.get("service", "")
+                                ts = anomaly.get("timestamp", "")
+                                if svc and ts:
+                                    key = f"anomaly|{svc}|{ts}"
+                                    a_id = hashlib.sha256(key.encode()).hexdigest()[:20]
+                            if a_id:
+                                a_action["_id"] = a_id
+                        buffer.append(a_action)
                     except IndexError:
                         break
 

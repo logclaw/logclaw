@@ -43,7 +43,7 @@ spec:
     jarURI: local:///opt/flink/jobs/logclaw-anomaly-scorer-{{ .Values.flink.jobImageTag }}.jar
     entryClass: "io.logclaw.flink.AnomalyScoringJob"
     parallelism: {{ .Values.flink.anomalyJob.parallelism }}
-    upgradeMode: stateless
+    upgradeMode: last-state
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"

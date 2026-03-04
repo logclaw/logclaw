@@ -32,7 +32,7 @@ spec:
     jarURI: local:///opt/flink/jobs/logclaw-etl-{{ .Values.flink.jobImageTag }}.jar
     entryClass: "io.logclaw.flink.EtlParsingJob"
     parallelism: {{ .Values.flink.etlJob.parallelism }}
-    upgradeMode: stateless
+    upgradeMode: last-state
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).rawLogs | default "raw-logs" }}"
