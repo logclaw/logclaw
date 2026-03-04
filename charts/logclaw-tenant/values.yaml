@@ -15,7 +15,7 @@ global:
   imagePullSecrets: []
   imageRegistry: "ghcr.io/logclaw"
 
-  # Kafka — injected into Flink, Vector, ticketing-agent
+  # Kafka — injected into OTel Collector, Flink, Bridge, ticketing-agent
   kafkaBrokers: ""
   kafkaTopics:
     rawLogs: "raw-logs"
@@ -89,7 +89,10 @@ platform:
   enabled: true
 
 ingestion:
-  enabled: true
+  enabled: false               # deprecated: replaced by OTel Collector (OTLP-native ingestion)
+
+otelCollector:
+  enabled: true                 # OTLP ingestion gateway (gRPC :4317, HTTP :4318)
 
 kafka:
   enabled: true

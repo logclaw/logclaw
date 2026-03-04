@@ -29,8 +29,5 @@ dependencies:
 - name: logclaw-dashboard
   repository: file://../logclaw-dashboard
   version: 0.2.0
-- name: logclaw-zammad
-  repository: file://../logclaw-zammad
-  version: 0.1.0
-digest: sha256:2e9d962b847c8126536c6cd5bf23b72f7ef124ac607494b1bcdcc82f966a2de1
-generated: "2026-03-03T12:47:56.41606-06:00"
+digest: sha256:a8b45479fc0e978e429b0a23069e63f7960b10d2a50caa04d9a7e317b55ea07a
+generated: "2026-03-03T20:39:10.660693-06:00"

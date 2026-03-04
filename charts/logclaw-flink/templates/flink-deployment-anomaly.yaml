@@ -35,15 +35,15 @@ spec:
       memory: {{ .Values.flink.taskManager.memory | quote }}
       cpu: {{ .Values.flink.taskManager.cpu }}
     {{- /*
-    Anomaly scoring is the latency-critical path; run more TaskManagers
-    than other jobs. We double the default replica count, with a minimum of 1.
+    Anomaly scoring is the latency-critical path.  Use dedicated replica count
+    (defaults to global taskManager.replicas).  Scale up independently when needed.
     */}}
-    replicas: {{ max 1 (mul .Values.flink.taskManager.replicas 2) }}
+    replicas: {{ .Values.flink.anomalyJob.taskManagerReplicas | default .Values.flink.taskManager.replicas }}
   job:
     jarURI: local:///opt/flink/jobs/logclaw-anomaly-scorer-{{ .Values.flink.jobImageTag }}.jar
     entryClass: "io.logclaw.flink.AnomalyScoringJob"
     parallelism: {{ .Values.flink.anomalyJob.parallelism }}
-    upgradeMode: stateless
+    upgradeMode: last-state
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"

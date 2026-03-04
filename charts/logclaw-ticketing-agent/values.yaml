@@ -1,7 +1,7 @@
 nameOverride: ""
 fullnameOverride: ""
 
-replicaCount: 3
+replicaCount: 1
 
 image:
   repository: "ghcr.io/logclaw/ticketing-agent"
@@ -135,7 +135,7 @@ resources:
 
 autoscaling:
   enabled: true
-  minReplicas: 3
+  minReplicas: 1
   maxReplicas: 10
   kafkaConsumerLagThreshold: 1000
   targetCPUUtilizationPercentage: 70

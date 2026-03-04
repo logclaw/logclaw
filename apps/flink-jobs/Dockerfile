@@ -32,14 +32,14 @@ RUN mkdir -p /opt/flink/plugins/gcs-fs \
     && echo "GCS plugin: $(stat -c%s /opt/flink/plugins/gcs-fs/flink-gs-fs-hadoop-1.19.1.jar 2>/dev/null || stat -f%z /opt/flink/plugins/gcs-fs/flink-gs-fs-hadoop-1.19.1.jar) bytes"
 
 # Copy fat JARs to /opt/flink/jobs/
-COPY --from=builder /build/logclaw-etl/target/logclaw-etl-0.1.0.jar \
-                    /opt/flink/jobs/logclaw-etl-0.1.0.jar
+COPY --from=builder /build/logclaw-etl/target/logclaw-etl-0.1.1.jar \
+                    /opt/flink/jobs/logclaw-etl-0.1.1.jar
 
-COPY --from=builder /build/logclaw-enrichment/target/logclaw-enrichment-0.1.0.jar \
-                    /opt/flink/jobs/logclaw-enrichment-0.1.0.jar
+COPY --from=builder /build/logclaw-enrichment/target/logclaw-enrichment-0.1.1.jar \
+                    /opt/flink/jobs/logclaw-enrichment-0.1.1.jar
 
-COPY --from=builder /build/logclaw-anomaly-scorer/target/logclaw-anomaly-scorer-0.1.0.jar \
-                    /opt/flink/jobs/logclaw-anomaly-scorer-0.1.0.jar
+COPY --from=builder /build/logclaw-anomaly-scorer/target/logclaw-anomaly-scorer-0.1.1.jar \
+                    /opt/flink/jobs/logclaw-anomaly-scorer-0.1.1.jar
 
 # Verify JARs are not empty
 RUN for jar in /opt/flink/jobs/*.jar; do \

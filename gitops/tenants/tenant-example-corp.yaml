@@ -24,7 +24,9 @@ global:
 platform:
   enabled: true
 ingestion:
-  enabled: true
+  enabled: false               # deprecated: replaced by OTel Collector
+otelCollector:
+  enabled: true                # OTLP ingestion gateway (gRPC :4317, HTTP :4318)
 kafka:
   enabled: true
 flink:
@@ -60,12 +62,8 @@ logclaw-opensearch:
       replicas: 3
       diskSize: "1Ti"
 
-logclaw-ingestion:
+logclaw-otel-collector:
   replicaCount: 5
-  autoscaling:
-    enabled: true
-    minReplicas: 5
-    maxReplicas: 30
 
 # Multi-platform ticketing: PagerDuty for P1 alerting, Jira for all tickets.
 logclaw-ticketing-agent:

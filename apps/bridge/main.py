@@ -1,17 +1,36 @@
 """
 LogClaw Bridge Service — dev-mode replacement for Apache Flink stream processing.
 
-Consumes raw logs from Kafka, normalizes and enriches them, performs statistical
-anomaly detection (z-score on per-service error rates), and bulk-indexes
-enriched logs and anomaly events into OpenSearch.
+Consumes OTLP-encoded log batches from Kafka, flattens each log record into
+the canonical LogClaw format, performs statistical anomaly detection (z-score
+on per-service error rates), and bulk-indexes enriched logs and anomaly events
+into OpenSearch.
 
 Architecture:
-  Thread 1 (ETL)      : raw-logs -> normalize -> enriched-logs
-  Thread 2 (Anomaly)  : enriched-logs -> z-score detector -> anomaly-events
-  Thread 3 (Indexer)  : enriched-logs + anomaly queue -> OpenSearch bulk API
-  Main thread         : HTTP health/ready/metrics server on :8080
+  Thread 1 (OTLP ETL) : raw-logs (otlp_json) -> flatten -> enriched-logs
+  Thread 2 (Anomaly)   : enriched-logs -> z-score detector -> anomaly-events
+  Thread 3 (Indexer)   : enriched-logs + anomaly queue -> OpenSearch bulk API
+  Main thread          : HTTP health/ready/metrics server on :8080
+
+OTLP JSON Wire Format (what arrives on raw-logs topic):
+  {
+    "resourceLogs": [{
+      "resource": { "attributes": [{"key":"service.name","value":{"stringValue":"..."}}] },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "...",
+          "severityText": "INFO",
+          "body": { "stringValue": "..." },
+          "attributes": [...],
+          "traceId": "...",
+          "spanId": "..."
+        }]
+      }]
+    }]
+  }
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -152,18 +171,18 @@ def _opensearch_client() -> OpenSearch:
 
 
 # ---------------------------------------------------------------------------
-# Thread 1: ETL Consumer
+# Thread 1: OTLP ETL Consumer
 # ---------------------------------------------------------------------------
 def etl_consumer_loop():
-    """Read raw logs, normalize fields, and forward to enriched-logs topic."""
-    log.info("ETL consumer starting (group=logclaw-bridge-etl, topic=%s)", KAFKA_TOPIC_RAW)
+    """Read OTLP-encoded log batches, flatten each record, and forward to enriched-logs."""
+    log.info("OTLP ETL consumer starting (group=logclaw-bridge-etl, topic=%s)", KAFKA_TOPIC_RAW)
     consumer = None
     producer = None
     try:
         consumer = _make_consumer(KAFKA_TOPIC_RAW, "logclaw-bridge-etl")
         producer = _make_producer()
         ready_flags["etl"].set()
-        log.info("ETL consumer ready")
+        log.info("OTLP ETL consumer ready")
 
         while not shutdown_event.is_set():
             try:
@@ -172,37 +191,166 @@ def etl_consumer_loop():
                     for msg in messages:
                         metrics["etl_consumed"] += 1
                         try:
-                            enriched = _normalize(msg.value)
-                            producer.send(KAFKA_TOPIC_ENRICHED, value=enriched)
-                            metrics["etl_produced"] += 1
+                            flat_docs = _flatten_otlp(msg.value)
+                            for doc in flat_docs:
+                                producer.send(KAFKA_TOPIC_ENRICHED, value=doc)
+                                metrics["etl_produced"] += 1
                         except Exception:
                             metrics["etl_errors"] += 1
-                            log.exception("ETL normalization error")
+                            log.exception("OTLP flatten error")
             except Exception:
                 if not shutdown_event.is_set():
                     metrics["etl_errors"] += 1
-                    log.exception("ETL poll error")
+                    log.exception("OTLP ETL poll error")
                     time.sleep(2)
     finally:
         _close_safely(consumer, "ETL consumer")
         _close_safely(producer, "ETL producer")
-        log.info("ETL consumer stopped")
+        log.info("OTLP ETL consumer stopped")
 
 
-def _normalize(raw: dict) -> dict:
-    """Ensure consistent field names, uppercase level, add ingest timestamp."""
+# ---------------------------------------------------------------------------
+# OTLP JSON → flat LogClaw document translator
+# ---------------------------------------------------------------------------
+def _extract_otel_attr_value(attr_value: dict):
+    """Extract a scalar value from an OTLP AnyValue wrapper.
+
+    OTLP encodes attribute values as one-of wrappers, e.g.:
+      {"stringValue": "foo"}  |  {"intValue": 42}  |  {"boolValue": true}
+    """
+    for key in ("stringValue", "intValue", "doubleValue", "boolValue"):
+        if key in attr_value:
+            return attr_value[key]
+    if "arrayValue" in attr_value:
+        return [_extract_otel_attr_value(v) for v in attr_value["arrayValue"].get("values", [])]
+    if "kvlistValue" in attr_value:
+        return {
+            kv["key"]: _extract_otel_attr_value(kv["value"])
+            for kv in attr_value["kvlistValue"].get("values", [])
+        }
+    return None
+
+
+def _otel_attrs_to_dict(attrs: list) -> dict:
+    """Convert a list of OTLP KeyValue pairs to a flat dict."""
+    result = {}
+    for kv in attrs:
+        key = kv.get("key", "")
+        value = kv.get("value", {})
+        result[key] = _extract_otel_attr_value(value)
+    return result
+
+
+def _nano_to_iso(nano_str: str) -> str:
+    """Convert OTLP timeUnixNano (string of nanoseconds) to ISO-8601."""
+    try:
+        ns = int(nano_str)
+        dt = datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
+        return dt.isoformat()
+    except (ValueError, TypeError, OSError):
+        return _now_iso()
+
+
+def _flatten_otlp(raw: dict) -> list[dict]:
+    """Flatten an OTLP JSON log batch into a list of canonical LogClaw documents.
+
+    The OTel Collector's Kafka exporter writes one Kafka message per
+    ExportLogsServiceRequest.  Each message has the structure:
+
+        resourceLogs[] → scopeLogs[] → logRecords[]
+
+    This function walks the nested structure, extracts resource-level
+    attributes (service.name, tenant_id, etc.), scope info, and each
+    individual log record — producing one flat dict per log record.
+    """
+    flat_docs: list[dict] = []
+    resource_logs = raw.get("resourceLogs", [])
+
+    for rl in resource_logs:
+        # ── Resource-level attributes (service.name, host.name, etc.) ──
+        resource = rl.get("resource", {})
+        res_attrs = _otel_attrs_to_dict(resource.get("attributes", []))
+
+        service_name = res_attrs.pop("service.name", "unknown")
+        tenant_id = res_attrs.pop("tenant_id", TENANT_ID)
+
+        for sl in rl.get("scopeLogs", []):
+            scope = sl.get("scope", {})
+            scope_name = scope.get("name", "")
+
+            for lr in sl.get("logRecords", []):
+                # ── Core log fields ──
+                body_wrapper = lr.get("body", {})
+                message = body_wrapper.get("stringValue", "")
+                if not message:
+                    message = json.dumps(body_wrapper) if body_wrapper else "(no message)"
+
+                severity = lr.get("severityText", "INFO").upper()
+                if not severity:
+                    severity = "INFO"
+
+                timestamp = _nano_to_iso(lr.get("timeUnixNano", "0"))
+                observed_ts = _nano_to_iso(lr.get("observedTimeUnixNano", "0"))
+
+                # ── Trace context ──
+                trace_id = lr.get("traceId", "")
+                span_id = lr.get("spanId", "")
+
+                # ── Log record attributes ──
+                log_attrs = _otel_attrs_to_dict(lr.get("attributes", []))
+
+                # ── Build canonical flat document ──
+                doc = {
+                    "timestamp": timestamp,
+                    "observed_timestamp": observed_ts,
+                    "ingest_timestamp": _now_iso(),
+                    "level": severity,
+                    "message": message,
+                    "service": service_name,
+                    "tenant_id": tenant_id,
+                    "trace_id": trace_id,
+                    "span_id": span_id,
+                }
+
+                # Merge log-record attributes as top-level fields
+                for k, v in log_attrs.items():
+                    # Avoid overwriting core fields
+                    safe_key = k.replace(".", "_")
+                    if safe_key not in doc:
+                        doc[safe_key] = v
+
+                # Carry resource attributes as prefixed fields
+                for k, v in res_attrs.items():
+                    safe_key = f"resource_{k.replace('.', '_')}"
+                    if safe_key not in doc:
+                        doc[safe_key] = v
+
+                # Scope metadata
+                if scope_name:
+                    doc["scope_name"] = scope_name
+
+                flat_docs.append(doc)
+
+    # Fallback: if the message doesn't look like OTLP at all, treat it as
+    # a simple flat JSON doc (backward compatibility during migration).
+    if not flat_docs and not resource_logs:
+        log.debug("Non-OTLP message received — applying legacy normalize")
+        flat_docs.append(_normalize_legacy(raw))
+
+    return flat_docs
+
+
+def _normalize_legacy(raw: dict) -> dict:
+    """Legacy normalizer for non-OTLP flat JSON messages (migration fallback)."""
     doc = dict(raw)
-    # Ensure level is uppercase
     if "level" in doc:
         doc["level"] = str(doc["level"]).upper()
     else:
         doc["level"] = "INFO"
 
-    # Ensure message exists
     if "message" not in doc or not doc["message"]:
         doc["message"] = "(no message)"
 
-    # Add metadata
     doc["ingest_timestamp"] = _now_iso()
     doc.setdefault("tenant_id", TENANT_ID)
     doc.setdefault("service", "unknown")
@@ -381,20 +529,48 @@ def opensearch_indexer_loop():
                         metrics["indexer_consumed"] += 1
                         doc = msg.value
                         today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-                        buffer.append({
+                        action = {
                             "_index": f"logclaw-logs-{today}",
                             "_source": doc,
-                        })
+                        }
+                        # Idempotent writes: use a deterministic _id so duplicate
+                        # Kafka messages (e.g. from Flink restarts) overwrite instead
+                        # of creating extra documents.
+                        if isinstance(doc, dict):
+                            doc_id = doc.get("log_id")
+                            if not doc_id:
+                                # Fallback: hash trace_id + span_id + timestamp
+                                tid = doc.get("trace_id", "")
+                                sid = doc.get("span_id", "")
+                                ts = doc.get("timestamp", "")
+                                if tid and ts:
+                                    key = f"{tid}|{sid}|{ts}"
+                                    doc_id = hashlib.sha256(key.encode()).hexdigest()[:20]
+                            if doc_id:
+                                action["_id"] = doc_id
+                        buffer.append(action)
 
                 # Drain anomaly queue into buffer
                 while anomaly_queue:
                     try:
                         anomaly = anomaly_queue.popleft()
                         today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-                        buffer.append({
+                        a_action = {
                             "_index": f"logclaw-anomalies-{today}",
                             "_source": anomaly,
-                        })
+                        }
+                        if isinstance(anomaly, dict):
+                            a_id = anomaly.get("anomaly_id")
+                            if not a_id:
+                                # Deterministic fallback for anomalies
+                                svc = anomaly.get("service", "")
+                                ts = anomaly.get("timestamp", "")
+                                if svc and ts:
+                                    key = f"anomaly|{svc}|{ts}"
+                                    a_id = hashlib.sha256(key.encode()).hexdigest()[:20]
+                            if a_id:
+                                a_action["_id"] = a_id
+                        buffer.append(a_action)
                     except IndexError:
                         break
 
@@ -571,7 +747,7 @@ def main():
 
     # Start worker threads
     threads = [
-        threading.Thread(target=etl_consumer_loop, name="etl-consumer", daemon=True),
+        threading.Thread(target=etl_consumer_loop, name="otlp-etl-consumer", daemon=True),
         threading.Thread(target=anomaly_detector_loop, name="anomaly-detector", daemon=True),
         threading.Thread(target=opensearch_indexer_loop, name="opensearch-indexer", daemon=True),
     ]
