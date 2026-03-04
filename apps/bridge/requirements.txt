@@ -1,4 +1,4 @@
 kafka-python-ng==2.2.3
 opensearch-py==2.4.2
-numpy==1.26.4
+numpy==2.4.2
 lz4==4.3.3
