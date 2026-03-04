@@ -26,11 +26,11 @@ This creates a Kind cluster, installs all operators and services, builds the das
 ```
 LogClaw Stack (per tenant, namespace-isolated)
 │
-├── logclaw-ingestion       Vector.dev HTTP receiver (JSON log batches)
+├── logclaw-otel-collector   OpenTelemetry Collector (OTLP gRPC + HTTP)
 ├── logclaw-kafka           Strimzi Kafka 3-broker KRaft cluster
 ├── logclaw-flink           ETL + enrichment + anomaly scoring
 ├── logclaw-opensearch      OpenSearch cluster (hot-tier log storage)
-├── logclaw-bridge          Trace correlation engine + lifecycle manager
+├── logclaw-bridge          OTLP ETL + trace correlation + lifecycle manager
 ├── logclaw-ml-engine       Feast Feature Store + KServe/TorchServe + Ollama
 ├── logclaw-airflow         Apache Airflow (ML training DAGs)
 ├── logclaw-ticketing-agent AI-powered RCA + multi-platform ticketing
@@ -39,7 +39,7 @@ LogClaw Stack (per tenant, namespace-isolated)
 └── logclaw-platform        ESO SecretStore, cert-manager, RBAC baseline
 ```
 
-**Data flow:** Logs → Vector (ingestion) → Kafka → Bridge (ETL + anomaly + trace correlation) → OpenSearch + Ticketing Agent → Incident tickets
+**Data flow:** Logs → OTel Collector (OTLP ingestion) → Kafka → Bridge (OTLP ETL + anomaly + trace correlation) → OpenSearch + Ticketing Agent → Incident tickets
 
 All charts are wired together by the **`logclaw-tenant` umbrella chart** — a single `helm install` deploys the full stack for one tenant.
 
@@ -167,26 +167,37 @@ open http://localhost:8080   # admin / admin
 
 ### 6 — Send logs
 
-LogClaw ingests JSON logs via HTTP. Port-forward the ingestion service:
+LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry standard. Port-forward the OTel Collector:
 
 ```bash
-kubectl port-forward svc/logclaw-ingestion-dev-local 8080:8080 -n logclaw-dev-local &
+kubectl port-forward svc/logclaw-otel-collector-dev-local 4318:4318 -n logclaw-dev-local &
 ```
 
-**Send a single log:**
+**Send a single log via OTLP HTTP:**
 ```bash
-curl -X POST http://localhost:8080 \
+curl -X POST http://localhost:4318/v1/logs \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: dev-local" \
   -d '{
-    "timestamp": "2026-03-03T12:00:00.000Z",
-    "level": "ERROR",
-    "service": "payment-api",
-    "message": "Connection refused to database",
-    "trace_id": "abcdef1234567890abcdef1234567890",
-    "span_id": "abcdef1234567890"
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "payment-api"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "'$(date +%s)000000000'",
+          "severityText": "ERROR",
+          "body": {"stringValue": "Connection refused to database"},
+          "traceId": "abcdef1234567890abcdef1234567890",
+          "spanId": "abcdef12345678"
+        }]
+      }]
+    }]
   }'
 ```
+
+Any OpenTelemetry SDK or agent can send logs to LogClaw — no custom integration needed. See [OTLP Integration Guide](docs/otlp-integration.md) for SDK examples.
 
 **Generate and ingest 900 sample Apple Pay logs:**
 ```bash
@@ -240,10 +251,10 @@ charts/
 ├── logclaw-tenant/           # Umbrella chart — single install entry point
 ├── logclaw-platform/         # ESO SecretStore, cert-manager, RBAC
 ├── logclaw-kafka/            # Strimzi Kafka + KafkaConnect + MirrorMaker2
-├── logclaw-ingestion/        # Vector.dev HTTP receiver + drop-sampling
+├── logclaw-otel-collector/   # OpenTelemetry Collector (OTLP gRPC + HTTP)
 ├── logclaw-opensearch/       # OpenSearch cluster via Opster operator
 ├── logclaw-flink/            # Flink ETL + enrichment + anomaly jobs
-├── logclaw-bridge/           # Trace correlation engine + lifecycle manager
+├── logclaw-bridge/           # OTLP ETL + trace correlation + lifecycle manager
 ├── logclaw-ml-engine/        # Feast + KServe/TorchServe + Ollama
 ├── logclaw-airflow/          # Apache Airflow
 ├── logclaw-ticketing-agent/  # AI-powered RCA + multi-platform ticketing
@@ -319,28 +330,42 @@ global:
     model: llama3.2:8b
 ```
 
-### Log Ingestion Format
+### Log Ingestion — OTLP Native
 
-LogClaw accepts JSON logs via HTTP POST. Required headers:
-- `Content-Type: application/json`
-- `X-Tenant-ID: <your-tenant-id>`
+LogClaw uses **OTLP (OpenTelemetry Protocol)** as its sole ingestion protocol — the CNCF industry standard supported by every major observability vendor (Datadog, Splunk, Grafana, AWS, GCP, Azure).
 
-Recommended fields per log entry:
+**Supported transports:**
+- **gRPC** — `<collector>:4317` (recommended for high-throughput)
+- **HTTP/JSON** — `<collector>:4318/v1/logs`
+
+Any OpenTelemetry SDK, agent, or collector can send logs directly to LogClaw without custom integrations. The OTel Collector enriches each log with `tenant_id`, batches them, and writes to Kafka using `otlp_json` encoding.
+
 ```json
 {
-  "timestamp": "2026-03-03T12:00:00.000Z",
-  "level": "ERROR",
-  "service": "my-service",
-  "message": "Something went wrong",
-  "trace_id": "32-char-hex-string",
-  "span_id": "16-char-hex-string",
-  "logger": "com.example.MyClass",
-  "thread": "http-nio-8080-exec-1",
-  "host": "my-service-pod-abc12",
-  "environment": "production",
-  "region": "us-east-1"
+  "resourceLogs": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"stringValue": "my-service"}},
+        {"key": "host.name", "value": {"stringValue": "my-service-pod-abc12"}}
+      ]
+    },
+    "scopeLogs": [{
+      "logRecords": [{
+        "timeUnixNano": "1709510400000000000",
+        "severityText": "ERROR",
+        "body": {"stringValue": "Something went wrong"},
+        "traceId": "abcdef1234567890abcdef1234567890",
+        "spanId": "abcdef12345678",
+        "attributes": [
+          {"key": "environment", "value": {"stringValue": "production"}}
+        ]
+      }]
+    }]
+  }]
 }
 ```
+
+See [OTLP Integration Guide](docs/otlp-integration.md) for Python, Java, and Node.js SDK examples.
 
 ---
 
@@ -355,7 +380,7 @@ Recommended fields per log entry:
 | cert-manager | v1.16.1 |
 | Apache Airflow | 1.14.0 |
 | Zammad | 12.4.1 |
-| Vector.dev | 0.38.0 |
+| OpenTelemetry Collector Contrib | 0.114.0 |
 | KServe | 0.13.0 |
 | Feast | 0.40.0 |
 | Next.js (Dashboard) | 16.1.6 |
@@ -409,6 +434,7 @@ make push HELM_REGISTRY=oci://ghcr.io/logclaw/charts
 
 - [Architecture](docs/architecture.md)
 - [Onboarding a new tenant](docs/onboarding.md)
+- [OTLP Integration Guide](docs/otlp-integration.md)
 - [Values reference](docs/values-reference.md)
 
 ---
