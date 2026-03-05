@@ -517,7 +517,7 @@ logclaw-dashboard:
   replicaCount: 1
   image:
     repository: "us-central1-docker.pkg.dev/project-565165fe-d4ff-48fd-a54/logclaw/dashboard"
-    tag: "2.0.1"
+    tag: "2.1.0"
   service:
     type: ClusterIP
     port: 3000

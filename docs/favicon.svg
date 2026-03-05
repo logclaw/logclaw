@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-  <!-- Simplified claw mark - recognizable at 16px -->
-  <path d="M6 6 L22 26" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
-  <path d="M12 4 L24 22" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
-  <path d="M18 2 L26 18" stroke="#FF5722" stroke-width="3" stroke-linecap="round"/>
-  <path d="M4 28 L28 28" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- 3 bold claw strokes — visible at 16px on any background -->
+  <path d="M5 6 L21 28" stroke="#FF5722" stroke-width="4" stroke-linecap="round"/>
+  <path d="M12 4 L25 24" stroke="#FF5722" stroke-width="4" stroke-linecap="round"/>
+  <path d="M19 2 L28 18" stroke="#FF5722" stroke-width="4" stroke-linecap="round"/>
 </svg>
