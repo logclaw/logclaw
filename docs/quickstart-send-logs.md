@@ -1,0 +1,1217 @@
+---
+title: "Quick Start: Send Logs to LogClaw"
+description: "Get your application logs flowing into LogClaw in under 5 minutes"
+---
+
+# Quick Start: Send Logs to LogClaw
+
+LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry standard. Every major language and framework has an OTel SDK.
+
+**Your endpoint:**
+
+| Protocol | URL |
+|----------|-----|
+| HTTP | `https://otel.logclaw.ai/v1/logs` |
+| gRPC | `otel.logclaw.ai:443` |
+
+---
+
+## Option 1: Quick Test with curl (30 seconds)
+
+No SDK needed. Send a log right now:
+
+```bash
+curl -X POST https://otel.logclaw.ai/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "my-api"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "'$(date +%s)000000000'",
+          "severityNumber": 17,
+          "severityText": "ERROR",
+          "body": {"stringValue": "Connection timeout to payment-gateway after 30s"},
+          "attributes": [
+            {"key": "error.type", "value": {"stringValue": "TimeoutError"}},
+            {"key": "http.route", "value": {"stringValue": "/api/v1/payments"}}
+          ]
+        }]
+      }]
+    }]
+  }'
+```
+
+Check your dashboard at [app.logclaw.ai](https://app.logclaw.ai) — the log should appear within seconds.
+
+---
+
+## Option 2: Python App (3 minutes)
+
+### Install
+
+```bash
+pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
+```
+
+### Add to your app
+
+```python
+import logging
+from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk.resources import Resource
+
+# One-time setup (add to your app startup)
+resource = Resource.create({"service.name": "my-python-api"})
+provider = LoggerProvider(resource=resource)
+provider.add_log_record_processor(
+    BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+    )
+)
+_logs.set_logger_provider(provider)
+
+# Attach OTel to Python's standard logging
+handler = LoggingHandler(logger_provider=provider)
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
+
+# Now just use normal Python logging — it auto-sends to LogClaw
+logger = logging.getLogger(__name__)
+logger.info("User signed up", extra={"user_id": "u-123", "plan": "pro"})
+logger.error("Payment failed", extra={"order_id": "ord-456", "error": "card_declined"})
+```
+
+That's it. Your existing `logging.info()`, `logging.error()`, etc. all flow to LogClaw automatically.
+
+### Django
+
+```python
+# settings.py
+import logging
+from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk.resources import Resource
+
+resource = Resource.create({"service.name": "my-django-app"})
+provider = LoggerProvider(resource=resource)
+provider.add_log_record_processor(
+    BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+    )
+)
+_logs.set_logger_provider(provider)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "otel": {
+            "class": "opentelemetry.sdk._logs.LoggingHandler",
+            "level": "INFO",
+        },
+    },
+    "root": {
+        "handlers": ["console", "otel"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {"handlers": ["console", "otel"], "level": "INFO"},
+        "django.request": {"handlers": ["console", "otel"], "level": "WARNING"},
+    },
+}
+```
+
+All Django request logs, middleware errors, and your `logger.info()` calls auto-forward to LogClaw.
+
+### Flask
+
+```python
+# app.py
+from flask import Flask
+import logging
+from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk.resources import Resource
+
+# OTel setup
+resource = Resource.create({"service.name": "my-flask-app"})
+provider = LoggerProvider(resource=resource)
+provider.add_log_record_processor(
+    BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+    )
+)
+_logs.set_logger_provider(provider)
+logging.getLogger().addHandler(LoggingHandler(logger_provider=provider))
+
+app = Flask(__name__)
+
+@app.route("/api/health")
+def health():
+    app.logger.info("Health check hit", extra={"endpoint": "/api/health"})
+    return {"status": "ok"}
+
+@app.errorhandler(500)
+def handle_error(e):
+    app.logger.error("Internal error", extra={"error": str(e)})
+    return {"error": "internal"}, 500
+```
+
+### FastAPI
+
+```python
+# main.py
+from fastapi import FastAPI, Request
+import logging
+from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk.resources import Resource
+
+# OTel setup
+resource = Resource.create({"service.name": "my-fastapi-app"})
+provider = LoggerProvider(resource=resource)
+provider.add_log_record_processor(
+    BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+    )
+)
+_logs.set_logger_provider(provider)
+logging.getLogger().addHandler(LoggingHandler(logger_provider=provider))
+logging.getLogger().setLevel(logging.INFO)
+
+logger = logging.getLogger("fastapi-app")
+app = FastAPI()
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info("Request", extra={
+        "method": request.method,
+        "path": request.url.path,
+        "client": request.client.host,
+    })
+    response = await call_next(request)
+    return response
+
+@app.get("/api/users/{user_id}")
+async def get_user(user_id: str):
+    logger.info("Fetching user", extra={"user_id": user_id})
+    return {"user_id": user_id}
+```
+
+### Celery (Background Workers)
+
+```python
+# celery_app.py — logs from async tasks also flow to LogClaw
+from celery import Celery
+from celery.signals import setup_logging
+import logging
+
+@setup_logging.connect
+def configure_logging(**kwargs):
+    from opentelemetry.sdk._logs import LoggingHandler
+    logging.getLogger().addHandler(LoggingHandler())
+
+app = Celery("tasks", broker="redis://localhost:6379")
+
+@app.task
+def process_payment(order_id):
+    logger = logging.getLogger("celery-worker")
+    logger.info("Processing payment", extra={"order_id": order_id})
+```
+
+---
+
+## Option 3: Node.js App (3 minutes)
+
+### Install
+
+```bash
+npm install @opentelemetry/sdk-node @opentelemetry/sdk-logs \
+  @opentelemetry/exporter-logs-otlp-grpc @opentelemetry/resources \
+  @opentelemetry/semantic-conventions
+```
+
+### Express
+
+```javascript
+// instrumentation.js — require BEFORE your app: node -r ./instrumentation.js app.js
+const { NodeSDK } = require('@opentelemetry/sdk-node');
+const { LoggerProvider, BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-grpc');
+const { Resource } = require('@opentelemetry/resources');
+
+const resource = new Resource({ 'service.name': 'my-express-api' });
+const loggerProvider = new LoggerProvider({ resource });
+loggerProvider.addLogRecordProcessor(
+  new BatchLogRecordProcessor(
+    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+  )
+);
+
+const logger = loggerProvider.getLogger('app');
+
+// Helper — use throughout your app
+global.otelLog = (level, message, attrs = {}) => {
+  logger.emit({ severityText: level, body: message, attributes: attrs });
+};
+```
+
+```javascript
+// app.js
+const express = require('express');
+const app = express();
+
+// Request logging middleware
+app.use((req, res, next) => {
+  otelLog('INFO', `${req.method} ${req.path}`, {
+    'http.method': req.method,
+    'http.route': req.path,
+    'http.client_ip': req.ip,
+  });
+  next();
+});
+
+app.post('/api/orders', (req, res) => {
+  otelLog('INFO', 'Order created', { orderId: 'ord-789' });
+  res.json({ status: 'created' });
+});
+
+app.use((err, req, res, next) => {
+  otelLog('ERROR', err.message, { 'error.stack': err.stack });
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(3000);
+```
+
+### Next.js
+
+```javascript
+// instrumentation.ts (Next.js 13+ — auto-loaded by Next.js)
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { LoggerProvider, BatchLogRecordProcessor } = await import('@opentelemetry/sdk-logs');
+    const { OTLPLogExporter } = await import('@opentelemetry/exporter-logs-otlp-grpc');
+    const { Resource } = await import('@opentelemetry/resources');
+
+    const resource = new Resource({ 'service.name': 'my-nextjs-app' });
+    const loggerProvider = new LoggerProvider({ resource });
+    loggerProvider.addLogRecordProcessor(
+      new BatchLogRecordProcessor(
+        new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+      )
+    );
+
+    // Available in API routes and server components
+    globalThis.__otelLoggerProvider = loggerProvider;
+  }
+}
+```
+
+```typescript
+// app/api/users/route.ts — Next.js App Router API route
+import { NextResponse } from 'next/server';
+
+function log(level: string, message: string, attrs: Record<string, string> = {}) {
+  const provider = (globalThis as any).__otelLoggerProvider;
+  if (provider) {
+    provider.getLogger('app').emit({ severityText: level, body: message, attributes: attrs });
+  }
+}
+
+export async function GET() {
+  log('INFO', 'Users API called');
+  return NextResponse.json({ users: [] });
+}
+```
+
+Or use the environment variable approach with `next.config.js`:
+
+```javascript
+// next.config.js
+module.exports = {
+  experimental: {
+    instrumentationHook: true,  // enables instrumentation.ts
+  },
+};
+```
+
+### NestJS
+
+```bash
+npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-grpc \
+  @opentelemetry/resources nestjs-otel
+```
+
+```typescript
+// src/otel.ts — load BEFORE NestJS bootstrap
+import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
+import { Resource } from '@opentelemetry/resources';
+
+const resource = new Resource({ 'service.name': 'my-nestjs-api' });
+const loggerProvider = new LoggerProvider({ resource });
+loggerProvider.addLogRecordProcessor(
+  new BatchLogRecordProcessor(
+    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+  )
+);
+
+export { loggerProvider };
+```
+
+```typescript
+// src/main.ts
+import './otel';  // MUST be first import
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+```typescript
+// src/orders/orders.controller.ts — use NestJS Logger as normal
+import { Controller, Get, Logger, Post, Body } from '@nestjs/common';
+
+@Controller('orders')
+export class OrdersController {
+  private readonly logger = new Logger(OrdersController.name);
+
+  @Post()
+  create(@Body() createOrderDto: any) {
+    this.logger.log(`Order created: ${createOrderDto.id}`);
+    return { status: 'created' };
+  }
+
+  @Get()
+  findAll() {
+    this.logger.log('Fetching all orders');
+    return [];
+  }
+}
+```
+
+### Fastify
+
+```javascript
+// server.js
+const fastify = require('fastify')({ logger: true });  // Pino logger built-in
+
+// With OTel auto-instrumentation for Pino:
+// npm install @opentelemetry/instrumentation-pino
+// node -r ./instrumentation.js server.js
+
+fastify.get('/api/health', async (request, reply) => {
+  request.log.info({ endpoint: '/api/health' }, 'Health check');
+  return { status: 'ok' };
+});
+
+fastify.post('/api/orders', async (request, reply) => {
+  request.log.info({ orderId: request.body.id }, 'Order created');
+  return { status: 'created' };
+});
+
+fastify.listen({ port: 3000 });
+```
+
+### With Winston
+
+```javascript
+// logger.js
+const winston = require('winston');
+
+// Winston logs auto-forward to LogClaw with OTel instrumentation
+// npm install @opentelemetry/instrumentation-winston
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [new winston.transports.Console()],
+});
+
+module.exports = logger;
+```
+
+```bash
+# Run with auto-instrumentation — zero code changes to your Winston setup
+node -r ./instrumentation.js app.js
+```
+
+### With Pino
+
+```javascript
+// Same approach — Pino auto-instrumented via OTel
+// npm install @opentelemetry/instrumentation-pino
+const pino = require('pino');
+const logger = pino();
+
+logger.info({ userId: 'usr-42' }, 'User logged in');
+```
+
+---
+
+## Option 4: Java App (3 minutes)
+
+### Spring Boot (Zero Code Changes)
+
+Download the OTel Java Agent — it auto-instruments your app:
+
+```bash
+# Download the agent JAR
+curl -LO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
+
+# Run your Spring Boot app with the agent
+java -javaagent:opentelemetry-javaagent.jar \
+  -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai:443 \
+  -Dotel.service.name=my-spring-api \
+  -Dotel.logs.exporter=otlp \
+  -jar my-app.jar
+```
+
+**Zero code changes.** All your `log.info()`, `log.error()`, Spring request logs, and exception stack traces automatically flow to LogClaw.
+
+```java
+// Your existing Spring Boot code — no changes needed
+@RestController
+public class OrderController {
+    private static final Logger log = LoggerFactory.getLogger(OrderController.class);
+
+    @PostMapping("/api/orders")
+    public Order createOrder(@RequestBody OrderRequest req) {
+        log.info("Creating order for user={}", req.getUserId());  // → auto-sent to LogClaw
+        return orderService.create(req);
+    }
+}
+```
+
+### Spring Boot via application.properties (Alternative)
+
+```properties
+# application.properties
+otel.exporter.otlp.endpoint=https://otel.logclaw.ai:443
+otel.service.name=my-spring-api
+otel.logs.exporter=otlp
+```
+
+```xml
+<!-- pom.xml — add the OTel Spring Boot starter -->
+<dependency>
+  <groupId>io.opentelemetry.instrumentation</groupId>
+  <artifactId>opentelemetry-spring-boot-starter</artifactId>
+  <version>2.10.0</version>
+</dependency>
+```
+
+### Quarkus
+
+```properties
+# application.properties
+quarkus.otel.exporter.otlp.endpoint=https://otel.logclaw.ai:443
+quarkus.otel.resource.attributes=service.name=my-quarkus-api
+quarkus.otel.logs.exporter=otlp
+```
+
+```xml
+<!-- pom.xml -->
+<dependency>
+  <groupId>io.quarkus</groupId>
+  <artifactId>quarkus-opentelemetry</artifactId>
+</dependency>
+```
+
+### Micronaut
+
+```yaml
+# application.yml
+otel:
+  exporter:
+    otlp:
+      endpoint: https://otel.logclaw.ai:443
+  resource:
+    attributes:
+      service.name: my-micronaut-api
+```
+
+### Kotlin (Ktor)
+
+```kotlin
+// Application.kt
+import io.ktor.server.application.*
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
+import org.slf4j.LoggerFactory
+
+fun main() {
+    // Run with: java -javaagent:opentelemetry-javaagent.jar -jar app.jar
+    embeddedServer(Netty, port = 8080) {
+        val logger = LoggerFactory.getLogger("ktor-app")
+
+        routing {
+            post("/api/orders") {
+                logger.info("Order created")  // → auto-sent to LogClaw via agent
+                call.respondText("created")
+            }
+        }
+    }.start(wait = true)
+}
+```
+
+### Log4j2 / Logback
+
+Add the OTel appender to your logging config:
+
+```xml
+<!-- log4j2.xml -->
+<Configuration>
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d %p %c - %m%n"/>
+    </Console>
+    <OpenTelemetry name="OTel"/>
+  </Appenders>
+  <Loggers>
+    <Root level="info">
+      <AppenderRef ref="Console"/>
+      <AppenderRef ref="OTel"/>
+    </Root>
+  </Loggers>
+</Configuration>
+```
+
+---
+
+## Option 5: Go App (3 minutes)
+
+```bash
+go get go.opentelemetry.io/otel/sdk/log
+go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+```
+
+```go
+package main
+
+import (
+    "context"
+    "log/slog"
+
+    "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+    "go.opentelemetry.io/otel/sdk/log"
+    "go.opentelemetry.io/otel/sdk/resource"
+    semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+)
+
+func main() {
+    ctx := context.Background()
+
+    exporter, _ := otlploggrpc.New(ctx,
+        otlploggrpc.WithEndpoint("otel.logclaw.ai:443"),
+    )
+
+    res, _ := resource.New(ctx,
+        resource.WithAttributes(semconv.ServiceName("my-go-api")),
+    )
+
+    provider := log.NewLoggerProvider(
+        log.WithResource(res),
+        log.WithProcessor(log.NewBatchProcessor(exporter)),
+    )
+    defer provider.Shutdown(ctx)
+
+    // Use Go's standard slog with OTel backend
+    logger := slog.New(slog.NewJSONHandler(nil, nil))
+    logger.Info("Server started", "port", 8080)
+    logger.Error("Database connection failed", "host", "db.internal", "err", "timeout")
+}
+```
+
+### Gin
+
+```go
+package main
+
+import (
+    "log/slog"
+    "github.com/gin-gonic/gin"
+    "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+)
+
+func main() {
+    // initOtel() — same setup as above
+    r := gin.Default()
+    r.Use(otelgin.Middleware("my-gin-api"))  // auto-instruments all routes
+
+    r.POST("/api/orders", func(c *gin.Context) {
+        slog.Info("Order created", "orderId", c.Param("id"))
+        c.JSON(200, gin.H{"status": "created"})
+    })
+
+    r.Run(":8080")
+}
+```
+
+```bash
+go get go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin
+```
+
+### Fiber
+
+```go
+package main
+
+import (
+    "log/slog"
+    "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/contrib/otelfiber"
+)
+
+func main() {
+    app := fiber.New()
+    app.Use(otelfiber.Middleware())  // auto-instruments all routes
+
+    app.Post("/api/orders", func(c *fiber.Ctx) error {
+        slog.Info("Order created", "path", c.Path())
+        return c.JSON(fiber.Map{"status": "created"})
+    })
+
+    app.Listen(":8080")
+}
+```
+
+### Echo
+
+```go
+package main
+
+import (
+    "log/slog"
+    "github.com/labstack/echo/v4"
+    "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
+)
+
+func main() {
+    e := echo.New()
+    e.Use(otelecho.Middleware("my-echo-api"))
+
+    e.POST("/api/orders", func(c echo.Context) error {
+        slog.Info("Order created")
+        return c.JSON(200, map[string]string{"status": "created"})
+    })
+
+    e.Start(":8080")
+}
+```
+
+---
+
+## Option 6: Ruby App (3 minutes)
+
+### Install
+
+```bash
+gem install opentelemetry-sdk opentelemetry-exporter-otlp \
+  opentelemetry-logs-sdk opentelemetry-logs-exporter-otlp
+```
+
+### Add to your app
+
+```ruby
+# config/initializers/otel.rb (Rails) or top of your app
+require 'opentelemetry-sdk'
+require 'opentelemetry/exporter/otlp'
+
+OpenTelemetry::SDK.configure do |c|
+  c.service_name = 'my-ruby-api'
+  c.add_span_processor(
+    OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(
+      OpenTelemetry::Exporter::OTLP::Exporter.new(
+        endpoint: 'https://otel.logclaw.ai:443'
+      )
+    )
+  )
+end
+
+# Use with Rails logger
+Rails.logger.info("Order created", order_id: "ord-123")
+```
+
+### Rails Auto-Instrumentation (Zero Code Changes)
+
+```bash
+gem install opentelemetry-instrumentation-all
+```
+
+```ruby
+# config/initializers/otel.rb
+require 'opentelemetry/instrumentation/all'
+OpenTelemetry::SDK.configure do |c|
+  c.service_name = 'my-rails-app'
+  c.use_all  # Auto-instruments Rails, ActiveRecord, Rack, Sidekiq, etc.
+end
+```
+
+Set the endpoint via environment variable:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
+```
+
+---
+
+## Option 7: .NET / C# App (3 minutes)
+
+### Install
+
+```bash
+dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol
+dotnet add package OpenTelemetry.Extensions.Hosting
+```
+
+### ASP.NET Core
+
+```csharp
+// Program.cs
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.SetResourceBuilder(
+        ResourceBuilder.CreateDefault()
+            .AddService("my-dotnet-api"));
+
+    logging.AddOtlpExporter(options =>
+    {
+        options.Endpoint = new Uri("https://otel.logclaw.ai:443");
+    });
+});
+
+var app = builder.Build();
+
+// Your existing ILogger<T> calls auto-forward to LogClaw
+app.MapGet("/", (ILogger<Program> logger) =>
+{
+    logger.LogInformation("Request received from {UserId}", "usr-42");
+    return "Hello World";
+});
+
+app.Run();
+```
+
+All existing `ILogger` calls (`LogInformation`, `LogError`, `LogWarning`) automatically flow to LogClaw.
+
+---
+
+## Option 8: Rust App (3 minutes)
+
+### Add to Cargo.toml
+
+```toml
+[dependencies]
+opentelemetry = "0.24"
+opentelemetry_sdk = { version = "0.24", features = ["logs"] }
+opentelemetry-otlp = { version = "0.17", features = ["logs"] }
+tracing = "0.1"
+tracing-opentelemetry = "0.25"
+tracing-subscriber = "0.3"
+```
+
+### Add to main.rs
+
+```rust
+use opentelemetry_otlp::LogExporter;
+use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::Resource;
+use opentelemetry::KeyValue;
+
+fn init_logs() -> LoggerProvider {
+    let exporter = LogExporter::builder()
+        .with_tonic()
+        .with_endpoint("https://otel.logclaw.ai:443")
+        .build()
+        .expect("Failed to create log exporter");
+
+    LoggerProvider::builder()
+        .with_resource(Resource::new(vec![
+            KeyValue::new("service.name", "my-rust-api"),
+        ]))
+        .with_batch_exporter(exporter)
+        .build()
+}
+
+fn main() {
+    let _provider = init_logs();
+
+    // Use tracing macros — they auto-forward to LogClaw
+    tracing::info!(user_id = "usr-42", "Request processed");
+    tracing::error!(err = "timeout", "Database connection failed");
+}
+```
+
+---
+
+## Option 9: PHP App (3 minutes)
+
+### Install
+
+```bash
+composer require open-telemetry/sdk \
+  open-telemetry/exporter-otlp \
+  open-telemetry/transport-grpc
+```
+
+### Add to your app
+
+```php
+<?php
+// bootstrap.php or index.php
+use OpenTelemetry\SDK\Logs\LoggerProviderBuilder;
+use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
+use OpenTelemetry\Contrib\Otlp\LogsExporter;
+use OpenTelemetry\SDK\Logs\Processor\BatchLogRecordProcessor;
+
+$resource = ResourceInfoFactory::defaultResource()->merge(
+    ResourceInfo::create(Attributes::create([
+        'service.name' => 'my-php-api',
+    ]))
+);
+
+$exporter = new LogsExporter(
+    (new \OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory())->create(
+        'https://otel.logclaw.ai/v1/logs',
+        'application/json'
+    )
+);
+
+$loggerProvider = (new LoggerProviderBuilder())
+    ->setResource($resource)
+    ->addLogRecordProcessor(new BatchLogRecordProcessor($exporter))
+    ->build();
+
+$logger = $loggerProvider->getLogger('app');
+$logger->emit(
+    (new LogRecord('User login failed'))
+        ->setSeverityText('ERROR')
+        ->setAttribute('user.email', 'john@example.com')
+);
+```
+
+### Laravel
+
+```php
+// config/logging.php — add OTel as a log channel
+'channels' => [
+    'otel' => [
+        'driver' => 'monolog',
+        'handler' => \Your\OtelHandler::class,
+    ],
+    'stack' => [
+        'driver' => 'stack',
+        'channels' => ['single', 'otel'],
+    ],
+],
+```
+
+Or use the environment variable approach:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai php artisan serve
+```
+
+---
+
+## Option 10: Existing Log Shippers (Config Change Only)
+
+Already running a log shipper? Point it at LogClaw's OTLP endpoint:
+
+### Fluentd
+
+```xml
+<!-- fluent.conf -->
+<match **>
+  @type opentelemetry
+  endpoint https://otel.logclaw.ai/v1/logs
+  <buffer>
+    flush_interval 5s
+  </buffer>
+</match>
+```
+
+```bash
+# Install the OTLP output plugin
+fluent-gem install fluent-plugin-opentelemetry
+```
+
+### Fluent Bit
+
+```ini
+# fluent-bit.conf
+[OUTPUT]
+    Name              opentelemetry
+    Match             *
+    Host              otel.logclaw.ai
+    Port              443
+    Tls               On
+    Log_response_payload  True
+    Logs_uri          /v1/logs
+    add_label         service.name my-app
+```
+
+### Vector
+
+```toml
+# vector.toml
+[sinks.logclaw]
+type = "http"
+inputs = ["your_source"]
+uri = "https://otel.logclaw.ai/v1/logs"
+encoding.codec = "json"
+method = "post"
+headers.content-type = "application/json"
+
+# Or use the native OTLP sink (Vector 0.38+)
+# [sinks.logclaw]
+# type = "opentelemetry"
+# inputs = ["your_source"]
+# endpoint = "https://otel.logclaw.ai:443"
+```
+
+### Logstash
+
+```ruby
+# logstash.conf
+output {
+  http {
+    url => "https://otel.logclaw.ai/v1/logs"
+    http_method => "post"
+    format => "json"
+    content_type => "application/json"
+  }
+}
+```
+
+```bash
+# Or install the OpenTelemetry output plugin
+bin/logstash-plugin install logstash-output-opentelemetry
+```
+
+### Datadog Agent (Dual-Ship)
+
+Already using Datadog? Send a copy to LogClaw:
+
+```yaml
+# datadog.yaml
+otlp_config:
+  logs:
+    enabled: true
+  receiver:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+```
+
+Then point a separate OTel Collector at your Datadog Agent's OTLP receiver and forward to LogClaw.
+
+---
+
+## Option 11: Any App via OTel Collector Sidecar (Zero Code Changes)
+
+For apps that write logs to **stdout** or **log files** — any language, any framework — deploy an OTel Collector alongside your app to auto-scrape and forward logs. **No SDK needed.**
+
+### Docker Compose example
+
+```yaml
+# docker-compose.yml
+services:
+  my-app:
+    image: my-app:latest
+    # Your app just logs to stdout as normal
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    volumes:
+      - ./otel-config.yaml:/etc/otelcol/config.yaml
+    depends_on:
+      - my-app
+```
+
+```yaml
+# otel-config.yaml
+receivers:
+  filelog:
+    include: [/var/log/app/*.log]
+    start_at: beginning
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  resource:
+    attributes:
+      - key: service.name
+        value: "my-app"
+        action: upsert
+  batch:
+    send_batch_size: 500
+    timeout: 5s
+
+exporters:
+  otlphttp:
+    endpoint: https://otel.logclaw.ai
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog, otlp]
+      processors: [resource, batch]
+      exporters: [otlphttp]
+```
+
+### Kubernetes DaemonSet
+
+For Kubernetes clusters, deploy the OTel Collector as a DaemonSet to auto-collect logs from all pods:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.114.0
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "https://otel.logclaw.ai"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.name=k8s-cluster"
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+```
+
+---
+
+## Option 12: Drag & Drop (Dashboard Upload)
+
+For testing or one-time imports, the LogClaw dashboard supports drag-and-drop log upload:
+
+1. Go to [app.logclaw.ai](https://app.logclaw.ai)
+2. Click **Ingestion** in the sidebar
+3. Drag a `.json` or `.ndjson` file onto the upload area
+
+Accepted format (OTLP JSON):
+```json
+{
+  "resourceLogs": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"stringValue": "imported-logs"}}
+      ]
+    },
+    "scopeLogs": [{
+      "logRecords": [
+        {
+          "timeUnixNano": "1709500000000000000",
+          "severityText": "ERROR",
+          "body": {"stringValue": "Something went wrong"}
+        }
+      ]
+    }]
+  }]
+}
+```
+
+---
+
+## What Happens After Logs Arrive
+
+```
+Your App → OTLP → OTel Collector → Kafka → Flink ETL → OpenSearch
+                                         → Flink Enrichment → Feature Store
+                                         → Flink Anomaly Scorer → Ticketing Agent
+                                                                   → PagerDuty / Jira / Slack
+```
+
+1. **OTel Collector** receives logs, batches them (1000/batch), and writes to Kafka
+2. **Flink ETL** normalizes, enriches, and indexes into OpenSearch
+3. **Flink Anomaly Scorer** detects anomalies in real-time using ML models
+4. **Ticketing Agent** auto-creates incidents in PagerDuty/Jira/Slack when anomalies exceed threshold
+5. **Dashboard** lets you search, filter, and visualize everything
+
+---
+
+## Supported Languages & Frameworks
+
+Every option has a full code example above. Pick your stack:
+
+| Option | Language / Tool | Frameworks with Examples | Code Changes |
+|--------|----------------|------------------------|-------------|
+| 1 | **curl / HTTP** | Any HTTP client | None — just POST JSON |
+| 2 | **Python** | Django, Flask, FastAPI, Celery | 5 lines in startup |
+| 3 | **Node.js** | Express, Next.js, NestJS, Fastify, Winston, Pino | 5 lines in startup |
+| 4 | **Java / Kotlin** | Spring Boot, Quarkus, Micronaut, Ktor, Log4j2, Logback | **Zero** — just a JVM flag |
+| 5 | **Go** | Gin, Fiber, Echo, net/http | 5 lines in main |
+| 6 | **Ruby** | Rails (auto-instrumentation), Sinatra | 5 lines or **zero** with env var |
+| 7 | **.NET / C#** | ASP.NET Core, Minimal API | Add to `Program.cs` |
+| 8 | **Rust** | Actix, Axum, Rocket (via tracing) | 5 lines in main |
+| 9 | **PHP** | Laravel, Symfony | Add to bootstrap |
+| 10 | **Log Shippers** | Fluentd, Fluent Bit, Vector, Logstash, Datadog Agent | Config change only |
+| 11 | **Any app** | stdout / log files via OTel Collector sidecar | **Zero** — collector scrapes |
+| 12 | **Manual** | Dashboard drag & drop | **Zero** — drag a JSON file |
+
+---
+
+## Troubleshooting
+
+**Logs not appearing in dashboard?**
+
+1. Test connectivity:
+   ```bash
+   curl -v https://otel.logclaw.ai/v1/logs -d '{}' -H "Content-Type: application/json"
+   # Should return 200 (even with empty body)
+   ```
+
+2. Check your service.name attribute is set — logs without `service.name` may not display correctly
+
+3. Verify OTLP endpoint URL — common mistakes:
+   - Missing `/v1/logs` path for HTTP (gRPC doesn't need it)
+   - Using port 4317 for HTTP (that's gRPC) or 4318 for gRPC (that's HTTP)
+   - Using `http://` instead of `https://` for external access
+
+4. Check firewall — OTLP uses port 443 (TLS-terminated) for external access
