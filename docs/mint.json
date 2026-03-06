@@ -23,7 +23,7 @@
   ],
   "topbarCtaButton": {
     "name": "Get Started",
-    "url": "/onboarding"
+    "url": "/quickstart-send-logs"
   },
   "tabs": [
     {
@@ -42,6 +42,7 @@
     {
       "group": "Getting Started",
       "pages": [
+        "quickstart-send-logs",
         "introduction",
         "architecture",
         "onboarding",
@@ -60,7 +61,6 @@
     {
       "group": "Ingestion",
       "pages": [
-        "quickstart-send-logs",
         "otlp-integration"
       ]
     },

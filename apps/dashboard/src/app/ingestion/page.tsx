@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import FileUploader from "@/components/file-uploader";
 import {
   Upload,
@@ -7,9 +8,17 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
+  Copy,
+  Check,
 } from "lucide-react";
 
 export default function IngestionPage() {
+  const [origin, setOrigin] = useState("https://app.logclaw.ai");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -50,8 +59,21 @@ export default function IngestionPage() {
             <p className="mt-1.5 text-[13px] text-[#6e6e73]">
               Send log entries via OTLP HTTP to the OpenTelemetry Collector.
             </p>
-            <pre className="mt-3 overflow-x-auto rounded-xl bg-[#1d1d1f] p-3 text-[10px] text-[#aeaeb2] font-mono sm:p-4 sm:text-[12px]">
-{`curl -X POST http://localhost:3000/api/otel/v1/logs \\
+            <div className="relative mt-3">
+              <button
+                onClick={() => {
+                  const cmd = `curl -X POST ${origin}/api/otel/v1/logs \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "resourceLogs": [{\n      "resource": {\n        "attributes": [\n          {"key": "service.name", "value": {"stringValue": "payment-api"}}\n        ]\n      },\n      "scopeLogs": [{\n        "logRecords": [{\n          "timeUnixNano": "1741003200000000000",\n          "severityText": "ERROR",\n          "body": {"stringValue": "Connection timeout"},\n          "attributes": [\n            {"key": "host.name", "value": {"stringValue": "prod-web-01"}}\n          ]\n        }]\n      }]\n    }]\n  }'`;
+                  navigator.clipboard.writeText(cmd);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="absolute right-2 top-2 flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[10px] text-[#aeaeb2] transition-all hover:bg-white/20 hover:text-white sm:right-3 sm:top-3"
+              >
+                {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <pre className="overflow-x-auto rounded-xl bg-[#1d1d1f] p-3 pr-20 text-[10px] text-[#aeaeb2] font-mono sm:p-4 sm:text-[12px]">
+{`curl -X POST ${origin}/api/otel/v1/logs \\
   -H "Content-Type: application/json" \\
   -d '{
     "resourceLogs": [{
@@ -72,7 +94,8 @@ export default function IngestionPage() {
       }]
     }]
   }'`}
-            </pre>
+              </pre>
+            </div>
           </div>
 
           <div>

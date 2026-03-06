@@ -66,6 +66,7 @@ export interface Incident {
     root_cause_service?: string;
     suggested_fix?: string;
     error_pattern?: string;
+    llm_fallback?: boolean;
   };
 }
 
@@ -612,6 +613,63 @@ export async function testLlmConnection(): Promise<TestResult> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
+  return res.json();
+}
+
+// ── LLM Status ───────────────────────────────────────────
+
+export interface LlmStatus {
+  provider: string;
+  model: string;
+  enabled: boolean;
+  endpoint_configured: boolean;
+  llm_calls: number;
+  llm_failures: number;
+  failure_rate: number;
+}
+
+export async function fetchLlmStatus(): Promise<LlmStatus> {
+  const res = await fetch("/api/ticketing/api/v1/llm-status", {
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) throw new Error(`LLM status ${res.status}`);
+  return res.json();
+}
+
+// ── Audit Trail ──────────────────────────────────────────
+
+export interface AuditEntry {
+  timestamp: string;
+  incident_id: string;
+  action: string;
+  actor: string;
+  details: Record<string, unknown>;
+}
+
+export async function fetchAuditTrail(params?: {
+  incident_id?: string;
+  limit?: number;
+}): Promise<{ data: AuditEntry[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params?.incident_id) q.set("incident_id", params.incident_id);
+  if (params?.limit) q.set("limit", String(params.limit));
+  const res = await fetch(`/api/ticketing/api/v1/audit?${q}`);
+  if (!res.ok) throw new Error(`Audit ${res.status}`);
+  return res.json();
+}
+
+// ── Batch transition ─────────────────────────────────────
+
+export async function batchTransitionIncidents(
+  ids: string[],
+  action: string,
+): Promise<{ results: { id: string; ok: boolean; state?: string; message?: string }[] }> {
+  const res = await fetch("/api/ticketing/api/v1/incidents/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, action }),
+  });
+  if (!res.ok) throw new Error(`Batch ${res.status}`);
   return res.json();
 }
 

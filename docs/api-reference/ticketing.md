@@ -310,3 +310,149 @@ Verify connectivity to the configured LLM provider.
   "message": "LLM connection successful"
 }
 ```
+
+---
+
+## Batch Operations
+
+### Batch Update Incidents
+
+```
+POST /api/v1/incidents/batch
+```
+
+Perform bulk operations on multiple incidents at once. Supports acknowledge, resolve, and escalate actions.
+
+#### Request Body
+
+```json
+{
+  "ids": ["inc-20240301-001", "inc-20240301-002", "inc-20240301-003"],
+  "action": "acknowledge"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ids` | string[] | Yes | Array of incident IDs to update |
+| `action` | string | Yes | One of: `acknowledge`, `resolve`, `escalate` |
+
+#### Response
+
+```json
+{
+  "updated": 3,
+  "action": "acknowledge",
+  "ids": ["inc-20240301-001", "inc-20240301-002", "inc-20240301-003"]
+}
+```
+
+---
+
+## Audit Trail
+
+### Get Incident Audit Log
+
+```
+GET /api/v1/audit?incident_id=:id
+```
+
+Returns the full state-change audit trail for a specific incident. Every acknowledge, resolve, escalate, and reopen action is logged with a timestamp.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `incident_id` | string | Yes | The incident ID to retrieve the audit trail for |
+
+#### Response
+
+```json
+{
+  "incident_id": "inc-20240301-001",
+  "entries": [
+    {
+      "action": "created",
+      "timestamp": "2024-03-01T15:30:00Z",
+      "details": "Incident created from anomaly detection"
+    },
+    {
+      "action": "acknowledged",
+      "timestamp": "2024-03-01T15:35:00Z",
+      "details": "Status changed from open to acknowledged"
+    },
+    {
+      "action": "escalated",
+      "timestamp": "2024-03-01T15:45:00Z",
+      "details": "Escalated to pagerduty"
+    },
+    {
+      "action": "resolved",
+      "timestamp": "2024-03-01T16:00:00Z",
+      "details": "Status changed to resolved"
+    }
+  ]
+}
+```
+
+---
+
+## LLM Status
+
+### Get LLM Provider Status
+
+```
+GET /api/v1/llm-status
+```
+
+Returns the current status and health of the configured LLM provider, including whether it is reachable and the configured model.
+
+#### Response (Healthy)
+
+```json
+{
+  "status": "ok",
+  "provider": "openai",
+  "model": "gpt-4",
+  "available": true
+}
+```
+
+#### Response (Degraded / Unreachable)
+
+```json
+{
+  "status": "degraded",
+  "provider": "openai",
+  "model": "gpt-4",
+  "available": false,
+  "error": "Connection timeout after 5s"
+}
+```
+
+<Note>
+When the LLM provider is unreachable, the Ticketing Agent continues to create incidents using rule-based fallback RCA instead of AI-generated root cause analysis. The Dashboard displays a "Fallback" badge on affected incidents.
+</Note>
+
+---
+
+## Deduplication
+
+The Ticketing Agent automatically deduplicates incoming anomalies to prevent duplicate incidents. Two anomalies are considered duplicates when they share the same service name, severity level, and occur within the configured lookback window.
+
+When a duplicate is detected:
+- No new incident is created
+- The existing incident's `updatedAt` timestamp is refreshed
+- The anomaly count is incremented on the existing incident
+
+Configure the deduplication window via the anomaly settings endpoint:
+
+```
+PATCH /api/v1/config/anomaly
+```
+
+```json
+{
+  "lookbackWindow": "30m"
+}
+```

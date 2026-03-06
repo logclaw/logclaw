@@ -134,7 +134,26 @@ INCIDENT_INDEX = f"logclaw-incidents-{TENANT_ID}"
 
 consumer_ready = threading.Event()
 lock = threading.Lock()
-stats = {"consumed": 0, "created": 0, "skipped": 0, "webhooks_sent": 0, "webhooks_failed": 0}
+stats = {"consumed": 0, "created": 0, "skipped": 0, "webhooks_sent": 0, "webhooks_failed": 0, "llm_calls": 0, "llm_failures": 0}
+
+# ── Audit Trail ──────────────────────────────────────────────────────────
+_audit_log = []  # In-memory ring buffer of recent audit entries
+_AUDIT_MAX = 500
+
+def audit_record(incident_id, action, actor="system", details=None):
+    """Append an immutable audit record for incident state changes."""
+    entry = {
+        "timestamp": now_iso(),
+        "incident_id": incident_id,
+        "action": action,
+        "actor": actor,
+        "details": details or {},
+    }
+    with lock:
+        _audit_log.append(entry)
+        if len(_audit_log) > _AUDIT_MAX:
+            del _audit_log[:len(_audit_log) - _AUDIT_MAX]
+    return entry
 
 
 def log(m):
@@ -504,6 +523,7 @@ def _call_llm(prompt, system=""):
     if provider == "disabled" or not endpoint:
         return ""
 
+    stats["llm_calls"] += 1
     try:
         if provider in ("ollama", "vllm"):
             url = endpoint.rstrip("/") + "/v1/chat/completions"
@@ -572,6 +592,7 @@ def _call_llm(prompt, system=""):
             return response.choices[0].message.content or ""
 
     except Exception as e:
+        stats["llm_failures"] += 1
         log(f"LLM call failed ({provider}): {e}")
     return ""
 
@@ -752,6 +773,35 @@ def is_dup_key(dedup_key):
     if entry and now < entry["expires"]:
         return True
     return False
+
+
+def find_recent_duplicate_in_os(service, error_template, window_minutes):
+    """Check OpenSearch for unresolved incidents with matching service + error within the dedup window.
+    Catches duplicates across pod restarts when in-memory registry is empty."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=window_minutes)).isoformat()
+        q = {
+            "size": 1,
+            "query": {"bool": {"must": [
+                {"term": {"service": service}},
+                {"range": {"created_at": {"gte": cutoff}}},
+                {"terms": {"state": ["identified", "acknowledged", "investigating"]}},
+            ], "must_not": [
+                {"terms": {"state": ["resolved", "mitigated"]}},
+            ], "should": [
+                {"match": {"title": {"query": error_template[:100], "minimum_should_match": "60%"}}},
+                {"match": {"description": {"query": error_template[:100], "minimum_should_match": "60%"}}},
+            ], "minimum_should_match": 1}},
+            "sort": [{"created_at": "desc"}],
+            "_source": ["id", "title", "state", "similar_count"],
+        }
+        r = os_req("POST", f"{INCIDENT_INDEX}/_search", q)
+        hits = r.get("hits", {}).get("hits", [])
+        if hits:
+            return hits[0]["_source"]
+    except Exception:
+        pass
+    return None
 
 
 # ── Webhook integrations (with severity-based routing) ────────────────
@@ -1089,6 +1139,21 @@ def process(event):
         stats["skipped"] += 1
         return
 
+    # Persistent dedup: check OpenSearch for unresolved incidents with similar error
+    if atype == "request_failure":
+        error_template = event.get("error_message", "")
+        os_dup = find_recent_duplicate_in_os(svc, error_template, dedup_mins)
+        if os_dup:
+            # Re-register in memory so subsequent events are caught faster
+            dedup_registry[dedup_key] = {
+                "ticket_id": os_dup["id"],
+                "expires": time.time() + dedup_mins * 60,
+                "trace_count": os_dup.get("similar_count", 1),
+            }
+            append_trace_to_ticket(dedup_registry[dedup_key], event)
+            log(f"Persistent dedup: grouped into existing {os_dup['id']}")
+            return
+
     create_ticket(event, dedup_key, dedup_mins)
 
 
@@ -1243,7 +1308,12 @@ def create_ticket(event, dedup_key, dedup_mins=15):
     if ext_refs:
         incident["external_refs"] = ext_refs
 
+    # Mark if LLM was unavailable (fallback mode)
+    if atype == "request_failure" and not ai_analysis.get("root_cause"):
+        incident["custom_fields"]["llm_fallback"] = True
+
     save_incident(incident)
+    audit_record(iid, "created", details={"severity": sev, "priority": priority, "service": svc})
 
     dedup_registry[dedup_key] = {
         "ticket_id": iid,
@@ -1657,6 +1727,67 @@ class H(BaseHTTPRequestHandler):
             result = test_llm_connection()
             return self._j(200, result, req_id)
 
+        # ── LLM status (for dashboard fallback warning) ──
+        if api_path == "/api/llm-status" and method == "GET":
+            cfg = get_config()
+            llm = cfg["llm"]
+            return self._j(200, {
+                "provider": llm["provider"],
+                "model": llm.get("model", ""),
+                "enabled": llm["provider"] != "disabled",
+                "endpoint_configured": bool(llm.get("endpoint")),
+                "llm_calls": stats.get("llm_calls", 0),
+                "llm_failures": stats.get("llm_failures", 0),
+                "failure_rate": round(stats["llm_failures"] / max(stats["llm_calls"], 1) * 100, 1),
+            }, req_id)
+
+        # ── Audit trail ──
+        if api_path == "/api/audit" and method == "GET":
+            incident_id = params.get("incident_id", [None])[0]
+            limit_n = min(int(params.get("limit", [100])[0]), 500)
+            with lock:
+                entries = list(_audit_log)
+            if incident_id:
+                entries = [e for e in entries if e["incident_id"] == incident_id]
+            entries = entries[-limit_n:]
+            entries.reverse()
+            return self._j(200, {"data": entries, "total": len(entries)}, req_id)
+
+        # ── Batch transition ──
+        if api_path == "/api/incidents/batch" and method == "POST":
+            ids = body.get("ids", [])
+            action = body.get("action", "")
+            actor = body.get("actor", "operator")
+            if not ids or not action:
+                return self._j(400, {"error": {"code": "validation_error", "message": "ids and action required"}}, req_id)
+            results = []
+            for iid in ids[:50]:  # cap at 50
+                inc = get_incident(iid)
+                if not inc:
+                    results.append({"id": iid, "ok": False, "message": "not found"})
+                    continue
+                now_t = now_iso()
+                old_state = inc["state"]
+                new_state = action
+                if new_state == "acknowledge":
+                    new_state = "acknowledged"
+                if new_state not in VALID_STATES:
+                    results.append({"id": iid, "ok": False, "message": f"invalid state: {new_state}"})
+                    continue
+                inc["state"] = new_state
+                inc["updated_at"] = now_t
+                if new_state == "acknowledged" and not inc.get("acknowledged_at"):
+                    inc["acknowledged_at"] = now_t
+                elif new_state == "mitigated" and not inc.get("mitigated_at"):
+                    inc["mitigated_at"] = now_t
+                elif new_state == "resolved":
+                    inc["resolved_at"] = now_t
+                inc["timeline"].append({"id": gen_request_id(), "timestamp": now_t, "type": "state_change", "state": new_state, "message": f"Bulk action: {old_state} -> {new_state}", "actor": actor})
+                save_incident(inc)
+                audit_record(iid, "state_change", actor=actor, details={"from": old_state, "to": new_state, "bulk": True})
+                results.append({"id": iid, "ok": True, "state": new_state})
+            return self._j(200, {"results": results}, req_id)
+
         # ── Incident list ──
         if api_path == "/api/incidents" and method == "GET":
             return self._j(200, search_incidents(params), req_id)
@@ -1812,6 +1943,7 @@ class H(BaseHTTPRequestHandler):
                         inc["resolved_at"] = now
                     msg = body.get("message", f"State changed: {old_state} -> {new_state}")
                     inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": new_state, "message": msg, "actor": body.get("actor", "operator")})
+                    audit_record(iid, "state_change", actor=body.get("actor", "operator"), details={"from": old_state, "to": new_state})
                     changed = True
                 for field in ["assigned_to", "commander", "urgency", "impact", "root_cause", "communication_channel", "runbook_url"]:
                     if field in body:
@@ -1821,6 +1953,7 @@ class H(BaseHTTPRequestHandler):
                         if field == "urgency" and body[field] in VALID_URGENCIES:
                             inc["priority"] = PRIORITY_MATRIX.get((inc["severity"], body[field]), inc.get("priority", "P3"))
                         inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "field_change", "state": inc["state"], "message": f"{field}: {old_val} -> {body[field]}", "actor": body.get("actor", "operator")})
+                        audit_record(iid, "field_change", actor=body.get("actor", "operator"), details={"field": field, "from": str(old_val), "to": str(body[field])})
                         changed = True
                 if "tags" in body:
                     inc["tags"] = list(set(inc.get("tags", []) + body["tags"]))

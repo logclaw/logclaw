@@ -54,11 +54,40 @@ function parseContent(content: string, format: FileFormat): object[] {
     case "csv": {
       const lines = content.trim().split("\n");
       if (lines.length < 2) return [];
-      const headers = lines[0].split(",").map((h) => h.trim());
-      return lines.slice(1).map((line) => {
-        const vals = line.split(",");
+      const parseCSVLine = (line: string): string[] => {
+        const fields: string[] = [];
+        let current = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (inQuotes) {
+            if (ch === '"' && line[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else if (ch === '"') {
+              inQuotes = false;
+            } else {
+              current += ch;
+            }
+          } else {
+            if (ch === '"') {
+              inQuotes = true;
+            } else if (ch === ",") {
+              fields.push(current.trim());
+              current = "";
+            } else {
+              current += ch;
+            }
+          }
+        }
+        fields.push(current.trim());
+        return fields;
+      };
+      const headers = parseCSVLine(lines[0]);
+      return lines.slice(1).filter(Boolean).map((line) => {
+        const vals = parseCSVLine(line);
         const obj: Record<string, string> = {};
-        headers.forEach((h, i) => (obj[h] = vals[i]?.trim() ?? ""));
+        headers.forEach((h, i) => (obj[h] = vals[i] ?? ""));
         return obj;
       });
     }

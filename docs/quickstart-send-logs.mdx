@@ -16,11 +16,13 @@ LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry
 
 ---
 
-## Option 1: Quick Test with curl (30 seconds)
+## Send Your First Log
 
-No SDK needed. Send a log right now:
+Pick your language — click a tab to switch. Copy the code and run it.
 
-```bash
+<CodeGroup>
+
+```bash cURL
 curl -X POST https://otel.logclaw.ai/v1/logs \
   -H "Content-Type: application/json" \
   -d '{
@@ -33,7 +35,6 @@ curl -X POST https://otel.logclaw.ai/v1/logs \
       "scopeLogs": [{
         "logRecords": [{
           "timeUnixNano": "'$(date +%s)000000000'",
-          "severityNumber": 17,
           "severityText": "ERROR",
           "body": {"stringValue": "Connection timeout to payment-gateway after 30s"},
           "attributes": [
@@ -46,11 +47,160 @@ curl -X POST https://otel.logclaw.ai/v1/logs \
   }'
 ```
 
+```python Python
+# pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
+import logging
+from opentelemetry import _logs
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.sdk.resources import Resource
+
+resource = Resource.create({"service.name": "my-python-api"})
+provider = LoggerProvider(resource=resource)
+provider.add_log_record_processor(
+    BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+    )
+)
+_logs.set_logger_provider(provider)
+
+handler = LoggingHandler(logger_provider=provider)
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
+
+logger = logging.getLogger(__name__)
+logger.error("Payment failed", extra={"order_id": "ord-456"})
+```
+
+```javascript Node.js
+// npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-grpc @opentelemetry/resources
+const { LoggerProvider, BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-grpc');
+const { Resource } = require('@opentelemetry/resources');
+
+const resource = new Resource({ 'service.name': 'my-express-api' });
+const loggerProvider = new LoggerProvider({ resource });
+loggerProvider.addLogRecordProcessor(
+  new BatchLogRecordProcessor(
+    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+  )
+);
+
+const logger = loggerProvider.getLogger('app');
+logger.emit({ severityText: 'ERROR', body: 'Connection timeout', attributes: { 'http.route': '/api/orders' } });
+```
+
+```go Go
+// go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+// go get go.opentelemetry.io/otel/sdk/log
+package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+    sdklog "go.opentelemetry.io/otel/sdk/log"
+    "go.opentelemetry.io/otel/sdk/resource"
+    semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+)
+
+func main() {
+    ctx := context.Background()
+    exporter, _ := otlploggrpc.New(ctx,
+        otlploggrpc.WithEndpoint("otel.logclaw.ai:443"),
+    )
+    res, _ := resource.New(ctx,
+        resource.WithAttributes(semconv.ServiceName("my-go-api")),
+    )
+    provider := sdklog.NewLoggerProvider(
+        sdklog.WithResource(res),
+        sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+    )
+    defer provider.Shutdown(ctx)
+}
+```
+
+```java Java (Spring Boot)
+# Zero code changes — just add a JVM flag:
+java -javaagent:opentelemetry-javaagent.jar \
+  -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai:443 \
+  -Dotel.service.name=my-spring-api \
+  -Dotel.logs.exporter=otlp \
+  -jar my-app.jar
+
+# Download the agent:
+# curl -LO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
+```
+
+```csharp .NET
+// dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol
+// dotnet add package OpenTelemetry.Extensions.Hosting
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.SetResourceBuilder(
+        ResourceBuilder.CreateDefault()
+            .AddService("my-dotnet-api"));
+    logging.AddOtlpExporter(options =>
+    {
+        options.Endpoint = new Uri("https://otel.logclaw.ai:443");
+    });
+});
+// All ILogger calls auto-forward to LogClaw
+```
+
+```ruby Ruby
+# gem install opentelemetry-sdk opentelemetry-exporter-otlp
+# Zero code changes with auto-instrumentation:
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
+
+# Or add to config/initializers/otel.rb:
+# require 'opentelemetry/instrumentation/all'
+# OpenTelemetry::SDK.configure { |c| c.service_name = 'my-rails-app'; c.use_all }
+```
+
+```rust Rust
+// Add to Cargo.toml: opentelemetry, opentelemetry_sdk, opentelemetry-otlp, tracing
+use opentelemetry_otlp::LogExporter;
+use opentelemetry_sdk::logs::LoggerProvider;
+use opentelemetry_sdk::Resource;
+use opentelemetry::KeyValue;
+
+fn init_logs() -> LoggerProvider {
+    let exporter = LogExporter::builder()
+        .with_tonic()
+        .with_endpoint("https://otel.logclaw.ai:443")
+        .build()
+        .expect("Failed to create log exporter");
+    LoggerProvider::builder()
+        .with_resource(Resource::new(vec![
+            KeyValue::new("service.name", "my-rust-api"),
+        ]))
+        .with_batch_exporter(exporter)
+        .build()
+}
+```
+
+</CodeGroup>
+
 Check your dashboard at [app.logclaw.ai](https://app.logclaw.ai) — the log should appear within seconds.
+
+<Note>
+Every tab above is a complete, runnable example. Scroll down for framework-specific guides (Django, Flask, FastAPI, Express, Next.js, NestJS, Spring Boot, Gin, and more).
+</Note>
 
 ---
 
-## Option 2: Python App (3 minutes)
+## Detailed Guides by Language
+
+Below are full integration guides with framework-specific examples for each language.
+
+---
+
+## Python
 
 ### Install
 
@@ -236,7 +386,7 @@ def process_payment(order_id):
 
 ---
 
-## Option 3: Node.js App (3 minutes)
+## Node.js
 
 ### Install
 
@@ -468,7 +618,7 @@ logger.info({ userId: 'usr-42' }, 'User logged in');
 
 ---
 
-## Option 4: Java App (3 minutes)
+## Java / Kotlin
 
 ### Spring Boot (Zero Code Changes)
 
@@ -598,7 +748,7 @@ Add the OTel appender to your logging config:
 
 ---
 
-## Option 5: Go App (3 minutes)
+## Go
 
 ```bash
 go get go.opentelemetry.io/otel/sdk/log
@@ -721,7 +871,7 @@ func main() {
 
 ---
 
-## Option 6: Ruby App (3 minutes)
+## Ruby
 
 ### Install
 
@@ -775,7 +925,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
 
 ---
 
-## Option 7: .NET / C# App (3 minutes)
+## .NET / C#
 
 ### Install
 
@@ -821,7 +971,7 @@ All existing `ILogger` calls (`LogInformation`, `LogError`, `LogWarning`) automa
 
 ---
 
-## Option 8: Rust App (3 minutes)
+## Rust
 
 ### Add to Cargo.toml
 
@@ -869,7 +1019,7 @@ fn main() {
 
 ---
 
-## Option 9: PHP App (3 minutes)
+## PHP
 
 ### Install
 
@@ -939,7 +1089,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai php artisan serve
 
 ---
 
-## Option 10: Existing Log Shippers (Config Change Only)
+## Log Shippers (Config Change Only)
 
 Already running a log shipper? Point it at LogClaw's OTLP endpoint:
 
@@ -1033,7 +1183,7 @@ Then point a separate OTel Collector at your Datadog Agent's OTLP receiver and f
 
 ---
 
-## Option 11: Any App via OTel Collector Sidecar (Zero Code Changes)
+## OTel Collector Sidecar (Zero Code Changes)
 
 For apps that write logs to **stdout** or **log files** — any language, any framework — deploy an OTel Collector alongside your app to auto-scrape and forward logs. **No SDK needed.**
 
@@ -1127,13 +1277,13 @@ spec:
 
 ---
 
-## Option 12: Drag & Drop (Dashboard Upload)
+## Dashboard Upload (Drag & Drop)
 
 For testing or one-time imports, the LogClaw dashboard supports drag-and-drop log upload:
 
 1. Go to [app.logclaw.ai](https://app.logclaw.ai)
 2. Click **Ingestion** in the sidebar
-3. Drag a `.json` or `.ndjson` file onto the upload area
+3. Drag a `.json`, `.ndjson`, `.csv`, or `.txt`/`.log` file onto the upload area
 
 Accepted format (OTLP JSON):
 ```json
@@ -1180,20 +1330,20 @@ Your App → OTLP → OTel Collector → Kafka → Flink ETL → OpenSearch
 
 Every option has a full code example above. Pick your stack:
 
-| Option | Language / Tool | Frameworks with Examples | Code Changes |
-|--------|----------------|------------------------|-------------|
-| 1 | **curl / HTTP** | Any HTTP client | None — just POST JSON |
-| 2 | **Python** | Django, Flask, FastAPI, Celery | 5 lines in startup |
-| 3 | **Node.js** | Express, Next.js, NestJS, Fastify, Winston, Pino | 5 lines in startup |
-| 4 | **Java / Kotlin** | Spring Boot, Quarkus, Micronaut, Ktor, Log4j2, Logback | **Zero** — just a JVM flag |
-| 5 | **Go** | Gin, Fiber, Echo, net/http | 5 lines in main |
-| 6 | **Ruby** | Rails (auto-instrumentation), Sinatra | 5 lines or **zero** with env var |
-| 7 | **.NET / C#** | ASP.NET Core, Minimal API | Add to `Program.cs` |
-| 8 | **Rust** | Actix, Axum, Rocket (via tracing) | 5 lines in main |
-| 9 | **PHP** | Laravel, Symfony | Add to bootstrap |
-| 10 | **Log Shippers** | Fluentd, Fluent Bit, Vector, Logstash, Datadog Agent | Config change only |
-| 11 | **Any app** | stdout / log files via OTel Collector sidecar | **Zero** — collector scrapes |
-| 12 | **Manual** | Dashboard drag & drop | **Zero** — drag a JSON file |
+| Language / Tool | Frameworks with Examples | Code Changes |
+|----------------|------------------------|-------------|
+| **cURL / HTTP** | Any HTTP client | None — just POST JSON |
+| **Python** | Django, Flask, FastAPI, Celery | 5 lines in startup |
+| **Node.js** | Express, Next.js, NestJS, Fastify, Winston, Pino | 5 lines in startup |
+| **Java / Kotlin** | Spring Boot, Quarkus, Micronaut, Ktor, Log4j2, Logback | **Zero** — just a JVM flag |
+| **Go** | Gin, Fiber, Echo, net/http | 5 lines in main |
+| **Ruby** | Rails (auto-instrumentation), Sinatra | 5 lines or **zero** with env var |
+| **.NET / C#** | ASP.NET Core, Minimal API | Add to `Program.cs` |
+| **Rust** | Actix, Axum, Rocket (via tracing) | 5 lines in main |
+| **PHP** | Laravel, Symfony | Add to bootstrap |
+| **Log Shippers** | Fluentd, Fluent Bit, Vector, Logstash, Datadog Agent | Config change only |
+| **OTel Collector** | stdout / log files via sidecar | **Zero** — collector scrapes |
+| **Dashboard** | Drag & drop JSON, NDJSON, CSV, or text files | **Zero** — drag a file |
 
 ---
 

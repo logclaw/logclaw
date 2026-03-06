@@ -13,6 +13,8 @@ import {
   timeAgo,
   formatDuration,
 } from "@/lib/utils";
+import { IncidentDetailSkeleton } from "@/components/skeleton";
+import { ErrorBanner } from "@/components/error-boundary";
 import {
   ArrowLeft,
   GitBranch,
@@ -33,6 +35,7 @@ import {
   Lightbulb,
   Activity,
   FileText,
+  RefreshCw,
 } from "lucide-react";
 import SendToServiceDropdown from "@/components/send-to-service";
 import CollapsibleSection from "@/components/collapsible-section";
@@ -46,6 +49,8 @@ export default function IncidentDetailPage() {
   const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
 
   const reload = () => {
+    setError(null);
+    setIncident(null);
     fetchIncident(id).then(setIncident).catch((e) => setError(e.message));
   };
 
@@ -77,22 +82,21 @@ export default function IncidentDetailPage() {
 
   if (error) {
     return (
-      <div className="animate-fade-in mx-auto max-w-3xl">
-        <div className="flex items-center gap-3 rounded-2xl bg-red-50 px-6 py-10 text-[13px] font-medium text-red-500">
-          <AlertCircle className="mx-auto h-5 w-5" />
-          {error}
-        </div>
+      <div className="space-y-4">
+        <button
+          onClick={() => router.push("/incidents")}
+          className="flex items-center gap-1.5 text-[13px] text-[#6e6e73] transition-colors hover:text-[#1d1d1f]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to incidents
+        </button>
+        <ErrorBanner message={error} onRetry={reload} />
       </div>
     );
   }
 
   if (!incident) {
-    return (
-      <div className="flex items-center justify-center gap-2.5 py-24 text-[13px] text-[#aeaeb2]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading incident…
-      </div>
-    );
+    return <IncidentDetailSkeleton />;
   }
 
   const actions = getAvailableActions(incident.state);
@@ -133,6 +137,12 @@ export default function IncidentDetailPage() {
             <span className="flex items-center gap-1 rounded-lg bg-violet-50 px-2.5 py-1 text-[11px] font-bold uppercase text-violet-600 shadow-sm">
               <Brain className="h-3 w-3" />
               AI-Analyzed
+            </span>
+          )}
+          {incident.custom_fields?.llm_fallback && (
+            <span className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-bold uppercase text-amber-600">
+              <AlertCircle className="h-3 w-3" />
+              No AI Analysis
             </span>
           )}
           {incident.similar_count != null && incident.similar_count > 0 && (

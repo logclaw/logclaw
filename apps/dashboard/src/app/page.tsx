@@ -5,6 +5,8 @@ import Link from "next/link";
 import StatCard from "@/components/stat-card";
 import PipelineFlow from "@/components/pipeline-flow";
 import BarChart from "@/components/bar-chart";
+import { StatCardSkeleton, BarChartSkeleton, PipelineFlowSkeleton, IncidentCardSkeleton } from "@/components/skeleton";
+import { ErrorBanner } from "@/components/error-boundary";
 import {
   fetchPipelineStats,
   fetchPipelineThroughput,
@@ -96,12 +98,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="animate-fade-in flex items-center gap-2.5 rounded-xl bg-red-50 px-4 py-3.5 text-[13px] font-medium text-red-500">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       {/* Header */}
       <div className="animate-fade-in-up flex items-center justify-between">
@@ -126,42 +123,45 @@ export default function OverviewPage() {
       </div>
 
       {/* Stats row */}
-      <div className="stagger-children grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
-          icon={<BarChart3 className="h-5 w-5" />}
-          label="Total Logs (24h)"
-          value={stats ? formatNumber(stats.totalLogs) : "\u2014"}
-          color="text-[#FF5722]"
-          trend="24h"
-        />
-        <StatCard
-          icon={<AlertOctagon className="h-5 w-5" />}
-          label="Error Rate"
-          value={stats ? `${stats.errorRate.toFixed(1)}%` : "\u2014"}
-          color={
-            stats && stats.errorRate > 5 ? "text-red-500" : "text-emerald-500"
-          }
-        />
-        <StatCard
-          icon={<Server className="h-5 w-5" />}
-          label="Services"
-          value={stats?.serviceCount ?? "\u2014"}
-          color="text-purple-500"
-        />
-        <StatCard
-          icon={<Zap className="h-5 w-5" />}
-          label="Anomalies (24h)"
-          value={stats ? formatNumber(stats.anomalyCount) : "\u2014"}
-          color={
-            stats && stats.anomalyCount > 0
-              ? "text-orange-500"
-              : "text-emerald-500"
-          }
-        />
-      </div>
+      {!stats ? (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatCardSkeleton />
+          <StatCardSkeleton />
+          <StatCardSkeleton />
+          <StatCardSkeleton />
+        </div>
+      ) : (
+        <div className="stagger-children grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatCard
+            icon={<BarChart3 className="h-5 w-5" />}
+            label="Total Logs (24h)"
+            value={formatNumber(stats.totalLogs)}
+            color="text-[#FF5722]"
+            trend="24h"
+          />
+          <StatCard
+            icon={<AlertOctagon className="h-5 w-5" />}
+            label="Error Rate"
+            value={`${stats.errorRate.toFixed(1)}%`}
+            color={stats.errorRate > 5 ? "text-red-500" : "text-emerald-500"}
+          />
+          <StatCard
+            icon={<Server className="h-5 w-5" />}
+            label="Services"
+            value={stats.serviceCount}
+            color="text-purple-500"
+          />
+          <StatCard
+            icon={<Zap className="h-5 w-5" />}
+            label="Anomalies (24h)"
+            value={formatNumber(stats.anomalyCount)}
+            color={stats.anomalyCount > 0 ? "text-orange-500" : "text-emerald-500"}
+          />
+        </div>
+      )}
 
       {/* Pipeline flow with throughput */}
-      <PipelineFlow throughput={throughput} />
+      {!throughput ? <PipelineFlowSkeleton /> : <PipelineFlow throughput={throughput} />}
 
       {/* Active Incidents — the most actionable section */}
       <div className="animate-fade-in-up overflow-hidden rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
@@ -250,10 +250,17 @@ export default function OverviewPage() {
       </div>
 
       {/* Charts row */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <BarChart title="Log Level Distribution" data={levelData} />
-        <BarChart title="Top Services by Volume" data={serviceData} />
-      </div>
+      {!stats ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <BarChartSkeleton />
+          <BarChartSkeleton />
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          <BarChart title="Log Level Distribution" data={levelData} />
+          <BarChart title="Top Services by Volume" data={serviceData} />
+        </div>
+      )}
 
       {/* Log Explorer banner — nudge to OpenSearch Dashboards */}
       <div className="animate-fade-in-up rounded-2xl border border-[#f2f2f7] bg-gradient-to-r from-[#fafafa] to-white px-4 py-3 sm:px-5 sm:py-4">

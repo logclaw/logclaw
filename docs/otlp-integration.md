@@ -242,13 +242,15 @@ LogClaw's Bridge flattens the nested OTLP structure into canonical flat document
 
 ## Dashboard File Upload
 
-The LogClaw dashboard supports drag-and-drop log file upload. When you upload a JSON file through
+The LogClaw dashboard supports drag-and-drop log file upload. When you upload a file through
 the UI, the dashboard automatically converts each log entry to OTLP format using the built-in
 `logsToOtlp()` converter and sends them to the OTel Collector via the `/api/otel/v1/logs` proxy.
 
 Supported file formats:
 - **JSON** — array of log objects `[{"message": "...", "level": "ERROR", ...}]`
 - **NDJSON** — newline-delimited JSON (one log object per line)
+- **CSV** — header row required, columns auto-mapped to OTLP fields
+- **Text** (`.txt`, `.log`) — one log message per line
 
 ## Troubleshooting
 

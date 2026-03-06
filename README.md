@@ -34,7 +34,7 @@ LogClaw Stack (per tenant, namespace-isolated)
 ├── logclaw-ml-engine       Feast Feature Store + KServe/TorchServe + Ollama
 ├── logclaw-airflow         Apache Airflow (ML training DAGs)
 ├── logclaw-ticketing-agent AI-powered RCA + multi-platform ticketing
-├── logclaw-dashboard       Next.js web UI (incidents, ingestion, config)
+├── logclaw-dashboard       Next.js web UI (ingestion, incidents, config, dark mode)
 ├── logclaw-zammad          In-cluster ITSM (zero-egress alternative)
 └── logclaw-platform        ESO SecretStore, cert-manager, RBAC baseline
 ```
@@ -329,6 +329,18 @@ global:
     provider: ollama   # claude | openai | ollama | vllm | disabled
     model: llama3.2:8b
 ```
+
+### Dashboard
+
+The Dashboard provides:
+- **Dark mode** — system-aware with manual toggle (Light/Dark/System), persisted in localStorage
+- **Drag-and-drop upload** supporting JSON, NDJSON, CSV, and plain text files
+- **Bulk incident actions** — select multiple incidents and acknowledge/resolve/escalate in batch
+- **CSV export** — download incidents as a CSV file
+- **Loading skeletons** — smooth animated placeholders during data fetches
+- **Error boundaries** — graceful crash recovery with retry UI
+- **LLM fallback badge** — indicates when AI RCA is unavailable and rule-based fallback was used
+- **Incident auto-deduplication** — prevents duplicate incidents for the same anomaly
 
 ### Log Ingestion — OTLP Native
 
