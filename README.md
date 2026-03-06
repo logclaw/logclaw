@@ -3,6 +3,7 @@
 <p align="left">
   <img src="https://img.shields.io/badge/helm-3.x-blue?logo=helm" />
   <img src="https://img.shields.io/badge/kubernetes-1.27%2B-blue?logo=kubernetes" />
+  <img src="https://img.shields.io/badge/docker-compose-blue?logo=docker" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" />
 </p>
 
@@ -12,12 +13,48 @@ Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log i
 
 ## TL;DR — Run Locally in One Command
 
+### Option A: Docker Compose (no clone, no build — fastest)
+
+```bash
+curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/otel-collector-config.yaml
+docker compose up -d
+```
+
+Open **http://localhost:3000** — the full LogClaw stack is running:
+- Dashboard (`:3000`) — incidents, log ingestion, config
+- OTel Collector (`:4317` gRPC, `:4318` HTTP) — send logs via OTLP
+- Bridge (`:8080`) — anomaly detection + trace correlation
+- Ticketing Agent (`:18081`) — AI-powered incident management
+- OpenSearch (`:9200`) — log storage + search
+- Kafka (`:9092`) — event bus
+
+All images are pulled from `ghcr.io/logclaw/` — no registry auth required.
+
+### Option B: Kind Cluster (full Kubernetes stack)
+
 ```bash
 git clone https://github.com/logclaw/logclaw.git && cd logclaw
 ./scripts/setup-dev.sh
 ```
 
 This creates a Kind cluster, installs all operators and services, builds the dashboard, and runs a smoke test. Takes ~20 minutes on a 16 GB laptop.
+
+### Container Images
+
+All LogClaw images are published to GHCR as public packages:
+
+| Service | Image | Latest Stable |
+|---------|-------|---------------|
+| Dashboard | `ghcr.io/logclaw/logclaw-dashboard` | `stable` / `2.5.0` |
+| Bridge | `ghcr.io/logclaw/logclaw-bridge` | `stable` / `1.3.0` |
+| Ticketing Agent | `ghcr.io/logclaw/logclaw-ticketing-agent` | `stable` / `1.5.0` |
+| Flink Jobs | `ghcr.io/logclaw/logclaw-flink-jobs` | `stable` / `0.1.1` |
+
+Pull any image directly:
+```bash
+docker pull ghcr.io/logclaw/logclaw-dashboard:stable
+```
 
 ---
 

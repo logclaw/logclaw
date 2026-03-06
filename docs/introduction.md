@@ -68,20 +68,19 @@ Apps ──OTLP──▶ OTel Collector ──▶ Kafka ──▶ Bridge (ETL + 
 
 ## Quick Start
 
-<Steps>
-  <Step title="Clone the repository">
+<Tabs>
+  <Tab title="Docker Compose (Fastest)">
+    No cloning, no building — just pull and run:
+
     ```bash
-    git clone https://github.com/logclaw/logclaw.git
-    cd logclaw
+    curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
+    curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/otel-collector-config.yaml
+    docker compose up -d
     ```
-  </Step>
-  <Step title="Start local development environment">
-    ```bash
-    ./scripts/setup-dev.sh
-    ```
-    This creates a Kind cluster, installs all operators and services, and runs a smoke test. Takes ~20 minutes on a 16 GB machine.
-  </Step>
-  <Step title="Send your first log">
+
+    Open **http://localhost:3000** — the full stack is running. All images are pulled from `ghcr.io/logclaw/` (public, no auth required).
+
+    Send a test log:
     ```bash
     curl -X POST http://localhost:4318/v1/logs \
       -H "Content-Type: application/json" \
@@ -102,8 +101,30 @@ Apps ──OTLP──▶ OTel Collector ──▶ Kafka ──▶ Bridge (ETL + 
         }]
       }'
     ```
-  </Step>
-</Steps>
+  </Tab>
+  <Tab title="Kind Cluster (Full K8s Stack)">
+    For the full Kubernetes experience with all operators:
+
+    ```bash
+    git clone https://github.com/logclaw/logclaw.git
+    cd logclaw
+    ./scripts/setup-dev.sh
+    ```
+
+    This creates a Kind cluster, installs all operators and services, and runs a smoke test. Takes ~20 minutes on a 16 GB machine.
+  </Tab>
+</Tabs>
+
+### Container Images
+
+All LogClaw images are public on GHCR — pull directly with no auth:
+
+```bash
+docker pull ghcr.io/logclaw/logclaw-dashboard:stable
+docker pull ghcr.io/logclaw/logclaw-bridge:stable
+docker pull ghcr.io/logclaw/logclaw-ticketing-agent:stable
+docker pull ghcr.io/logclaw/logclaw-flink-jobs:stable
+```
 
 ## Next Steps
 

@@ -7,42 +7,75 @@ description: Set up a local LogClaw development environment for testing and deve
 
 This guide covers setting up LogClaw for local development and testing.
 
-## Environment Variables
+## Option 1: Docker Compose (Fastest — No Clone Required)
 
-The Dashboard requires environment variables to connect to backend services. Create a `.env.local` file:
+Run the full LogClaw stack using pre-built public images. No cloning, no building, no Kubernetes.
 
 ```bash
-# OTel Collector — OTLP HTTP endpoint
-OTEL_COLLECTOR_ENDPOINT=http://localhost:4318
-
-# Bridge — ETL + anomaly detection + metrics
-BRIDGE_ENDPOINT=http://localhost:8080
-
-# OpenSearch — search & analytics
-OPENSEARCH_ENDPOINT=http://localhost:9200
-OPENSEARCH_USER=admin
-OPENSEARCH_PASSWORD=admin
-
-# Ticketing Agent — incident management
-TICKETING_ENDPOINT=http://localhost:18081
-
-# Airflow — pipeline orchestration
-AIRFLOW_ENDPOINT=http://localhost:28080
-
-# Feast — ML feature store
-FEAST_ENDPOINT=http://localhost:6567
-
-# Infrastructure Agent — cluster health
-AGENT_ENDPOINT=http://localhost:8080
+curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/otel-collector-config.yaml
+docker compose up -d
 ```
 
-<Note>
-All environment variables are consumed by the Dashboard's Next.js API proxy routes. Each backend service gets its own proxy under `/api/<service>/`.
-</Note>
+**Requirements:** Docker with 8 GB+ RAM allocated.
 
-## Option 1: Kind Cluster (Full Stack)
+This starts 6 services:
 
-The fastest way to run the full LogClaw stack locally:
+| Service | Port | URL |
+|---------|------|-----|
+| Dashboard | 3000 | [http://localhost:3000](http://localhost:3000) |
+| OTel Collector (gRPC) | 4317 | — |
+| OTel Collector (HTTP) | 4318 | `POST /v1/logs` |
+| Bridge | 8080 | [http://localhost:8080/health](http://localhost:8080/health) |
+| Ticketing Agent | 18081 | [http://localhost:18081](http://localhost:18081) |
+| OpenSearch | 9200 | [http://localhost:9200](http://localhost:9200) |
+
+All images are pulled from `ghcr.io/logclaw/` — public, no registry auth required.
+
+### Send a test log
+
+```bash
+curl -X POST http://localhost:4318/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "my-app"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "'$(date +%s)000000000'",
+          "severityText": "ERROR",
+          "body": {"stringValue": "Connection refused to database"}
+        }]
+      }]
+    }]
+  }'
+```
+
+### Stop and clean up
+
+```bash
+docker compose down           # stop services, keep data
+docker compose down -v        # stop services and delete data
+```
+
+### Container Images
+
+| Service | Image | Tags |
+|---------|-------|------|
+| Dashboard | `ghcr.io/logclaw/logclaw-dashboard` | `stable`, `2.5.0` |
+| Bridge | `ghcr.io/logclaw/logclaw-bridge` | `stable`, `1.3.0` |
+| Ticketing Agent | `ghcr.io/logclaw/logclaw-ticketing-agent` | `stable`, `1.5.0` |
+| Flink Jobs | `ghcr.io/logclaw/logclaw-flink-jobs` | `stable`, `0.1.1` |
+
+The `:stable` tag always points to the latest verified release. Use a specific version tag (e.g., `:2.5.0`) for reproducible environments.
+
+## Option 2: Kind Cluster (Full Kubernetes Stack)
+
+For the full Kubernetes experience with all operators (Strimzi, Flink, ESO, cert-manager):
 
 ```bash
 # Clone and setup
@@ -79,7 +112,7 @@ kubectl port-forward svc/logclaw-opensearch 9200:9200 -n logclaw &
 kubectl port-forward svc/logclaw-dashboard 3000:3000 -n logclaw &
 ```
 
-## Option 2: Dashboard Development (Frontend Only)
+## Option 3: Dashboard Development (Frontend Only)
 
 For working on the Dashboard UI without the full stack:
 
@@ -92,7 +125,7 @@ npm run dev
 
 The Dashboard starts on `http://localhost:3000`. Configure `.env.local` to point at your backend services (local Kind cluster, remote dev cluster, or mock endpoints).
 
-## Option 3: Bridge Development (Python)
+## Option 4: Bridge Development (Python)
 
 For working on the Bridge ETL service:
 

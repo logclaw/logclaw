@@ -1,0 +1,114 @@
+# LogClaw — Run the full stack locally with one command
+# No cloning, no building, no Kubernetes required.
+#
+# Usage:
+#   curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
+#   docker compose up -d
+#   open http://localhost:3000
+#
+# Requirements: Docker with 8 GB+ RAM allocated
+
+services:
+  # ── Data Layer ────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.14.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=LogClaw@2024
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: bitnami/kafka:3.7
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  # ── OTel Collector (OTLP ingestion) ──────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # gRPC
+      - "4318:4318"   # HTTP
+      - "13133:13133" # health
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ── LogClaw Services ─────────────────────────────────────
+  bridge:
+    image: ghcr.io/logclaw/logclaw-bridge:stable
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_RAW=raw-logs
+      - KAFKA_TOPIC_ENRICHED=enriched-logs
+      - OPENSEARCH_ENDPOINT=http://opensearch:9200
+      - ANOMALY_THRESHOLD=2.5
+      - WINDOW_SIZE=50
+    ports:
+      - "8080:8080"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  ticketing-agent:
+    image: ghcr.io/logclaw/logclaw-ticketing-agent:stable
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - OPENSEARCH_ENDPOINT=http://opensearch:9200
+      - LLM_PROVIDER=disabled
+    ports:
+      - "18081:8080"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  dashboard:
+    image: ghcr.io/logclaw/logclaw-dashboard:stable
+    environment:
+      - OTEL_COLLECTOR_ENDPOINT=http://otel-collector:4318
+      - BRIDGE_ENDPOINT=http://bridge:8080
+      - OPENSEARCH_ENDPOINT=http://opensearch:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=LogClaw@2024
+      - TICKETING_ENDPOINT=http://ticketing-agent:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - bridge
+      - ticketing-agent
+
+volumes:
+  opensearch-data:
+  kafka-data:
