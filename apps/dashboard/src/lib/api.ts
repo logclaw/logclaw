@@ -137,12 +137,13 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
 
   const [logsRes, anomalyRes] = await Promise.all([
-    // Logs: `timestamp` field is NOT indexed (mapping: dynamic=false),
-    // so we use match_all instead of range. Text fields need .keyword
-    // sub-field for aggregations and term-level queries.
+    // `timestamp` is indexed as type "date" in logclaw-logs-* indices.
+    // We use track_total_hits to get the exact count (OpenSearch caps at
+    // 10 000 by default) and a range filter for the last 24 h.
     osQuery<any>("logclaw-logs-*", {
       size: 0,
-      query: { match_all: {} },
+      track_total_hits: true,
+      query: { range: { timestamp: { gte: dayAgo, lte: now } } },
       aggs: {
         levels: { terms: { field: "level.keyword", size: 10 } },
         services: { terms: { field: "service.keyword", size: 20 } },
@@ -153,9 +154,10 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
         },
       },
     }),
-    // Anomalies: `timestamp` IS indexed here, so range filter works.
+    // Anomalies index also uses `timestamp` (type "date").
     osQuery<any>("logclaw-anomalies-*", {
       size: 0,
+      track_total_hits: true,
       query: { range: { timestamp: { gte: dayAgo, lte: now } } },
     }),
   ]);
@@ -181,11 +183,10 @@ export async function fetchPipelineStats(): Promise<PipelineStats> {
 }
 
 export async function fetchRecentLogs(limit = 100): Promise<LogEntry[]> {
-  // Sort by _doc desc (insertion order ≈ chronological) because the
-  // `timestamp` field is not indexed in the logs mapping.
+  // `timestamp` is indexed as type "date" — sort by it for true chronological order.
   const res = await osQuery<any>("logclaw-logs-*", {
     size: limit,
-    sort: [{ _doc: "desc" }],
+    sort: [{ timestamp: "desc" }],
     query: { match_all: {} },
   });
   return res.hits?.hits ?? [];
@@ -194,7 +195,7 @@ export async function fetchRecentLogs(limit = 100): Promise<LogEntry[]> {
 export async function fetchErrorLogs(limit = 50): Promise<LogEntry[]> {
   const res = await osQuery<any>("logclaw-logs-*", {
     size: limit,
-    sort: [{ _doc: "desc" }],
+    sort: [{ timestamp: "desc" }],
     query: {
       terms: { "level.keyword": ["ERROR", "FATAL", "CRITICAL"] },
     },
@@ -256,6 +257,22 @@ export async function transitionIncident(
   if (!res.ok) throw new Error(`Transition ${res.status}`);
   const body = await res.json();
   return body.data ?? body;
+}
+
+export async function forwardIncident(
+  id: string,
+  platform: string,
+): Promise<{ data: Incident; forwarded: { system: string; ref_id: string; url: string; synced_at: string } }> {
+  const res = await fetch(`/api/ticketing/api/incidents/${id}/forward`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message ?? `Forward failed (${res.status})`);
+  }
+  return res.json();
 }
 
 // ── Pipeline throughput ─────────────────────────────────────
@@ -482,6 +499,7 @@ export interface LlmConfig {
   provider: "ollama" | "claude" | "openai" | "vllm" | "disabled";
   model: string;
   endpoint: string;
+  api_key: string;
 }
 
 export interface TicketingConfig {

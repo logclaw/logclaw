@@ -83,6 +83,7 @@ _config = {
         "provider": os.environ.get("LLM_PROVIDER", "disabled"),
         "model": os.environ.get("LLM_MODEL", ""),
         "endpoint": os.environ.get("LLM_ENDPOINT", ""),
+        "api_key": os.environ.get("LLM_API_KEY", ""),
     },
 }
 
@@ -96,6 +97,9 @@ def get_config(mask_secrets=False):
             for key in list(platform.keys()):
                 if key in _SECRET_FIELDS and platform[key]:
                     platform[key] = "****"
+        # Mask LLM API key
+        if cfg.get("llm", {}).get("api_key"):
+            cfg["llm"]["api_key"] = "****"
     return cfg
 
 
@@ -471,8 +475,22 @@ def os_context(service):
 
 # ── LLM Integration — Universal Caller + Trace Analysis ──────────────
 
+def _resolve_api_key(provider):
+    """Resolve API key: runtime config > provider-specific env > generic env."""
+    cfg = get_config()
+    runtime_key = cfg["llm"].get("api_key", "")
+    if runtime_key and runtime_key != "****":
+        return runtime_key
+    if provider == "claude":
+        return os.environ.get("ANTHROPIC_API_KEY", os.environ.get("LLM_API_KEY", ""))
+    if provider == "openai":
+        return os.environ.get("OPENAI_API_KEY", os.environ.get("LLM_API_KEY", ""))
+    return os.environ.get("LLM_API_KEY", "")
+
+
 def _call_llm(prompt, system=""):
     """Universal LLM caller routing to configured provider.
+    Uses the official Anthropic SDK for Claude; OpenAI-compatible REST for others.
     Returns response text or empty string on error/disabled."""
     cfg = get_config()
     llm = cfg["llm"]
@@ -505,48 +523,53 @@ def _call_llm(prompt, system=""):
             return resp.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         elif provider == "claude":
-            url = endpoint.rstrip("/") + "/v1/messages"
-            api_key = os.environ.get("ANTHROPIC_API_KEY", os.environ.get("LLM_API_KEY", ""))
-            messages = [{"role": "user", "content": prompt}]
-            body = {
-                "model": model,
+            # Use the official Anthropic SDK for Claude calls
+            import anthropic
+            api_key = _resolve_api_key("claude")
+            if not api_key:
+                log("LLM call skipped (claude): no API key configured")
+                return ""
+            # Allow custom base_url (defaults to https://api.anthropic.com)
+            base_url = endpoint.rstrip("/") if endpoint != "https://api.anthropic.com" else None
+            client = anthropic.Anthropic(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=float(timeout_s),
+            )
+            kwargs = {
+                "model": model or "claude-sonnet-4-20250514",
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "messages": messages,
+                "messages": [{"role": "user", "content": prompt}],
             }
             if system:
-                body["system"] = system
-            payload = json.dumps(body)
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-            }
-            req = Request(url, data=payload.encode(), headers=headers, method="POST")
-            resp = json.loads(urlopen(req, timeout=timeout_s).read())
-            content = resp.get("content", [])
-            return content[0].get("text", "") if content else ""
+                kwargs["system"] = system
+            message = client.messages.create(**kwargs)
+            return message.content[0].text if message.content else ""
 
         elif provider == "openai":
-            url = endpoint.rstrip("/") + "/v1/chat/completions"
-            api_key = os.environ.get("OPENAI_API_KEY", os.environ.get("LLM_API_KEY", ""))
+            # Use the official OpenAI SDK for OpenAI calls
+            import openai
+            api_key = _resolve_api_key("openai")
+            if not api_key:
+                log("LLM call skipped (openai): no API key configured")
+                return ""
+            client = openai.OpenAI(
+                api_key=api_key,
+                base_url=endpoint.rstrip("/") + "/v1" if endpoint else None,
+                timeout=float(timeout_s),
+            )
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
-            payload = json.dumps({
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            })
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            }
-            req = Request(url, data=payload.encode(), headers=headers, method="POST")
-            resp = json.loads(urlopen(req, timeout=timeout_s).read())
-            return resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            response = client.chat.completions.create(
+                model=model or "gpt-4o",
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content or ""
 
     except Exception as e:
         log(f"LLM call failed ({provider}): {e}")
@@ -893,6 +916,145 @@ def send_webhooks(incident):
                 log(f"  OpsGenie error: {e}")
 
     return ext_refs
+
+
+def forward_to_platform(incident, platform):
+    """Forward a single incident to a specific platform (manual dispatch)."""
+    cfg = get_config()
+    platforms = cfg["platforms"]
+    p_cfg = platforms.get(platform, {})
+
+    if not p_cfg.get("enabled", False):
+        return {"ok": False, "error": f"{platform} is not enabled"}
+
+    ext_ref = None
+
+    if platform == "slack":
+        webhook_url = p_cfg.get("webhookUrl", "")
+        channel = p_cfg.get("channel", "#logclaw-alerts")
+        if not webhook_url:
+            return {"ok": False, "error": "Slack webhookUrl not configured"}
+        try:
+            sev_emoji = {"critical": ":rotating_light:", "high": ":warning:", "medium": ":large_orange_diamond:", "low": ":information_source:"}.get(incident["severity"], ":bell:")
+            text = f"{sev_emoji} *[Manual Forward] {incident['title']}*\nService: `{incident['service']}` | Priority: {incident.get('priority', 'P3')} | Severity: {incident['severity']}\nID: `{incident['id']}`"
+            payload = {"channel": channel, "username": "LogClaw", "icon_emoji": ":shield:", "text": text}
+            req = Request(webhook_url, json.dumps(payload).encode(), {"Content-Type": "application/json"}, method="POST")
+            urlopen(req, timeout=5)
+            stats["webhooks_sent"] += 1
+            ext_ref = {"system": "slack", "ref_id": channel, "url": "", "synced_at": now_iso()}
+        except Exception as e:
+            stats["webhooks_failed"] += 1
+            return {"ok": False, "error": str(e)}
+
+    elif platform == "pagerduty":
+        routing_key = p_cfg.get("routingKey", "")
+        api_url = p_cfg.get("apiUrl", "https://events.pagerduty.com")
+        if not routing_key:
+            return {"ok": False, "error": "PagerDuty routingKey not configured"}
+        try:
+            sev_map = {"critical": "critical", "high": "error", "medium": "warning", "low": "info"}
+            payload = {
+                "routing_key": routing_key, "event_action": "trigger",
+                "dedup_key": f"manual-{incident['id']}",
+                "payload": {
+                    "summary": f"[Manual] {incident['title']}",
+                    "severity": sev_map.get(incident["severity"], "warning"),
+                    "source": f"logclaw-{TENANT_ID}", "component": incident["service"],
+                    "custom_details": {"anomaly_score": incident.get("anomaly_score"), "priority": incident.get("priority")},
+                },
+            }
+            req = Request(f"{api_url}/v2/enqueue", json.dumps(payload).encode(), {"Content-Type": "application/json"}, method="POST")
+            r = json.loads(urlopen(req, timeout=10).read())
+            ext_ref = {"system": "pagerduty", "ref_id": r.get("dedup_key", incident["id"]), "url": "", "synced_at": now_iso()}
+            stats["webhooks_sent"] += 1
+        except Exception as e:
+            stats["webhooks_failed"] += 1
+            return {"ok": False, "error": str(e)}
+
+    elif platform == "jira":
+        base_url = p_cfg.get("baseUrl", "")
+        api_token = p_cfg.get("apiToken", "")
+        user_email = p_cfg.get("userEmail", "")
+        project_key = p_cfg.get("projectKey", "OPS")
+        issue_type = p_cfg.get("issueType", "Bug")
+        if not (base_url and api_token and user_email):
+            return {"ok": False, "error": "Jira credentials incomplete"}
+        try:
+            auth = base64.b64encode(f"{user_email}:{api_token}".encode()).decode()
+            priority_map = {"critical": "Highest", "high": "High", "medium": "Medium", "low": "Low"}
+            sev = incident["severity"]
+            payload = {
+                "fields": {
+                    "project": {"key": project_key}, "summary": f"[LogClaw] {incident['title']}",
+                    "description": f"LogClaw Incident {incident['id']}\n\nPriority: {incident.get('priority', 'P3')}\nSeverity: {sev}\nService: {incident['service']}\n\n{incident.get('description', '')}",
+                    "issuetype": {"name": issue_type}, "priority": {"name": priority_map.get(sev, "Medium")},
+                    "labels": ["logclaw", f"sev-{sev}", incident["service"]],
+                }
+            }
+            req = Request(f"{base_url}/rest/api/2/issue", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"Basic {auth}"}, method="POST")
+            r = json.loads(urlopen(req, timeout=10).read())
+            jira_key = r.get("key", "")
+            ext_ref = {"system": "jira", "ref_id": jira_key, "url": f"{base_url}/browse/{jira_key}", "synced_at": now_iso()}
+            stats["webhooks_sent"] += 1
+        except Exception as e:
+            stats["webhooks_failed"] += 1
+            return {"ok": False, "error": str(e)}
+
+    elif platform == "servicenow":
+        instance_url = p_cfg.get("instanceUrl", "")
+        snow_user = p_cfg.get("username", "")
+        snow_pass = p_cfg.get("password", "")
+        table = p_cfg.get("table", "incident")
+        assignment_group = p_cfg.get("assignmentGroup", "")
+        if not (instance_url and snow_user and snow_pass):
+            return {"ok": False, "error": "ServiceNow credentials incomplete"}
+        try:
+            auth = base64.b64encode(f"{snow_user}:{snow_pass}".encode()).decode()
+            sev_map = {"critical": "1", "high": "2", "medium": "3", "low": "4"}
+            payload = {
+                "short_description": f"[LogClaw] {incident['title']}", "description": incident.get("description", ""),
+                "severity": sev_map.get(incident["severity"], "3"), "category": "LogClaw",
+                "caller_id": "logclaw", "correlation_id": incident.get("correlation_id", ""),
+                "assignment_group": assignment_group,
+            }
+            req = Request(f"{instance_url}/api/now/table/{table}", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"Basic {auth}", "Accept": "application/json"}, method="POST")
+            r = json.loads(urlopen(req, timeout=10).read())
+            result = r.get("result", {})
+            ext_ref = {"system": "servicenow", "ref_id": result.get("number", ""), "url": f"{instance_url}/nav_to.do?uri=incident.do?sys_id={result.get('sys_id', '')}", "synced_at": now_iso()}
+            stats["webhooks_sent"] += 1
+        except Exception as e:
+            stats["webhooks_failed"] += 1
+            return {"ok": False, "error": str(e)}
+
+    elif platform == "opsgenie":
+        og_key = p_cfg.get("apiKey", "")
+        og_api_url = p_cfg.get("apiUrl", "https://api.opsgenie.com")
+        og_team = p_cfg.get("team", "")
+        if not og_key:
+            return {"ok": False, "error": "OpsGenie apiKey not configured"}
+        try:
+            priority_map = {"critical": "P1", "high": "P2", "medium": "P3", "low": "P4"}
+            payload = {
+                "message": f"[Manual] {incident['title']}", "alias": f"manual-{incident['id']}",
+                "description": incident.get("description", ""),
+                "priority": priority_map.get(incident["severity"], "P3"),
+                "source": f"logclaw-{TENANT_ID}", "tags": ["logclaw", "manual", incident["service"]],
+                "details": {"anomaly_score": str(incident.get("anomaly_score", 0)), "service": incident["service"]},
+            }
+            if og_team:
+                payload["responders"] = [{"name": og_team, "type": "team"}]
+            req = Request(f"{og_api_url}/v2/alerts", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"GenieKey {og_key}"}, method="POST")
+            r = json.loads(urlopen(req, timeout=10).read())
+            ext_ref = {"system": "opsgenie", "ref_id": r.get("requestId", ""), "url": "", "synced_at": now_iso()}
+            stats["webhooks_sent"] += 1
+        except Exception as e:
+            stats["webhooks_failed"] += 1
+            return {"ok": False, "error": str(e)}
+
+    else:
+        return {"ok": False, "error": f"Unknown platform: {platform}"}
+
+    return {"ok": True, "external_ref": ext_ref}
 
 
 # ── Incident processing ────────────────────────────────────────────────
@@ -1271,13 +1433,42 @@ def test_llm_connection() -> dict:
             ms = int((_t.time() - start) * 1000)
             return {"ok": True, "message": f"Connected — models: {', '.join(models[:3])}", "latency_ms": ms}
 
-        elif provider in ("claude", "openai"):
-            # Cloud providers: just check the endpoint is reachable
-            url = endpoint.rstrip("/") + ("/v1/models" if provider == "openai" else "/v1/messages")
-            req = Request(url, headers={"Accept": "application/json"}, method="GET")
-            resp = urlopen(req, timeout=10)
+        elif provider == "claude":
+            # Claude: use the Anthropic SDK to validate API key + connectivity
+            import anthropic
+            api_key = _resolve_api_key("claude")
+            if not api_key:
+                return {"ok": False, "message": "No API key configured — set it above or via ANTHROPIC_API_KEY env var", "latency_ms": 0}
+            base_url = endpoint.rstrip("/") if endpoint != "https://api.anthropic.com" else None
+            client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=10.0)
+            msg = client.messages.create(
+                model=model or "claude-sonnet-4-20250514",
+                max_tokens=16,
+                messages=[{"role": "user", "content": "Say OK"}],
+            )
             ms = int((_t.time() - start) * 1000)
-            return {"ok": True, "message": f"Endpoint reachable ({resp.status})", "latency_ms": ms}
+            text = msg.content[0].text if msg.content else ""
+            return {"ok": True, "message": f"Connected — {model or 'claude-sonnet-4-20250514'} responded: \"{text[:30]}\"", "latency_ms": ms}
+
+        elif provider == "openai":
+            # OpenAI: use the OpenAI SDK to validate API key + connectivity
+            import openai as _openai
+            api_key = _resolve_api_key("openai")
+            if not api_key:
+                return {"ok": False, "message": "No API key configured — set it above or via OPENAI_API_KEY env var", "latency_ms": 0}
+            client = _openai.OpenAI(
+                api_key=api_key,
+                base_url=endpoint.rstrip("/") + "/v1" if endpoint else None,
+                timeout=10.0,
+            )
+            resp = client.chat.completions.create(
+                model=model or "gpt-4o",
+                max_tokens=16,
+                messages=[{"role": "user", "content": "Say OK"}],
+            )
+            ms = int((_t.time() - start) * 1000)
+            text = resp.choices[0].message.content or ""
+            return {"ok": True, "message": f"Connected — {model or 'gpt-4o'} responded: \"{text[:30]}\"", "latency_ms": ms}
 
         else:
             return {"ok": False, "message": f"Unknown provider: {provider}", "latency_ms": 0}
@@ -1441,7 +1632,7 @@ class H(BaseHTTPRequestHandler):
 
         # ── Runtime Config: PATCH llm ──
         if api_path == "/api/config/llm" and method == "PATCH":
-            allowed = {"provider", "model", "endpoint"}
+            allowed = {"provider", "model", "endpoint", "api_key"}
             for key in body:
                 if key not in allowed:
                     return self._j(400, {"error": {"code": "unknown_field", "message": f"Unknown LLM field: {key}"}}, req_id)
@@ -1551,6 +1742,54 @@ class H(BaseHTTPRequestHandler):
                 inc["updated_at"] = now
                 save_incident(inc)
                 return self._j(201, note, req_id)
+
+            if method == "POST" and sub == "forward":
+                inc = get_incident(iid)
+                if not inc:
+                    return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+                platform = body.get("platform", "") if body else ""
+                if platform not in VALID_PLATFORMS:
+                    return self._j(400, {"error": {"code": "invalid_platform", "message": f"Must be one of: {sorted(VALID_PLATFORMS)}"}}, req_id)
+                result = forward_to_platform(inc, platform)
+                if result.get("ok"):
+                    now = now_iso()
+                    platform_label = {"pagerduty": "PagerDuty", "jira": "Jira", "servicenow": "ServiceNow", "opsgenie": "OpsGenie", "slack": "Slack"}.get(platform, platform)
+                    inc.setdefault("external_refs", []).append(result["external_ref"])
+                    inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "integration", "state": inc["state"], "message": f"Manually forwarded to {platform_label}", "actor": body.get("actor", "operator")})
+                    inc["updated_at"] = now
+                    save_incident(inc)
+                    return self._j(200, {"data": inc, "forwarded": result["external_ref"]}, req_id)
+                else:
+                    return self._j(502, {"error": {"code": "forward_failed", "message": result.get("error", "Unknown error"), "platform": platform}}, req_id)
+
+            # State transitions via POST /api/incidents/{id}/{action}
+            transition_map = {"acknowledge": "acknowledged", "investigate": "investigating", "mitigate": "mitigated", "resolve": "resolved"}
+            if method == "POST" and sub in transition_map:
+                inc = get_incident(iid)
+                if not inc:
+                    return self._j(404, {"error": {"code": "not_found", "message": f"Incident {iid} not found"}}, req_id)
+                now = now_iso()
+                old_state = inc["state"]
+                new_state = transition_map[sub]
+                inc["state"] = new_state
+                inc["updated_at"] = now
+                if new_state == "acknowledged" and not inc.get("acknowledged_at"):
+                    inc["acknowledged_at"] = now
+                elif new_state == "mitigated" and not inc.get("mitigated_at"):
+                    inc["mitigated_at"] = now
+                elif new_state == "resolved":
+                    inc["resolved_at"] = now
+                    if inc.get("created_at"):
+                        try:
+                            created = datetime.fromisoformat(inc["created_at"].replace("Z", "+00:00"))
+                            resolved = datetime.fromisoformat(now.replace("Z", "+00:00"))
+                            inc["mttr_seconds"] = int((resolved - created).total_seconds())
+                        except Exception:
+                            pass
+                msg = body.get("message", f"State changed: {old_state} → {new_state}") if body else f"State changed: {old_state} → {new_state}"
+                inc["timeline"].append({"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": new_state, "message": msg, "actor": body.get("actor", "operator") if body else "operator"})
+                save_incident(inc)
+                return self._j(200, {"data": inc}, req_id)
 
             if method == "PATCH" and not sub:
                 inc = get_incident(iid)
