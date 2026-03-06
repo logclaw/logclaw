@@ -1,5 +1,5 @@
 kafka-python-ng==2.2.3
-opensearch-py==2.4.2
+opensearch-py==3.1.0
 lz4==4.3.3
 python-snappy==0.7.3
 anthropic>=0.42.0
