@@ -352,7 +352,8 @@ def search_incidents(params):
     sort_dir = params.get("order", ["desc"])[0]
     musts = []
     if tenant_id:
-        musts.append({"term": {"tenant_id": tenant_id}})
+        # tenant_id.keyword for exact match (text field with keyword sub-field)
+        musts.append({"term": {"tenant_id.keyword": tenant_id}})
     if state and state != "all":
         musts.append({"term": {"state": state}})
     if severity:
