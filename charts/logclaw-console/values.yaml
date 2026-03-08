@@ -45,16 +45,15 @@ resources:
     cpu: "1000m"
     memory: "512Mi"
 
+# TCP probes — Clerk middleware returns 404 for unauthenticated HTTP requests on /
 livenessProbe:
-  httpGet:
-    path: /
+  tcpSocket:
     port: 3000
   initialDelaySeconds: 15
   periodSeconds: 10
 
 readinessProbe:
-  httpGet:
-    path: /
+  tcpSocket:
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 5
