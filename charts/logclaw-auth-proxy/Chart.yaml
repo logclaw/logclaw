@@ -1,0 +1,13 @@
+apiVersion: v2
+name: logclaw-auth-proxy
+description: Stateless API key auth proxy for LogClaw OTLP ingestion and API access
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+keywords:
+  - logclaw
+  - auth-proxy
+  - otlp
+  - ingestion
+maintainers:
+  - name: LogClaw Team

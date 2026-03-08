@@ -1,0 +1,104 @@
+replicaCount: 1
+
+image:
+  repository: logclaw/logclaw-auth-proxy
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+service:
+  type: ClusterIP
+  ports:
+    http:
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    grpc:
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Database connection
+database:
+  # Should reference an external PostgreSQL secret
+  secretRef:
+    name: logclaw-postgres
+    key: connection-string
+  # Or provide direct connection string (less secure)
+  # connectionString: "postgresql://user:pass@postgres:5432/logclaw"
+
+# Environment variables
+env:
+  LOG_LEVEL: info
+  API_KEY_CACHE_TTL: "3600"  # Cache validated keys for 1 hour
+  OTEL_COLLECTOR_HTTP_ENDPOINT: http://logclaw-otel-collector:4318
+  OTEL_COLLECTOR_GRPC_ENDPOINT: localhost:4317
+  CONSOLE_API_ENDPOINT: http://logclaw-enterprise:3000
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - logclaw-auth-proxy
+          topologyKey: kubernetes.io/hostname

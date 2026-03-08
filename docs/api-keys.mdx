@@ -42,7 +42,7 @@ API keys authenticate your application's log ingestion requests to LogClaw Cloud
 Add the `x-logclaw-api-key` header to all ingestion requests:
 
 ```bash
-curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
+curl -X POST https://otel.logclaw.ai/v1/logs \
   -H "Content-Type: application/json" \
   -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
   -d '{
@@ -74,7 +74,7 @@ export LOGCLAW_API_KEY=lc_proj_your_key_here
 For OpenTelemetry SDKs, use the standard OTLP environment variables:
 
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 export OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 ```
