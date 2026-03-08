@@ -9,10 +9,32 @@ LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry
 
 **Your endpoint:**
 
-| Protocol | URL |
-|----------|-----|
-| HTTP | `https://otel.logclaw.ai/v1/logs` |
-| gRPC | `otel.logclaw.ai:443` |
+<Tabs>
+  <Tab title="LogClaw Cloud (Managed)">
+    | Protocol | URL |
+    |----------|-----|
+    | HTTP | `https://console.logclaw.ai/api/ingest/v1/logs` |
+
+    **Authentication required** — add the `x-logclaw-api-key` header to every request.
+    See [API Keys](/api-keys) to create your key.
+
+    ```bash
+    export LOGCLAW_API_KEY=lc_proj_your_key_here
+    ```
+
+    <Tip>
+      You do **not** need to set `tenant_id` — it is automatically injected based on your API key.
+    </Tip>
+  </Tab>
+  <Tab title="Self-Hosted">
+    | Protocol | URL |
+    |----------|-----|
+    | HTTP | `https://otel.logclaw.ai/v1/logs` |
+    | gRPC | `otel.logclaw.ai:443` |
+
+    No authentication required — access is controlled via Kubernetes NetworkPolicy.
+  </Tab>
+</Tabs>
 
 ---
 
@@ -23,8 +45,10 @@ Pick your language — click a tab to switch. Copy the code and run it.
 <CodeGroup>
 
 ```bash cURL
-curl -X POST https://otel.logclaw.ai/v1/logs \
+# LogClaw Cloud (managed) — requires API key:
+curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
   -H "Content-Type: application/json" \
+  -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
   -d '{
     "resourceLogs": [{
       "resource": {
@@ -49,6 +73,10 @@ curl -X POST https://otel.logclaw.ai/v1/logs \
 
 ```python Python
 # pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
+# For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+#   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+#   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 import logging
 from opentelemetry import _logs
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -75,6 +103,10 @@ logger.error("Payment failed", extra={"order_id": "ord-456"})
 
 ```javascript Node.js
 // npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-grpc @opentelemetry/resources
+// For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+//   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 const { LoggerProvider, BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
 const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-grpc');
 const { Resource } = require('@opentelemetry/resources');
@@ -94,6 +126,10 @@ logger.emit({ severityText: 'ERROR', body: 'Connection timeout', attributes: { '
 ```go Go
 // go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
 // go get go.opentelemetry.io/otel/sdk/log
+// For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+//   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 package main
 
 import (
@@ -122,8 +158,18 @@ func main() {
 
 ```java Java (Spring Boot)
 # Zero code changes — just add a JVM flag:
+# Self-hosted:
 java -javaagent:opentelemetry-javaagent.jar \
   -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai:443 \
+  -Dotel.service.name=my-spring-api \
+  -Dotel.logs.exporter=otlp \
+  -jar my-app.jar
+
+# LogClaw Cloud (managed) — add API key header:
+java -javaagent:opentelemetry-javaagent.jar \
+  -Dotel.exporter.otlp.endpoint=https://console.logclaw.ai/api/ingest \
+  -Dotel.exporter.otlp.headers=x-logclaw-api-key=lc_proj_your_key_here \
+  -Dotel.exporter.otlp.protocol=http/json \
   -Dotel.service.name=my-spring-api \
   -Dotel.logs.exporter=otlp \
   -jar my-app.jar
@@ -135,6 +181,10 @@ java -javaagent:opentelemetry-javaagent.jar \
 ```csharp .NET
 // dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol
 // dotnet add package OpenTelemetry.Extensions.Hosting
+// For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+//   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
 
@@ -154,8 +204,14 @@ builder.Logging.AddOpenTelemetry(logging =>
 
 ```ruby Ruby
 # gem install opentelemetry-sdk opentelemetry-exporter-otlp
-# Zero code changes with auto-instrumentation:
+# Self-hosted — zero code changes with auto-instrumentation:
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
+
+# LogClaw Cloud (managed) — add API key header:
+# OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest \
+# OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here \
+# OTEL_EXPORTER_OTLP_PROTOCOL=http/json \
+# rails server
 
 # Or add to config/initializers/otel.rb:
 # require 'opentelemetry/instrumentation/all'
@@ -164,6 +220,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
 
 ```rust Rust
 // Add to Cargo.toml: opentelemetry, opentelemetry_sdk, opentelemetry-otlp, tracing
+// For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+//   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 use opentelemetry_otlp::LogExporter;
 use opentelemetry_sdk::logs::LoggerProvider;
 use opentelemetry_sdk::Resource;
@@ -186,7 +246,7 @@ fn init_logs() -> LoggerProvider {
 
 </CodeGroup>
 
-Check your dashboard at [app.logclaw.ai](https://app.logclaw.ai) — the log should appear within seconds.
+Check your dashboard at [console.logclaw.ai](https://console.logclaw.ai) — the log should appear within seconds.
 
 <Note>
 Every tab above is a complete, runnable example. Scroll down for framework-specific guides (Django, Flask, FastAPI, Express, Next.js, NestJS, Spring Boot, Gin, and more).
@@ -197,6 +257,18 @@ Every tab above is a complete, runnable example. Scroll down for framework-speci
 ## Detailed Guides by Language
 
 Below are full integration guides with framework-specific examples for each language.
+
+<Note>
+The examples below use the **self-hosted** endpoint (`otel.logclaw.ai`). For **LogClaw Cloud**, set these environment variables instead of changing endpoints in code:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+export OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+```
+
+All OTel SDKs automatically pick up these env vars — no code changes needed. See [API Keys](/api-keys) to get your key.
+</Note>
 
 ---
 
@@ -1281,7 +1353,7 @@ spec:
 
 For testing or one-time imports, the LogClaw dashboard supports drag-and-drop log upload:
 
-1. Go to [app.logclaw.ai](https://app.logclaw.ai)
+1. Go to [console.logclaw.ai](https://console.logclaw.ai)
 2. Click **Ingestion** in the sidebar
 3. Drag a `.json`, `.ndjson`, `.csv`, or `.txt`/`.log` file onto the upload area
 
@@ -1352,16 +1424,34 @@ Every option has a full code example above. Pick your stack:
 **Logs not appearing in dashboard?**
 
 1. Test connectivity:
-   ```bash
-   curl -v https://otel.logclaw.ai/v1/logs -d '{}' -H "Content-Type: application/json"
-   # Should return 200 (even with empty body)
-   ```
 
-2. Check your service.name attribute is set — logs without `service.name` may not display correctly
+   <Tabs>
+     <Tab title="LogClaw Cloud">
+       ```bash
+       curl -v https://console.logclaw.ai/api/ingest/v1/logs \
+         -H "Content-Type: application/json" \
+         -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
+         -d '{"resourceLogs":[]}'
+       # Should return 200 with {"accepted":true}
+       ```
+       If you get `401 Unauthorized`, check that your API key is valid and not revoked.
+     </Tab>
+     <Tab title="Self-Hosted">
+       ```bash
+       curl -v https://otel.logclaw.ai/v1/logs -d '{}' -H "Content-Type: application/json"
+       # Should return 200 (even with empty body)
+       ```
+     </Tab>
+   </Tabs>
+
+2. Check your `service.name` attribute is set — logs without `service.name` may not display correctly
 
 3. Verify OTLP endpoint URL — common mistakes:
    - Missing `/v1/logs` path for HTTP (gRPC doesn't need it)
    - Using port 4317 for HTTP (that's gRPC) or 4318 for gRPC (that's HTTP)
    - Using `http://` instead of `https://` for external access
+   - **LogClaw Cloud:** using `otel.logclaw.ai` instead of `console.logclaw.ai/api/ingest`
 
 4. Check firewall — OTLP uses port 443 (TLS-terminated) for external access
+
+5. **LogClaw Cloud:** missing `x-logclaw-api-key` header — all managed platform requests require an API key. See [API Keys](/api-keys)

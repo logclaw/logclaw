@@ -1,0 +1,130 @@
+---
+title: "API Keys"
+description: "Create and manage API keys for authenticating log ingestion on LogClaw Cloud"
+icon: "key"
+---
+
+# API Keys
+
+API keys authenticate your application's log ingestion requests to LogClaw Cloud. Each key is scoped to a project and automatically associates incoming logs with the correct tenant.
+
+---
+
+## Getting Your API Key
+
+<Steps>
+  <Step title="Sign in to LogClaw Console">
+    Go to [console.logclaw.ai](https://console.logclaw.ai) and sign in with your account. If you don't have an account yet, click **Sign Up** to create one.
+  </Step>
+  <Step title="Create or select a project">
+    From the dashboard, create a new project or select an existing one. Each project has its own isolated log pipeline and API keys.
+  </Step>
+  <Step title="Navigate to API Keys">
+    In your project, go to **Settings → API Keys**.
+  </Step>
+  <Step title="Create an API Key">
+    Click **"Create API Key"**, give it a descriptive name (e.g. `production-backend`), and copy the key immediately. Keys start with `lc_proj_` and are only shown once.
+
+    ```
+    lc_proj_5a33915526cd1af8238c6e690eeff9cec2611750d9914d2dd1cc7a87cf08c717
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  API keys are shown only once at creation time. Store your key securely before closing the dialog.
+</Note>
+
+---
+
+## Using Your API Key
+
+Add the `x-logclaw-api-key` header to all ingestion requests:
+
+```bash
+curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
+  -H "Content-Type: application/json" \
+  -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
+  -d '{
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "my-api"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "'$(date +%s)000000000'",
+          "severityText": "INFO",
+          "body": {"stringValue": "Hello from LogClaw!"}
+        }]
+      }]
+    }]
+  }'
+```
+
+### Environment Variables
+
+We recommend storing your API key in an environment variable:
+
+```bash
+export LOGCLAW_API_KEY=lc_proj_your_key_here
+```
+
+For OpenTelemetry SDKs, use the standard OTLP environment variables:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+export OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+```
+
+These environment variables work with any OpenTelemetry SDK — Python, Node.js, Go, Java, .NET, Ruby, and Rust — with zero code changes.
+
+---
+
+## Tenant ID Auto-Injection
+
+<Tip>
+  You do **not** need to add a `tenant_id` to your logs. LogClaw automatically injects the correct tenant identifier based on your API key's project. Any `tenant_id` already present in the payload is stripped and replaced to prevent spoofing.
+</Tip>
+
+This means your application code stays clean — just send standard OTLP logs and LogClaw handles multi-tenant isolation for you.
+
+---
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use environment variables" icon="terminal">
+    Never hardcode API keys in source code. Use environment variables or a secret manager (AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault).
+  </Card>
+  <Card title="Rotate regularly" icon="rotate">
+    Create new keys and revoke old ones periodically. You can have multiple active keys per project to enable zero-downtime rotation.
+  </Card>
+  <Card title="Least privilege" icon="shield-halved">
+    Create separate API keys for each environment (staging, production) and each service to limit blast radius.
+  </Card>
+  <Card title="Revoke compromised keys" icon="ban">
+    If a key is exposed, revoke it immediately from Settings → API Keys. A new key can be created in seconds.
+  </Card>
+</CardGroup>
+
+---
+
+## Revoking API Keys
+
+1. Go to your project in [console.logclaw.ai](https://console.logclaw.ai)
+2. Navigate to **Settings → API Keys**
+3. Find the key you want to revoke and click **Revoke**
+4. The key stops working immediately — any requests using it will receive a `401 Unauthorized` response
+
+<Note>
+  Revoking a key is irreversible. Create a new key before revoking the old one if you need uninterrupted log ingestion.
+</Note>
+
+---
+
+## Self-Hosted Deployments
+
+If you're running LogClaw self-hosted, API keys are not required. Logs are sent directly to the OTel Collector endpoint and access is controlled via Kubernetes NetworkPolicy. See the [Quick Start](/quickstart-send-logs) for self-hosted endpoint details.

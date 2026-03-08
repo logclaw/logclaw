@@ -464,7 +464,7 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
     anomaly_event = {
         "event_id": str(uuid.uuid4()),
         "timestamp": _now_iso(),
-        "tenant_id": TENANT_ID,
+        "tenant_id": doc.get("tenant_id", TENANT_ID),
         "anomaly_type": "error_rate_spike",
         "severity": severity,
         "service": service,
@@ -476,7 +476,7 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
         "anomaly_score": round(anomaly_score, 2),
         "affected_endpoint": doc.get("endpoint", ""),
         "status": "open",
-        "environment": TENANT_ID,
+        "environment": doc.get("tenant_id", TENANT_ID),
         "z_score": round(z_score, 2),
         "error_rate": round(current_rate, 4),
         "window_buckets": len(window),

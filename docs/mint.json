@@ -43,6 +43,7 @@
       "group": "Getting Started",
       "pages": [
         "quickstart-send-logs",
+        "api-keys",
         "introduction",
         "architecture",
         "onboarding",

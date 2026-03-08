@@ -33,7 +33,7 @@ data:
         attributes:
           - key: tenant_id
             value: "{{ include "logclaw-otel-collector.tenantId" . }}"
-            action: upsert
+            action: insert
 
       # Batch for throughput
       batch:
