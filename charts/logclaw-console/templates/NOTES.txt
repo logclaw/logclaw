@@ -1,0 +1,35 @@
+════════════════════════════════════════════════════════
+  LogClaw Enterprise Console deployed!
+════════════════════════════════════════════════════════
+
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Image:     {{ .Values.image.repository }}:{{ .Values.image.tag }}
+  Replicas:  {{ .Values.replicaCount }}
+
+  ── Access ──────────────────────────────────────────
+
+  Port-forward:
+    kubectl port-forward svc/{{ include "logclaw-console.fullname" . }} 3000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+    → http://localhost:3000
+
+{{- if .Values.cloudsql.enabled }}
+
+  ── Cloud SQL ───────────────────────────────────────
+
+  Instance: {{ .Values.cloudsql.instanceName }}
+  The Cloud SQL Auth Proxy sidecar is running alongside the console.
+{{- end }}
+
+{{- if .Values.autoscaling.enabled }}
+
+  ── Autoscaling ─────────────────────────────────────
+
+  HPA: {{ .Values.autoscaling.minReplicas }} → {{ .Values.autoscaling.maxReplicas }} replicas
+  Target CPU: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%
+{{- end }}
+
+  ── Useful Commands ─────────────────────────────────
+
+  kubectl get pods -l app.kubernetes.io/component=console -n {{ .Release.Namespace }}
+  kubectl logs -f deployment/{{ include "logclaw-console.fullname" . }} -n {{ .Release.Namespace }}

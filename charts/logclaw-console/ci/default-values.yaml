@@ -1,0 +1,46 @@
+replicaCount: 1
+
+image:
+  repository: "ghcr.io/logclaw/logclaw-enterprise"
+  tag: "0.1.0"
+
+imagePullSecrets: []
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+cloudsql:
+  enabled: false
+
+externalSecret:
+  enabled: false
+
+config:
+  clerkPublishableKey: "pk_test_placeholder"
+  clerkSecretKey: "sk_test_placeholder"
+  databaseUrl: "postgresql://logclaw:password@localhost:5432/logclaw_enterprise"
+
+global:
+  opensearchEndpoint: "https://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
+
+nodeTlsRejectUnauthorized: "0"

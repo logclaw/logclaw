@@ -1,0 +1,132 @@
+nameOverride: ""
+fullnameOverride: ""
+replicaCount: 2
+
+image:
+  repository: "ghcr.io/logclaw/logclaw-enterprise"
+  tag: "0.2.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: ghcr-logclaw
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+  # For GKE Global LB with NEG:
+  # annotations:
+  #   cloud.google.com/neg: '{"ingress": true}'
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "1000m"
+    memory: "512Mi"
+
+# TCP probes — Clerk middleware returns 404 for unauthenticated HTTP requests on /
+livenessProbe:
+  tcpSocket:
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+# -- HPA
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# -- PDB
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# -- Cloud SQL Auth Proxy sidecar
+cloudsql:
+  enabled: false
+  # GCP Cloud SQL instance connection name: <PROJECT>:<REGION>:<INSTANCE>
+  instanceName: ""
+  image: "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.3"
+  port: 5432
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+# -- ExternalSecret (GCP Secret Manager integration)
+externalSecret:
+  enabled: false
+  refreshInterval: "1h"
+  secretStoreName: "gcp-secret-store"
+  secretStoreKind: "ClusterSecretStore"
+  # Map of k8s secret key → GCP secret name
+  secrets:
+    DATABASE_URL: "logclaw-console-db-url"
+    CLERK_SECRET_KEY: "logclaw-clerk-secret"
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "logclaw-clerk-publishable"
+    KEY_ENCRYPTION_KEY: "logclaw-key-encryption-key"
+
+# -- Console environment config
+config:
+  # Set directly or via ExternalSecret
+  clerkPublishableKey: ""
+  clerkSecretKey: ""
+  databaseUrl: ""
+  # Clerk auth URLs
+  clerkSignInUrl: "/sign-in"
+  clerkSignUpUrl: "/sign-up"
+  # AES-256-GCM encryption key for per-project credential persistence
+  # Generate with: openssl rand -base64 32
+  keyEncryptionKey: ""
+
+# -- Backend service endpoints (explicit overrides)
+# When set, these take precedence over the auto-generated Release.Name-based URLs.
+# Use these when the console and backend stack have different Helm release names.
+endpoints:
+  opensearch: ""
+  otelCollector: ""
+  ticketing: ""
+  bridge: ""
+  feast: ""
+  airflow: ""
+  agent: ""
+  # OpenSearch credentials
+  opensearchUser: "admin"
+  opensearchPasswordSecret: ""
+  opensearchPasswordKey: "password"
+
+# -- Skip TLS verification for internal services with self-signed certs (e.g. OpenSearch)
+# Set to "0" to disable TLS verification
+nodeTlsRejectUnauthorized: ""
