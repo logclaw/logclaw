@@ -100,8 +100,8 @@ http://{{ .Release.Name }}-logclaw-bridge.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
-Name of the console secrets K8s secret.
+Name of the console secrets K8s secret (from values.secretName).
 */}}
 {{- define "logclaw-console.secretName" -}}
-{{ include "logclaw-console.fullname" . }}-secrets
+{{ .Values.secretName | default (printf "%s-secrets" (include "logclaw-console.fullname" .)) }}
 {{- end }}
