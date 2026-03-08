@@ -1,0 +1,76 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "logclaw-console.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-console.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "logclaw-console.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Console needs to be accessible from ingress/LB/port-forward
+    - ports:
+        - port: 3000
+          protocol: TCP
+  egress:
+    # kube-dns — always required
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Cloud SQL Auth Proxy talks to GCP APIs (HTTPS)
+    {{- if .Values.cloudsql.enabled }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}
+    # OpenSearch — log queries and aggregations
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 9200
+          protocol: TCP
+    # OTel Collector — OTLP log ingestion proxy
+    - to:
+        - podSelector:
+            matchLabels:
+              logclaw.io/component: otel-collector
+      ports:
+        - port: 4318
+          protocol: TCP
+    # Ticketing Agent — incident ticket API
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ticketing-agent
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Bridge — pipeline bridge service
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bridge
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Clerk API (external HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP

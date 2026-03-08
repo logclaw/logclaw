@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logclaw-console.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "logclaw-console.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "logclaw-console.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "logclaw-console.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "logclaw-console.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: console
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            # Clerk auth
+            - name: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+              {{- if .Values.externalSecret.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logclaw-console.secretName" . }}
+                  key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+              {{- else }}
+              value: {{ .Values.config.clerkPublishableKey | quote }}
+              {{- end }}
+            - name: CLERK_SECRET_KEY
+              {{- if .Values.externalSecret.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logclaw-console.secretName" . }}
+                  key: CLERK_SECRET_KEY
+              {{- else }}
+              value: {{ .Values.config.clerkSecretKey | quote }}
+              {{- end }}
+            - name: NEXT_PUBLIC_CLERK_SIGN_IN_URL
+              value: {{ .Values.config.clerkSignInUrl | quote }}
+            - name: NEXT_PUBLIC_CLERK_SIGN_UP_URL
+              value: {{ .Values.config.clerkSignUpUrl | quote }}
+            # Database
+            - name: DATABASE_URL
+              {{- if .Values.externalSecret.enabled }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logclaw-console.secretName" . }}
+                  key: DATABASE_URL
+              {{- else }}
+              value: {{ .Values.config.databaseUrl | quote }}
+              {{- end }}
+            # Backend service endpoints
+            - name: OPENSEARCH_ENDPOINT
+              value: {{ include "logclaw-console.opensearchEndpoint" . | quote }}
+            - name: OTEL_COLLECTOR_ENDPOINT
+              value: {{ include "logclaw-console.otelCollectorEndpoint" . | quote }}
+            - name: TICKETING_ENDPOINT
+              value: {{ include "logclaw-console.ticketingEndpoint" . | quote }}
+            - name: BRIDGE_ENDPOINT
+              value: {{ include "logclaw-console.bridgeEndpoint" . | quote }}
+          volumeMounts:
+            - name: nextjs-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.cloudsql.enabled }}
+        # Cloud SQL Auth Proxy sidecar
+        - name: cloud-sql-proxy
+          image: {{ .Values.cloudsql.image | quote }}
+          args:
+            - {{ .Values.cloudsql.instanceName | quote }}
+            - "--port={{ .Values.cloudsql.port }}"
+            - "--auto-iam-authn"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          ports:
+            - name: sql
+              containerPort: {{ .Values.cloudsql.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.cloudsql.resources | nindent 12 }}
+        {{- end }}
+      volumes:
+        - name: nextjs-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
