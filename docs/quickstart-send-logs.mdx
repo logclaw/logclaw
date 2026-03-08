@@ -29,8 +29,8 @@ LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry
   <Tab title="Self-Hosted">
     | Protocol | URL |
     |----------|-----|
-    | HTTP | `https://otel.logclaw.ai/v1/logs` |
-    | gRPC | `otel.logclaw.ai:443` |
+    | HTTP | `http://localhost:4318/v1/logs` |
+    | gRPC | `localhost:4317` |
 
     No authentication required — access is controlled via Kubernetes NetworkPolicy.
   </Tab>
@@ -88,7 +88,7 @@ resource = Resource.create({"service.name": "my-python-api"})
 provider = LoggerProvider(resource=resource)
 provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+        OTLPLogExporter(endpoint="localhost:4317", insecure=True)
     )
 )
 _logs.set_logger_provider(provider)
@@ -115,7 +115,7 @@ const resource = new Resource({ 'service.name': 'my-express-api' });
 const loggerProvider = new LoggerProvider({ resource });
 loggerProvider.addLogRecordProcessor(
   new BatchLogRecordProcessor(
-    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+    new OTLPLogExporter({ url: 'http://localhost:4318' })
   )
 );
 
@@ -143,7 +143,7 @@ import (
 func main() {
     ctx := context.Background()
     exporter, _ := otlploggrpc.New(ctx,
-        otlploggrpc.WithEndpoint("otel.logclaw.ai:443"),
+        otlploggrpc.WithEndpoint("localhost:4317"),
     )
     res, _ := resource.New(ctx,
         resource.WithAttributes(semconv.ServiceName("my-go-api")),
@@ -160,7 +160,7 @@ func main() {
 # Zero code changes — just add a JVM flag:
 # Self-hosted:
 java -javaagent:opentelemetry-javaagent.jar \
-  -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai:443 \
+  -Dotel.exporter.otlp.endpoint=http://localhost:4318 \
   -Dotel.service.name=my-spring-api \
   -Dotel.logs.exporter=otlp \
   -jar my-app.jar
@@ -196,7 +196,7 @@ builder.Logging.AddOpenTelemetry(logging =>
             .AddService("my-dotnet-api"));
     logging.AddOtlpExporter(options =>
     {
-        options.Endpoint = new Uri("https://otel.logclaw.ai:443");
+        options.Endpoint = new Uri("http://localhost:4318");
     });
 });
 // All ILogger calls auto-forward to LogClaw
@@ -205,7 +205,7 @@ builder.Logging.AddOpenTelemetry(logging =>
 ```ruby Ruby
 # gem install opentelemetry-sdk opentelemetry-exporter-otlp
 # Self-hosted — zero code changes with auto-instrumentation:
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 rails server
 
 # LogClaw Cloud (managed) — add API key header:
 # OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest \
@@ -232,7 +232,7 @@ use opentelemetry::KeyValue;
 fn init_logs() -> LoggerProvider {
     let exporter = LogExporter::builder()
         .with_tonic()
-        .with_endpoint("https://otel.logclaw.ai:443")
+        .with_endpoint("http://localhost:4318")
         .build()
         .expect("Failed to create log exporter");
     LoggerProvider::builder()
@@ -259,7 +259,7 @@ Every tab above is a complete, runnable example. Scroll down for framework-speci
 Below are full integration guides with framework-specific examples for each language.
 
 <Note>
-The examples below use the **self-hosted** endpoint (`otel.logclaw.ai`). For **LogClaw Cloud**, set these environment variables instead of changing endpoints in code:
+The examples below use the **self-hosted** endpoint (`localhost`). For **LogClaw Cloud**, set these environment variables instead of changing endpoints in code:
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
@@ -295,7 +295,7 @@ resource = Resource.create({"service.name": "my-python-api"})
 provider = LoggerProvider(resource=resource)
 provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+        OTLPLogExporter(endpoint="localhost:4317", insecure=True)
     )
 )
 _logs.set_logger_provider(provider)
@@ -328,7 +328,7 @@ resource = Resource.create({"service.name": "my-django-app"})
 provider = LoggerProvider(resource=resource)
 provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+        OTLPLogExporter(endpoint="localhost:4317", insecure=True)
     )
 )
 _logs.set_logger_provider(provider)
@@ -373,7 +373,7 @@ resource = Resource.create({"service.name": "my-flask-app"})
 provider = LoggerProvider(resource=resource)
 provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+        OTLPLogExporter(endpoint="localhost:4317", insecure=True)
     )
 )
 _logs.set_logger_provider(provider)
@@ -409,7 +409,7 @@ resource = Resource.create({"service.name": "my-fastapi-app"})
 provider = LoggerProvider(resource=resource)
 provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint="otel.logclaw.ai:443", insecure=False)
+        OTLPLogExporter(endpoint="localhost:4317", insecure=True)
     )
 )
 _logs.set_logger_provider(provider)
@@ -481,7 +481,7 @@ const resource = new Resource({ 'service.name': 'my-express-api' });
 const loggerProvider = new LoggerProvider({ resource });
 loggerProvider.addLogRecordProcessor(
   new BatchLogRecordProcessor(
-    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+    new OTLPLogExporter({ url: 'http://localhost:4318' })
   )
 );
 
@@ -535,7 +535,7 @@ export async function register() {
     const loggerProvider = new LoggerProvider({ resource });
     loggerProvider.addLogRecordProcessor(
       new BatchLogRecordProcessor(
-        new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+        new OTLPLogExporter({ url: 'http://localhost:4318' })
       )
     );
 
@@ -590,7 +590,7 @@ const resource = new Resource({ 'service.name': 'my-nestjs-api' });
 const loggerProvider = new LoggerProvider({ resource });
 loggerProvider.addLogRecordProcessor(
   new BatchLogRecordProcessor(
-    new OTLPLogExporter({ url: 'https://otel.logclaw.ai:443' })
+    new OTLPLogExporter({ url: 'http://localhost:4318' })
   )
 );
 
@@ -702,7 +702,7 @@ curl -LO https://github.com/open-telemetry/opentelemetry-java-instrumentation/re
 
 # Run your Spring Boot app with the agent
 java -javaagent:opentelemetry-javaagent.jar \
-  -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai:443 \
+  -Dotel.exporter.otlp.endpoint=http://localhost:4318 \
   -Dotel.service.name=my-spring-api \
   -Dotel.logs.exporter=otlp \
   -jar my-app.jar
@@ -728,7 +728,7 @@ public class OrderController {
 
 ```properties
 # application.properties
-otel.exporter.otlp.endpoint=https://otel.logclaw.ai:443
+otel.exporter.otlp.endpoint=http://localhost:4318
 otel.service.name=my-spring-api
 otel.logs.exporter=otlp
 ```
@@ -746,7 +746,7 @@ otel.logs.exporter=otlp
 
 ```properties
 # application.properties
-quarkus.otel.exporter.otlp.endpoint=https://otel.logclaw.ai:443
+quarkus.otel.exporter.otlp.endpoint=http://localhost:4318
 quarkus.otel.resource.attributes=service.name=my-quarkus-api
 quarkus.otel.logs.exporter=otlp
 ```
@@ -766,7 +766,7 @@ quarkus.otel.logs.exporter=otlp
 otel:
   exporter:
     otlp:
-      endpoint: https://otel.logclaw.ai:443
+      endpoint: http://localhost:4318
   resource:
     attributes:
       service.name: my-micronaut-api
@@ -844,7 +844,7 @@ func main() {
     ctx := context.Background()
 
     exporter, _ := otlploggrpc.New(ctx,
-        otlploggrpc.WithEndpoint("otel.logclaw.ai:443"),
+        otlploggrpc.WithEndpoint("localhost:4317"),
     )
 
     res, _ := resource.New(ctx,
@@ -964,7 +964,7 @@ OpenTelemetry::SDK.configure do |c|
   c.add_span_processor(
     OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(
       OpenTelemetry::Exporter::OTLP::Exporter.new(
-        endpoint: 'https://otel.logclaw.ai:443'
+        endpoint: 'http://localhost:4318'
       )
     )
   )
@@ -992,7 +992,7 @@ end
 Set the endpoint via environment variable:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai:443 rails server
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 rails server
 ```
 
 ---
@@ -1023,7 +1023,7 @@ builder.Logging.AddOpenTelemetry(logging =>
 
     logging.AddOtlpExporter(options =>
     {
-        options.Endpoint = new Uri("https://otel.logclaw.ai:443");
+        options.Endpoint = new Uri("http://localhost:4318");
     });
 });
 
@@ -1068,7 +1068,7 @@ use opentelemetry::KeyValue;
 fn init_logs() -> LoggerProvider {
     let exporter = LogExporter::builder()
         .with_tonic()
-        .with_endpoint("https://otel.logclaw.ai:443")
+        .with_endpoint("http://localhost:4318")
         .build()
         .expect("Failed to create log exporter");
 
@@ -1119,7 +1119,7 @@ $resource = ResourceInfoFactory::defaultResource()->merge(
 
 $exporter = new LogsExporter(
     (new \OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory())->create(
-        'https://otel.logclaw.ai/v1/logs',
+        'http://localhost:4318/v1/logs',
         'application/json'
     )
 );
@@ -1156,7 +1156,7 @@ $logger->emit(
 Or use the environment variable approach:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai php artisan serve
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 php artisan serve
 ```
 
 ---
@@ -1171,7 +1171,7 @@ Already running a log shipper? Point it at LogClaw's OTLP endpoint:
 <!-- fluent.conf -->
 <match **>
   @type opentelemetry
-  endpoint https://otel.logclaw.ai/v1/logs
+  endpoint http://localhost:4318/v1/logs
   <buffer>
     flush_interval 5s
   </buffer>
@@ -1190,7 +1190,7 @@ fluent-gem install fluent-plugin-opentelemetry
 [OUTPUT]
     Name              opentelemetry
     Match             *
-    Host              otel.logclaw.ai
+    Host              localhost
     Port              443
     Tls               On
     Log_response_payload  True
@@ -1205,7 +1205,7 @@ fluent-gem install fluent-plugin-opentelemetry
 [sinks.logclaw]
 type = "http"
 inputs = ["your_source"]
-uri = "https://otel.logclaw.ai/v1/logs"
+uri = "http://localhost:4318/v1/logs"
 encoding.codec = "json"
 method = "post"
 headers.content-type = "application/json"
@@ -1214,7 +1214,7 @@ headers.content-type = "application/json"
 # [sinks.logclaw]
 # type = "opentelemetry"
 # inputs = ["your_source"]
-# endpoint = "https://otel.logclaw.ai:443"
+# endpoint = "http://localhost:4318"
 ```
 
 ### Logstash
@@ -1223,7 +1223,7 @@ headers.content-type = "application/json"
 # logstash.conf
 output {
   http {
-    url => "https://otel.logclaw.ai/v1/logs"
+    url => "http://localhost:4318/v1/logs"
     http_method => "post"
     format => "json"
     content_type => "application/json"
@@ -1301,7 +1301,7 @@ processors:
 
 exporters:
   otlphttp:
-    endpoint: https://otel.logclaw.ai
+    endpoint: http://localhost:4318
 
 service:
   pipelines:
@@ -1334,7 +1334,7 @@ spec:
           image: otel/opentelemetry-collector-contrib:0.114.0
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "https://otel.logclaw.ai"
+              value: "http://localhost:4318"
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "service.name=k8s-cluster"
           volumeMounts:
@@ -1438,7 +1438,7 @@ Every option has a full code example above. Pick your stack:
      </Tab>
      <Tab title="Self-Hosted">
        ```bash
-       curl -v https://otel.logclaw.ai/v1/logs -d '{}' -H "Content-Type: application/json"
+       curl -v http://localhost:4318/v1/logs -d '{}' -H "Content-Type: application/json"
        # Should return 200 (even with empty body)
        ```
      </Tab>
@@ -1450,7 +1450,7 @@ Every option has a full code example above. Pick your stack:
    - Missing `/v1/logs` path for HTTP (gRPC doesn't need it)
    - Using port 4317 for HTTP (that's gRPC) or 4318 for gRPC (that's HTTP)
    - Using `http://` instead of `https://` for external access
-   - **LogClaw Cloud:** using `otel.logclaw.ai` instead of `console.logclaw.ai/api/ingest`
+   - **LogClaw Cloud:** using `localhost` instead of `console.logclaw.ai/api/ingest`
 
 4. Check firewall — OTLP uses port 443 (TLS-terminated) for external access
 
