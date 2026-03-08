@@ -120,6 +120,22 @@ spec:
               value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
             - name: AGENT_ENDPOINT
               value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
+            {{- if .Values.nodeTlsRejectUnauthorized }}
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: {{ .Values.nodeTlsRejectUnauthorized | quote }}
+            {{- end }}
+            # Encryption key for per-project credential persistence
+            {{- if .Values.externalSecret.enabled }}
+            - name: KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "logclaw-console.secretName" . }}
+                  key: KEY_ENCRYPTION_KEY
+                  optional: true
+            {{- else if .Values.config.keyEncryptionKey }}
+            - name: KEY_ENCRYPTION_KEY
+              value: {{ .Values.config.keyEncryptionKey | quote }}
+            {{- end }}
           volumeMounts:
             - name: nextjs-cache
               mountPath: /app/.next/cache

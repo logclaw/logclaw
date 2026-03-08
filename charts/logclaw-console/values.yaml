@@ -96,6 +96,7 @@ externalSecret:
     DATABASE_URL: "logclaw-console-db-url"
     CLERK_SECRET_KEY: "logclaw-clerk-secret"
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "logclaw-clerk-publishable"
+    KEY_ENCRYPTION_KEY: "logclaw-key-encryption-key"
 
 # -- Console environment config
 config:
@@ -106,6 +107,9 @@ config:
   # Clerk auth URLs
   clerkSignInUrl: "/sign-in"
   clerkSignUpUrl: "/sign-up"
+  # AES-256-GCM encryption key for per-project credential persistence
+  # Generate with: openssl rand -base64 32
+  keyEncryptionKey: ""
 
 # -- Backend service endpoints (explicit overrides)
 # When set, these take precedence over the auto-generated Release.Name-based URLs.
@@ -122,3 +126,7 @@ endpoints:
   opensearchUser: "admin"
   opensearchPasswordSecret: ""
   opensearchPasswordKey: "password"
+
+# -- Skip TLS verification for internal services with self-signed certs (e.g. OpenSearch)
+# Set to "0" to disable TLS verification
+nodeTlsRejectUnauthorized: ""

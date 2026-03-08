@@ -41,4 +41,6 @@ config:
   databaseUrl: "postgresql://logclaw:password@localhost:5432/logclaw_enterprise"
 
 global:
-  opensearchEndpoint: "http://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
+  opensearchEndpoint: "https://logclaw-opensearch-dev-local.logclaw-dev-local.svc:9200"
+
+nodeTlsRejectUnauthorized: "0"

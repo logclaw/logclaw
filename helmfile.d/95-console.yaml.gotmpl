@@ -6,7 +6,7 @@ releases:
       - ../charts/logclaw-console/ci/default-values.yaml
     set:
       - name: global.opensearchEndpoint
-        value: {{ env "OPENSEARCH_ENDPOINT" | default (printf "http://logclaw-opensearch-%s.logclaw-%s.svc:9200" (env "TENANT_ID" | default "enterprise") (env "TENANT_ID" | default "enterprise")) }}
+        value: {{ env "OPENSEARCH_ENDPOINT" | default (printf "https://logclaw-opensearch-%s.logclaw-%s.svc:9200" (env "TENANT_ID" | default "enterprise") (env "TENANT_ID" | default "enterprise")) }}
       - name: image.tag
         value: {{ env "CONSOLE_TAG" | default "0.1.0" }}
       - name: replicaCount
