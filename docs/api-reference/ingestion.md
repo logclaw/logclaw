@@ -19,14 +19,24 @@ POST /v1/logs
 
 Send log records in OTLP HTTP/JSON format.
 
-**Via Dashboard proxy:** `POST /api/otel/v1/logs`
-**Direct:** `POST http://logclaw-otel-collector:4318/v1/logs`
+**LogClaw Cloud (managed):** `POST https://console.logclaw.ai/api/ingest/v1/logs`
+**Via Dashboard proxy (self-hosted):** `POST /api/otel/v1/logs`
+**Direct (self-hosted):** `POST http://logclaw-otel-collector:4318/v1/logs`
+
+### Authentication
+
+<Note>
+**LogClaw Cloud** requires an API key via the `x-logclaw-api-key` header. Get your key from [console.logclaw.ai](https://console.logclaw.ai) under **Settings → API Keys**. See [API Keys](/api-keys) for details.
+
+**Self-hosted** deployments do not require authentication — access is controlled at the Kubernetes NetworkPolicy level.
+</Note>
 
 ### Request Headers
 
 | Header | Value |
 |--------|-------|
 | `Content-Type` | `application/json` |
+| `x-logclaw-api-key` | `lc_proj_...` (required for LogClaw Cloud, not needed for self-hosted) |
 
 ### Request Body
 
@@ -142,7 +152,31 @@ GET http://logclaw-otel-collector:13133/
 
 ## Examples
 
-### curl — Single Log
+### curl — Single Log (LogClaw Cloud)
+
+```bash
+curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
+  -H "Content-Type: application/json" \
+  -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
+  -d '{
+    "resourceLogs": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "my-app"}}
+        ]
+      },
+      "scopeLogs": [{
+        "logRecords": [{
+          "timeUnixNano": "'$(date +%s)000000000'",
+          "severityText": "ERROR",
+          "body": {"stringValue": "Connection timeout"}
+        }]
+      }]
+    }]
+  }'
+```
+
+### curl — Single Log (Self-Hosted)
 
 ```bash
 curl -X POST http://localhost:4318/v1/logs \
