@@ -62,42 +62,36 @@ spec:
               value: "3000"
             - name: HOSTNAME
               value: "0.0.0.0"
-            # Clerk auth
+            # --- Secrets (always from k8s Secret) ---
             - name: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-              {{- if .Values.externalSecret.enabled }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "logclaw-console.secretName" . }}
+                  name: {{ .Values.secretName }}
                   key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-              {{- else }}
-              value: {{ .Values.config.clerkPublishableKey | quote }}
-              {{- end }}
             - name: CLERK_SECRET_KEY
-              {{- if .Values.externalSecret.enabled }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "logclaw-console.secretName" . }}
+                  name: {{ .Values.secretName }}
                   key: CLERK_SECRET_KEY
-              {{- else }}
-              value: {{ .Values.config.clerkSecretKey | quote }}
-              {{- end }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: DATABASE_URL
+            - name: KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: KEY_ENCRYPTION_KEY
+                  optional: true
+            # --- Non-secret config ---
             - name: NEXT_PUBLIC_CLERK_SIGN_IN_URL
               value: {{ .Values.config.clerkSignInUrl | quote }}
             - name: NEXT_PUBLIC_CLERK_SIGN_UP_URL
               value: {{ .Values.config.clerkSignUpUrl | quote }}
-            # Database
-            - name: DATABASE_URL
-              {{- if .Values.externalSecret.enabled }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "logclaw-console.secretName" . }}
-                  key: DATABASE_URL
-              {{- else }}
-              value: {{ .Values.config.databaseUrl | quote }}
-              {{- end }}
-            # Backend service endpoints (explicit overrides take precedence)
+            # --- Backend service endpoints ---
             - name: OPENSEARCH_ENDPOINT
-              value: {{ .Values.endpoints.opensearch | default (include "logclaw-console.opensearchEndpoint" .) | quote }}
+              value: {{ if .Values.endpoints.opensearch }}{{ .Values.endpoints.opensearch | quote }}{{ else }}{{ include "logclaw-console.opensearchEndpoint" . | quote }}{{ end }}
             - name: OPENSEARCH_USER
               value: {{ .Values.endpoints.opensearchUser | default "admin" | quote }}
             {{- if .Values.endpoints.opensearchPasswordSecret }}
@@ -120,21 +114,11 @@ spec:
               value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
             - name: AGENT_ENDPOINT
               value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
-            {{- if .Values.nodeTlsRejectUnauthorized }}
+            {{- if hasKey .Values "nodeTlsRejectUnauthorized" }}
+            {{- if ne (toString .Values.nodeTlsRejectUnauthorized) "" }}
             - name: NODE_TLS_REJECT_UNAUTHORIZED
               value: {{ .Values.nodeTlsRejectUnauthorized | quote }}
             {{- end }}
-            # Encryption key for per-project credential persistence
-            {{- if .Values.externalSecret.enabled }}
-            - name: KEY_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "logclaw-console.secretName" . }}
-                  key: KEY_ENCRYPTION_KEY
-                  optional: true
-            {{- else if .Values.config.keyEncryptionKey }}
-            - name: KEY_ENCRYPTION_KEY
-              value: {{ .Values.config.keyEncryptionKey | quote }}
             {{- end }}
           volumeMounts:
             - name: nextjs-cache

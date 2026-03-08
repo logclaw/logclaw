@@ -10,6 +10,13 @@ image:
 imagePullSecrets:
   - name: ghcr-logclaw
 
+# -- Name of the pre-existing k8s Secret containing:
+#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY,
+#   DATABASE_URL, KEY_ENCRYPTION_KEY
+# Create this secret BEFORE deploying the chart.
+# No secrets are stored in Helm values — they live in k8s Secrets only.
+secretName: "logclaw-console-secrets"
+
 serviceAccount:
   create: true
   annotations: {}
@@ -33,9 +40,6 @@ service:
   type: ClusterIP
   port: 3000
   annotations: {}
-  # For GKE Global LB with NEG:
-  # annotations:
-  #   cloud.google.com/neg: '{"ingress": true}'
 
 resources:
   requests:
@@ -73,7 +77,6 @@ podDisruptionBudget:
 # -- Cloud SQL Auth Proxy sidecar
 cloudsql:
   enabled: false
-  # GCP Cloud SQL instance connection name: <PROJECT>:<REGION>:<INSTANCE>
   instanceName: ""
   image: "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.3"
   port: 5432
@@ -85,31 +88,24 @@ cloudsql:
       cpu: "200m"
       memory: "128Mi"
 
-# -- ExternalSecret (GCP Secret Manager integration)
+# -- ExternalSecret (optional — for GCP Secret Manager / AWS Secrets Manager)
+# When enabled, ESO creates the k8s Secret named by `secretName` automatically.
+# When disabled (default), create the k8s Secret manually before deploying.
 externalSecret:
   enabled: false
   refreshInterval: "1h"
   secretStoreName: "gcp-secret-store"
   secretStoreKind: "ClusterSecretStore"
-  # Map of k8s secret key → GCP secret name
   secrets:
     DATABASE_URL: "logclaw-console-db-url"
     CLERK_SECRET_KEY: "logclaw-clerk-secret"
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "logclaw-clerk-publishable"
     KEY_ENCRYPTION_KEY: "logclaw-key-encryption-key"
 
-# -- Console environment config
+# -- Non-secret console config
 config:
-  # Set directly or via ExternalSecret
-  clerkPublishableKey: ""
-  clerkSecretKey: ""
-  databaseUrl: ""
-  # Clerk auth URLs
   clerkSignInUrl: "/sign-in"
   clerkSignUpUrl: "/sign-up"
-  # AES-256-GCM encryption key for per-project credential persistence
-  # Generate with: openssl rand -base64 32
-  keyEncryptionKey: ""
 
 # -- Backend service endpoints (explicit overrides)
 # When set, these take precedence over the auto-generated Release.Name-based URLs.
