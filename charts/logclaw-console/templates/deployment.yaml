@@ -114,9 +114,11 @@ spec:
               value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
             - name: AGENT_ENDPOINT
               value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
-            {{- if .Values.nodeTlsRejectUnauthorized }}
+            {{- if hasKey .Values "nodeTlsRejectUnauthorized" }}
+            {{- if ne (toString .Values.nodeTlsRejectUnauthorized) "" }}
             - name: NODE_TLS_REJECT_UNAUTHORIZED
               value: {{ .Values.nodeTlsRejectUnauthorized | quote }}
+            {{- end }}
             {{- end }}
           volumeMounts:
             - name: nextjs-cache
