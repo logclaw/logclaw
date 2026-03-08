@@ -95,15 +95,31 @@ spec:
               {{- else }}
               value: {{ .Values.config.databaseUrl | quote }}
               {{- end }}
-            # Backend service endpoints
+            # Backend service endpoints (explicit overrides take precedence)
             - name: OPENSEARCH_ENDPOINT
-              value: {{ include "logclaw-console.opensearchEndpoint" . | quote }}
+              value: {{ .Values.endpoints.opensearch | default (include "logclaw-console.opensearchEndpoint" .) | quote }}
+            - name: OPENSEARCH_USER
+              value: {{ .Values.endpoints.opensearchUser | default "admin" | quote }}
+            {{- if .Values.endpoints.opensearchPasswordSecret }}
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.endpoints.opensearchPasswordSecret }}
+                  key: {{ .Values.endpoints.opensearchPasswordKey | default "password" }}
+                  optional: true
+            {{- end }}
             - name: OTEL_COLLECTOR_ENDPOINT
-              value: {{ include "logclaw-console.otelCollectorEndpoint" . | quote }}
+              value: {{ .Values.endpoints.otelCollector | default (include "logclaw-console.otelCollectorEndpoint" .) | quote }}
             - name: TICKETING_ENDPOINT
-              value: {{ include "logclaw-console.ticketingEndpoint" . | quote }}
+              value: {{ .Values.endpoints.ticketing | default (include "logclaw-console.ticketingEndpoint" .) | quote }}
             - name: BRIDGE_ENDPOINT
-              value: {{ include "logclaw-console.bridgeEndpoint" . | quote }}
+              value: {{ .Values.endpoints.bridge | default (include "logclaw-console.bridgeEndpoint" .) | quote }}
+            - name: FEAST_ENDPOINT
+              value: {{ .Values.endpoints.feast | default (printf "http://%s-logclaw-ml-engine-feast-server.%s.svc:6567" .Release.Name .Release.Namespace) | quote }}
+            - name: AIRFLOW_ENDPOINT
+              value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
+            - name: AGENT_ENDPOINT
+              value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
           volumeMounts:
             - name: nextjs-cache
               mountPath: /app/.next/cache

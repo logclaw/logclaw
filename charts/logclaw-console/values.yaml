@@ -106,3 +106,19 @@ config:
   # Clerk auth URLs
   clerkSignInUrl: "/sign-in"
   clerkSignUpUrl: "/sign-up"
+
+# -- Backend service endpoints (explicit overrides)
+# When set, these take precedence over the auto-generated Release.Name-based URLs.
+# Use these when the console and backend stack have different Helm release names.
+endpoints:
+  opensearch: ""
+  otelCollector: ""
+  ticketing: ""
+  bridge: ""
+  feast: ""
+  airflow: ""
+  agent: ""
+  # OpenSearch credentials
+  opensearchUser: "admin"
+  opensearchPasswordSecret: ""
+  opensearchPasswordKey: "password"
