@@ -321,7 +321,11 @@ public class EtlParsingJob {
             if (attributes == null || attributes.isMissingNode()) return;
             if (attributes.isArray()) {
                 for (JsonNode attr : attributes) {
-                    String key = attr.path("key").asText();
+                    // Replace dots with underscores to prevent OpenSearch
+                    // from interpreting dotted keys as nested objects
+                    // (e.g. "service.name" → "service_name" avoids conflict
+                    //  when another log has "service" as a plain string)
+                    String key = attr.path("key").asText().replace('.', '_');
                     JsonNode val = attr.path("value");
                     if (val.has("stringValue")) target.put(key, val.get("stringValue").asText());
                     else if (val.has("intValue")) target.put(key, val.get("intValue").asLong());
@@ -332,7 +336,7 @@ public class EtlParsingJob {
                 Iterator<Map.Entry<String, JsonNode>> fields = attributes.fields();
                 while (fields.hasNext()) {
                     Map.Entry<String, JsonNode> f = fields.next();
-                    target.set(f.getKey(), f.getValue());
+                    target.set(f.getKey().replace('.', '_'), f.getValue());
                 }
             }
         }

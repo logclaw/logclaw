@@ -1071,6 +1071,8 @@ def _flush_bulk(client: OpenSearch, actions: list[dict]):
         if errors:
             metrics["indexer_errors"] += len(errors)
             log.warning("Bulk index had %d errors out of %d actions", len(errors), len(actions))
+            for err in errors[:3]:
+                log.warning("Bulk error detail: %s", err)
         else:
             log.debug("Bulk indexed %d documents", success)
     except Exception:
