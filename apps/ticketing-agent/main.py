@@ -347,9 +347,13 @@ def search_incidents(params):
     service = params.get("service", [None])[0]
     priority = params.get("priority", [None])[0]
     q = params.get("q", [None])[0]
+    tenant_id = params.get("tenant_id", [None])[0]
     sort_by = params.get("sort", ["created_at"])[0]
     sort_dir = params.get("order", ["desc"])[0]
     musts = []
+    if tenant_id:
+        # tenant_id.keyword for exact match (text field with keyword sub-field)
+        musts.append({"term": {"tenant_id.keyword": tenant_id}})
     if state and state != "all":
         musts.append({"term": {"state": state}})
     if severity:
