@@ -15,6 +15,17 @@
       "to": "#FF8A65"
     }
   },
+  "openapi": "openapi.yaml",
+  "api": {
+    "baseUrl": "https://otel.logclaw.ai",
+    "auth": {
+      "method": "key",
+      "name": "x-logclaw-api-key"
+    },
+    "playground": {
+      "mode": "show"
+    }
+  },
   "topbarLinks": [
     {
       "name": "GitHub",
@@ -84,13 +95,54 @@
       ]
     },
     {
-      "group": "Endpoints",
+      "group": "Guides",
       "pages": [
         "api-reference/ingestion",
         "api-reference/bridge",
         "api-reference/opensearch",
         "api-reference/ticketing",
         "api-reference/agent"
+      ]
+    },
+    {
+      "group": "Ingestion",
+      "pages": [
+        "api-reference/endpoints/send-logs"
+      ]
+    },
+    {
+      "group": "API Keys",
+      "pages": [
+        "api-reference/endpoints/list-api-keys",
+        "api-reference/endpoints/create-api-key",
+        "api-reference/endpoints/revoke-api-key"
+      ]
+    },
+    {
+      "group": "Bridge",
+      "pages": [
+        "api-reference/endpoints/bridge-health",
+        "api-reference/endpoints/bridge-config"
+      ]
+    },
+    {
+      "group": "Ticketing",
+      "pages": [
+        "api-reference/endpoints/list-incidents",
+        "api-reference/endpoints/runtime-config"
+      ]
+    },
+    {
+      "group": "Infrastructure",
+      "pages": [
+        "api-reference/endpoints/agent-health",
+        "api-reference/endpoints/agent-metrics"
+      ]
+    },
+    {
+      "group": "OpenSearch",
+      "pages": [
+        "api-reference/endpoints/list-indices"
       ]
     }
   ],

@@ -1,6 +1,7 @@
 {{- if and .Values.ingress .Values.ingress.enabled }}
 {{- /* ════════════════════════════════════════════════════════════════════
-     Ingress: OTLP endpoint (OTel Collector — gRPC :4317, HTTP :4318)
+     Ingress: OTLP endpoint (Auth Proxy — HTTP :4318)
+     Forwards to: logclaw-auth-proxy for API key validation + tenant_id injection
      ════════════════════════════════════════════════════════════════════ */}}
 {{- if .Values.ingress.otel }}
 apiVersion: networking.k8s.io/v1
@@ -32,13 +33,53 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-logclaw-otel-collector
+                name: {{ .Release.Name }}-logclaw-auth-proxy
                 port:
                   number: 4318
 {{- end }}
 ---
 {{- /* ════════════════════════════════════════════════════════════════════
-     Ingress: API endpoint (legacy — routes to OTel Collector)
+     Ingress: OTLP gRPC endpoint (Auth Proxy — gRPC :4317)
+     Forwards to: logclaw-auth-proxy for API key validation + tenant_id injection
+     ════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.ingress.otel }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-otel-grpc
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.otel.host }}
+      secretName: {{ .Release.Name }}-otel-grpc-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.otel.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-logclaw-auth-proxy
+                port:
+                  number: 4317
+{{- end }}
+---
+{{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: API endpoint (routes through Auth Proxy for tenant isolation)
+     Forwards to: logclaw-auth-proxy which routes to Console API with tenant_id enforcement
      ════════════════════════════════════════════════════════════════════ */}}
 {{- if .Values.ingress.api }}
 apiVersion: networking.k8s.io/v1
@@ -49,8 +90,17 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.api.host }}
+      secretName: {{ .Release.Name }}-api-tls
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.api.host }}
       http:
@@ -59,7 +109,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-logclaw-otel-collector
+                name: {{ .Release.Name }}-logclaw-auth-proxy
                 port:
                   number: 4318
 {{- end }}

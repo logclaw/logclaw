@@ -2,8 +2,8 @@
 # No cloning, no building, no Kubernetes required.
 #
 # Usage:
-#   curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
-#   docker compose up -d
+#   logclaw start            (recommended)
+#   docker compose up -d     (manual)
 #   open http://localhost:3000
 #
 # Requirements: Docker with 8 GB+ RAM allocated
@@ -12,6 +12,8 @@ services:
   # ── Data Layer ────────────────────────────────────────────
   opensearch:
     image: opensearchproject/opensearch:2.14.0
+    labels:
+      logclaw.service: opensearch
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
@@ -21,6 +23,11 @@ services:
       - "9200:9200"
     volumes:
       - opensearch-data:/usr/share/opensearch/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
@@ -29,6 +36,8 @@ services:
 
   kafka:
     image: bitnami/kafka:3.7
+    labels:
+      logclaw.service: kafka
     environment:
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
@@ -42,6 +51,11 @@ services:
       - "9092:9092"
     volumes:
       - kafka-data:/bitnami/kafka
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s
@@ -51,6 +65,8 @@ services:
   # ── OTel Collector (OTLP ingestion) ──────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.114.0
+    labels:
+      logclaw.service: otel-collector
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
@@ -58,6 +74,11 @@ services:
       - "4317:4317"   # gRPC
       - "4318:4318"   # HTTP
       - "13133:13133" # health
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on:
       kafka:
         condition: service_healthy
@@ -65,6 +86,8 @@ services:
   # ── LogClaw Services ─────────────────────────────────────
   bridge:
     image: ghcr.io/logclaw/logclaw-bridge:stable
+    labels:
+      logclaw.service: bridge
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_RAW=raw-logs
@@ -74,6 +97,11 @@ services:
       - WINDOW_SIZE=50
     ports:
       - "8080:8080"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
       opensearch:
         condition: service_healthy
@@ -82,12 +110,19 @@ services:
 
   ticketing-agent:
     image: ghcr.io/logclaw/logclaw-ticketing-agent:stable
+    labels:
+      logclaw.service: ticketing-agent
     environment:
       - KAFKA_BROKERS=kafka:9092
       - OPENSEARCH_ENDPOINT=http://opensearch:9200
       - LLM_PROVIDER=disabled
     ports:
       - "18081:8080"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
       opensearch:
         condition: service_healthy
@@ -96,7 +131,11 @@ services:
 
   dashboard:
     image: ghcr.io/logclaw/logclaw-dashboard:stable
+    labels:
+      logclaw.service: dashboard
     environment:
+      - LOGCLAW_MODE=standalone
+      - NEXT_PUBLIC_LOGCLAW_MODE=standalone
       - OTEL_COLLECTOR_ENDPOINT=http://otel-collector:4318
       - BRIDGE_ENDPOINT=http://bridge:8080
       - OPENSEARCH_ENDPOINT=http://opensearch:9200
@@ -105,9 +144,16 @@ services:
       - TICKETING_ENDPOINT=http://ticketing-agent:8080
     ports:
       - "3000:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
-      - bridge
-      - ticketing-agent
+      bridge:
+        condition: service_started
+      ticketing-agent:
+        condition: service_started
 
 volumes:
   opensearch-data:

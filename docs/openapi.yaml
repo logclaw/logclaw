@@ -1,0 +1,587 @@
+openapi: 3.1.0
+info:
+  title: LogClaw API
+  description: |
+    LogClaw Cloud API for log ingestion, API key management, incident monitoring,
+    and infrastructure health. All endpoints are authenticated via the
+    `x-logclaw-api-key` header.
+
+    Generate an API key from your project dashboard at
+    [console.logclaw.ai](https://console.logclaw.ai) under **Settings → API Keys**.
+  version: "1.0.0"
+  contact:
+    name: LogClaw
+    url: https://docs.logclaw.ai
+
+servers:
+  - url: https://otel.logclaw.ai
+    description: LogClaw Cloud
+
+security:
+  - apiKey: []
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-logclaw-api-key
+      description: Your project API key (starts with `lc_proj_`)
+
+  schemas:
+    OtlpLogPayload:
+      type: object
+      required:
+        - resourceLogs
+      properties:
+        resourceLogs:
+          type: array
+          items:
+            type: object
+            properties:
+              resource:
+                type: object
+                properties:
+                  attributes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          example: service.name
+                        value:
+                          type: object
+                          properties:
+                            stringValue:
+                              type: string
+                              example: my-app
+              scopeLogs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    logRecords:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          timeUnixNano:
+                            type: string
+                            example: "1709312400000000000"
+                          severityText:
+                            type: string
+                            enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+                            example: INFO
+                          severityNumber:
+                            type: integer
+                            example: 9
+                          body:
+                            type: object
+                            properties:
+                              stringValue:
+                                type: string
+                                example: Hello from LogClaw!
+                          traceId:
+                            type: string
+                            example: abcdef1234567890abcdef1234567890
+                          spanId:
+                            type: string
+                            example: abcdef1234567890
+                          attributes:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                value:
+                                  type: object
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          example: key_abc123
+        name:
+          type: string
+          example: production-backend
+        prefix:
+          type: string
+          example: lc_proj_5a33...c717
+        createdAt:
+          type: string
+          format: date-time
+          example: "2024-03-01T10:00:00Z"
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2024-03-01T15:30:00Z"
+
+    Incident:
+      type: object
+      properties:
+        id:
+          type: string
+          example: inc-20240301-001
+        title:
+          type: string
+          example: High error rate on payment-api
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [open, acknowledged, escalated, resolved]
+        service:
+          type: string
+          example: payment-api
+        anomalyScore:
+          type: number
+          example: 4.2
+        createdAt:
+          type: string
+          format: date-time
+        platforms:
+          type: array
+          items:
+            type: string
+          example: [pagerduty, jira, slack]
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+paths:
+  /v1/logs:
+    post:
+      operationId: sendLogs
+      summary: Send Logs (OTLP/HTTP)
+      description: |
+        Ingest log records in OTLP HTTP/JSON format. This is the primary ingestion
+        endpoint for LogClaw Cloud. Logs are processed through the pipeline:
+        OTel Collector → Kafka → Bridge → OpenSearch.
+
+        The auth proxy automatically injects your project's `tenant_id` into each
+        log record based on your API key.
+      tags:
+        - Ingestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtlpLogPayload"
+            example:
+              resourceLogs:
+                - resource:
+                    attributes:
+                      - key: service.name
+                        value:
+                          stringValue: my-app
+                  scopeLogs:
+                    - logRecords:
+                        - timeUnixNano: "1709312400000000000"
+                          severityText: INFO
+                          body:
+                            stringValue: Hello from LogClaw!
+      responses:
+        "200":
+          description: Logs accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  partialSuccess:
+                    type: object
+              example:
+                partialSuccess: {}
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: Missing x-logclaw-api-key header
+        "502":
+          description: OTel Collector unreachable
+          content:
+            application/json:
+              example:
+                error: Failed to forward request to OTel Collector
+
+  /api/admin/api-keys:
+    get:
+      operationId: listApiKeys
+      summary: List API Keys
+      description: |
+        Returns all API keys for the authenticated project. Key values are masked —
+        only the prefix is returned.
+      tags:
+        - API Keys
+      responses:
+        "200":
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+              example:
+                - id: key_abc123
+                  name: production-backend
+                  prefix: lc_proj_5a33...c717
+                  createdAt: "2024-03-01T10:00:00Z"
+                  lastUsedAt: "2024-03-01T15:30:00Z"
+                - id: key_def456
+                  name: staging-worker
+                  prefix: lc_proj_8b21...a4f2
+                  createdAt: "2024-02-15T08:00:00Z"
+                  lastUsedAt: null
+        "401":
+          description: Invalid or missing API key
+
+    post:
+      operationId: createApiKey
+      summary: Create API Key
+      description: |
+        Create a new API key for the project. The full key value is returned **only
+        once** in the response — store it securely.
+
+        Keys start with `lc_proj_` and are 64-character hex strings.
+      tags:
+        - API Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: A descriptive label for the key
+                  example: production-backend
+            example:
+              name: production-backend
+      responses:
+        "201":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  key:
+                    type: string
+                    description: The full API key — shown only once
+                  createdAt:
+                    type: string
+                    format: date-time
+              example:
+                id: key_ghi789
+                name: production-backend
+                key: lc_proj_5a33915526cd1af8238c6e690eeff9cec2611750d9914d2dd1cc7a87cf08c717
+                createdAt: "2024-03-01T10:00:00Z"
+        "401":
+          description: Invalid or missing API key
+
+    delete:
+      operationId: revokeApiKey
+      summary: Revoke API Key
+      description: |
+        Permanently revoke an API key. The key stops working immediately — any
+        requests using it will receive `401 Unauthorized`. This action is irreversible.
+      tags:
+        - API Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: The key ID to revoke
+                  example: key_abc123
+            example:
+              id: key_abc123
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  revokedId:
+                    type: string
+              example:
+                status: ok
+                revokedId: key_abc123
+        "401":
+          description: Invalid or missing API key
+        "404":
+          description: Key not found
+
+  /api/bridge/health:
+    get:
+      operationId: bridgeHealth
+      summary: Bridge Health
+      description: |
+        Returns the health status of all Bridge processing threads and backend
+        connections (Kafka, OpenSearch).
+      tags:
+        - Bridge
+      responses:
+        "200":
+          description: Bridge health status
+          content:
+            application/json:
+              example:
+                status: ok
+                threads:
+                  etl: running
+                  anomaly: running
+                  indexer: running
+                  lifecycle: running
+                kafka: connected
+                opensearch: connected
+
+  /api/bridge/config:
+    get:
+      operationId: bridgeConfig
+      summary: Bridge Configuration
+      description: |
+        Returns the current Bridge runtime configuration including anomaly detection
+        thresholds, Kafka topics, and OpenSearch endpoint.
+      tags:
+        - Bridge
+      responses:
+        "200":
+          description: Bridge configuration
+          content:
+            application/json:
+              example:
+                anomalyThreshold: 2.5
+                windowSize: 50
+                kafkaBrokers: logclaw-kafka-kafka-bootstrap:9093
+                rawTopic: raw-logs
+                enrichedTopic: enriched-logs
+                opensearchEndpoint: https://logclaw-opensearch:9200
+
+  /api/ticketing/api/incidents:
+    get:
+      operationId: listIncidents
+      summary: List Incidents
+      description: |
+        Returns all tracked incidents for your project with their current state,
+        severity, affected services, and ticketing platform status.
+
+        Results are automatically scoped to your project's tenant.
+      tags:
+        - Ticketing
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, acknowledged, escalated, resolved]
+          description: Filter by incident status
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+          description: Filter by severity level
+      responses:
+        "200":
+          description: List of incidents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Incident"
+              example:
+                - id: inc-20240301-001
+                  title: High error rate on payment-api
+                  severity: critical
+                  status: open
+                  service: payment-api
+                  anomalyScore: 4.2
+                  affectedServices: [payment-api, order-engine]
+                  createdAt: "2024-03-01T15:30:00Z"
+                  platforms: [pagerduty, jira, slack]
+
+  /api/ticketing/api/v1/config:
+    get:
+      operationId: runtimeConfig
+      summary: Runtime Configuration
+      description: |
+        Returns the complete Ticketing Agent runtime configuration including
+        platform settings, severity routing rules, anomaly thresholds, and LLM config.
+
+        Sensitive fields (API keys, tokens) are masked with `****`.
+      tags:
+        - Ticketing
+      responses:
+        "200":
+          description: Runtime configuration
+          content:
+            application/json:
+              example:
+                platforms:
+                  pagerduty:
+                    enabled: true
+                    routingKey: "****"
+                  jira:
+                    enabled: true
+                    baseUrl: https://org.atlassian.net
+                  slack:
+                    enabled: true
+                    webhookUrl: "****"
+                routing:
+                  critical: [pagerduty, slack, jira]
+                  high: [jira, slack]
+                  medium: [jira]
+                  low: [slack]
+                anomaly:
+                  minimumScore: 0.85
+                  lookbackWindow: 15m
+                llm:
+                  provider: openai
+                  model: gpt-4
+
+  /api/agent/health:
+    get:
+      operationId: agentHealth
+      summary: Agent Health
+      description: Liveness probe for the Infrastructure Agent.
+      tags:
+        - Infrastructure
+      responses:
+        "200":
+          description: Agent is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+
+  /api/agent/metrics:
+    get:
+      operationId: agentMetrics
+      summary: Infrastructure Metrics
+      description: |
+        Returns aggregated infrastructure health metrics from all cluster
+        collectors: Kafka broker and topic status, Flink job states, OpenSearch
+        cluster health, and External Secrets sync status.
+      tags:
+        - Infrastructure
+      responses:
+        "200":
+          description: Infrastructure metrics
+          content:
+            application/json:
+              example:
+                kafka:
+                  status: healthy
+                  brokers: 3
+                  topics:
+                    raw-logs:
+                      partitions: 6
+                      consumerLag: 150
+                    enriched-logs:
+                      partitions: 6
+                      consumerLag: 0
+                flink:
+                  status: healthy
+                  jobs:
+                    - name: logclaw-anomaly-detection
+                      state: RUNNING
+                      taskManagers: 2
+                      uptime: 48h30m
+                opensearch:
+                  status: green
+                  nodes: 6
+                  indices: 15
+                  totalDocs: 1542000
+                  totalSizeBytes: 2147483648
+                eso:
+                  status: healthy
+                  externalSecrets:
+                    - name: logclaw-ticketing-credentials
+                      status: SecretSynced
+                      lastSyncTime: "2024-03-01T15:00:00Z"
+
+  /api/opensearch/_cat/indices:
+    get:
+      operationId: listIndices
+      summary: List Indices
+      description: |
+        Returns all OpenSearch indices with their health status, document count,
+        and storage size. LogClaw uses daily indices with the pattern
+        `logclaw-logs-YYYY.MM.dd`.
+      tags:
+        - OpenSearch
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            default: json
+          description: Response format (use `json` for structured output)
+      responses:
+        "200":
+          description: List of indices
+          content:
+            application/json:
+              example:
+                - health: green
+                  status: open
+                  index: logclaw-logs-2024.03.01
+                  docs.count: "15420"
+                  store.size: 12.3mb
+                - health: green
+                  status: open
+                  index: logclaw-logs-2024.02.29
+                  docs.count: "12890"
+                  store.size: 10.1mb
+
+tags:
+  - name: Ingestion
+    description: OTLP log ingestion
+  - name: API Keys
+    description: API key management
+  - name: Bridge
+    description: ETL pipeline health and configuration
+  - name: Ticketing
+    description: Incident management and runtime config
+  - name: Infrastructure
+    description: Cluster health monitoring
+  - name: OpenSearch
+    description: Log storage and search

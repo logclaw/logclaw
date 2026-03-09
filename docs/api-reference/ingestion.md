@@ -19,7 +19,7 @@ POST /v1/logs
 
 Send log records in OTLP HTTP/JSON format.
 
-**LogClaw Cloud (managed):** `POST https://console.logclaw.ai/api/ingest/v1/logs`
+**LogClaw Cloud (managed):** `POST https://otel.logclaw.ai/v1/logs`
 **Via Dashboard proxy (self-hosted):** `POST /api/otel/v1/logs`
 **Direct (self-hosted):** `POST http://logclaw-otel-collector:4318/v1/logs`
 
@@ -127,11 +127,14 @@ OTLP attributes support multiple value types:
 
 ## Send Logs (gRPC)
 
-```
-grpc://logclaw-otel-collector:4317
-```
+**LogClaw Cloud (managed):** `grpc://otel.logclaw.ai:443`
+**Direct (self-hosted):** `grpc://logclaw-otel-collector:4317`
 
 Use the OTLP gRPC exporter from any OpenTelemetry SDK. This is the **recommended** transport for production workloads — binary Protobuf is more compact and efficient than JSON.
+
+<Note>
+LogClaw Cloud gRPC uses TLS on port 443. Set your SDK's `insecure` option to `false` (the default). Authentication via `x-logclaw-api-key` header is required — the same as HTTP.
+</Note>
 
 See the [OTLP Integration Guide](/otlp-integration) for SDK examples in Python, Java, Node.js, and Go.
 
@@ -155,7 +158,7 @@ GET http://logclaw-otel-collector:13133/
 ### curl — Single Log (LogClaw Cloud)
 
 ```bash
-curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
+curl -X POST https://otel.logclaw.ai/v1/logs \
   -H "Content-Type: application/json" \
   -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
   -d '{

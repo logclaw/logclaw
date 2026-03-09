@@ -13,7 +13,8 @@ LogClaw ingests logs via **OTLP (OpenTelemetry Protocol)** — the CNCF industry
   <Tab title="LogClaw Cloud (Managed)">
     | Protocol | URL |
     |----------|-----|
-    | HTTP | `https://console.logclaw.ai/api/ingest/v1/logs` |
+    | HTTP | `https://otel.logclaw.ai/v1/logs` |
+    | gRPC | `otel.logclaw.ai:443` |
 
     **Authentication required** — add the `x-logclaw-api-key` header to every request.
     See [API Keys](/api-keys) to create your key.
@@ -46,7 +47,7 @@ Pick your language — click a tab to switch. Copy the code and run it.
 
 ```bash cURL
 # LogClaw Cloud (managed) — requires API key:
-curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
+curl -X POST https://otel.logclaw.ai/v1/logs \
   -H "Content-Type: application/json" \
   -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
   -d '{
@@ -74,7 +75,7 @@ curl -X POST https://console.logclaw.ai/api/ingest/v1/logs \
 ```python Python
 # pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
 # For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
-#   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+#   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 #   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 #   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 import logging
@@ -104,7 +105,7 @@ logger.error("Payment failed", extra={"order_id": "ord-456"})
 ```javascript Node.js
 // npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-grpc @opentelemetry/resources
 // For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
-//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 //   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 //   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 const { LoggerProvider, BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
@@ -127,7 +128,7 @@ logger.emit({ severityText: 'ERROR', body: 'Connection timeout', attributes: { '
 // go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
 // go get go.opentelemetry.io/otel/sdk/log
 // For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
-//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 //   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 //   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 package main
@@ -167,7 +168,7 @@ java -javaagent:opentelemetry-javaagent.jar \
 
 # LogClaw Cloud (managed) — add API key header:
 java -javaagent:opentelemetry-javaagent.jar \
-  -Dotel.exporter.otlp.endpoint=https://console.logclaw.ai/api/ingest \
+  -Dotel.exporter.otlp.endpoint=https://otel.logclaw.ai \
   -Dotel.exporter.otlp.headers=x-logclaw-api-key=lc_proj_your_key_here \
   -Dotel.exporter.otlp.protocol=http/json \
   -Dotel.service.name=my-spring-api \
@@ -182,7 +183,7 @@ java -javaagent:opentelemetry-javaagent.jar \
 // dotnet add package OpenTelemetry.Exporter.OpenTelemetryProtocol
 // dotnet add package OpenTelemetry.Extensions.Hosting
 // For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
-//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 //   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 //   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 using OpenTelemetry.Logs;
@@ -208,7 +209,7 @@ builder.Logging.AddOpenTelemetry(logging =>
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 rails server
 
 # LogClaw Cloud (managed) — add API key header:
-# OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest \
+# OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai \
 # OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here \
 # OTEL_EXPORTER_OTLP_PROTOCOL=http/json \
 # rails server
@@ -221,7 +222,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 rails server
 ```rust Rust
 // Add to Cargo.toml: opentelemetry, opentelemetry_sdk, opentelemetry-otlp, tracing
 // For LogClaw Cloud, set env vars instead of hardcoding the endpoint:
-//   OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+//   OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 //   OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 //   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 use opentelemetry_otlp::LogExporter;
@@ -262,7 +263,7 @@ Below are full integration guides with framework-specific examples for each lang
 The examples below use the **self-hosted** endpoint (`localhost`). For **LogClaw Cloud**, set these environment variables instead of changing endpoints in code:
 
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=https://console.logclaw.ai/api/ingest
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.logclaw.ai
 export OTEL_EXPORTER_OTLP_HEADERS=x-logclaw-api-key=lc_proj_your_key_here
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 ```
@@ -1428,7 +1429,7 @@ Every option has a full code example above. Pick your stack:
    <Tabs>
      <Tab title="LogClaw Cloud">
        ```bash
-       curl -v https://console.logclaw.ai/api/ingest/v1/logs \
+       curl -v https://otel.logclaw.ai/v1/logs \
          -H "Content-Type: application/json" \
          -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
          -d '{"resourceLogs":[]}'
@@ -1450,7 +1451,7 @@ Every option has a full code example above. Pick your stack:
    - Missing `/v1/logs` path for HTTP (gRPC doesn't need it)
    - Using port 4317 for HTTP (that's gRPC) or 4318 for gRPC (that's HTTP)
    - Using `http://` instead of `https://` for external access
-   - **LogClaw Cloud:** using `localhost` instead of `console.logclaw.ai/api/ingest`
+   - **LogClaw Cloud:** using `localhost` instead of `otel.logclaw.ai`
 
 4. Check firewall — OTLP uses port 443 (TLS-terminated) for external access
 
