@@ -66,6 +66,7 @@
       "pages": [
         "components/otel-collector",
         "components/bridge",
+        "components/incident-classification",
         "components/ticketing-agent",
         "components/dashboard"
       ]
