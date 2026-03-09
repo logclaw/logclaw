@@ -101,7 +101,7 @@ jobs:
       # ── Docker Buildx (multi-arch) ──
       - name: Set up QEMU
         if: steps.gate.outputs.should_build == 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         if: steps.gate.outputs.should_build == 'true'
