@@ -28,7 +28,7 @@ Kafka "raw-logs"
 │ Thread 2 │  │ Thread 3: Indexer    │
 │ Anomaly  │  │ Bulk write to       │
 │ Detector │  │ OpenSearch           │
-│ (Z-score)│  │ logclaw-logs-*      │
+│ (Signal) │  │ logclaw-logs-*      │
 └──────────┘  └──────────────────────┘
        │
        ▼
@@ -64,19 +64,25 @@ resourceLogs → scopeLogs → logRecords → flatten each record
 
 ## Anomaly Detection (Thread 2)
 
-Uses a sliding-window **Z-score** algorithm to detect anomalous error rate spikes per service.
+Uses a **signal-based composite scoring** system to classify whether an error log is incident-worthy. Not every error triggers an incident — the system distinguishes actionable failures (OOM, database deadlocks, cascading failures) from noise (validation errors, 404s).
 
-**Configuration:**
+Two detection paths run in parallel:
 
-| Parameter | Env Var | Default | Description |
-|-----------|---------|---------|-------------|
-| Threshold | `ANOMALY_THRESHOLD` | `2.5` | Z-score threshold for anomaly flagging |
-| Window Size | `WINDOW_SIZE` | `50` | Number of data points in sliding window |
+- **Immediate path** — OOM, crash, and resource exhaustion patterns fire in under 1 second without waiting for a time window
+- **Windowed path** — statistical z-score combined with blast radius, velocity, and recurrence signals across the sliding window
 
-When an anomaly is detected, the document is enriched with:
-- `anomaly_score` — the computed Z-score
-- `is_anomaly` — boolean flag
-- Written to the anomalies topic for the Ticketing Agent
+See [Incident Classification](/components/incident-classification) for the full signal system documentation.
+
+**Key environment variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANOMALY_ZSCORE_THRESHOLD` | `2.0` | Z-score threshold for statistical spike signal |
+| `ANOMALY_WINDOW_SECONDS` | `300` | Sliding window duration |
+| `ANOMALY_COMPOSITE_SCORE_THRESHOLD` | `0.4` | Minimum composite score to emit an event |
+| `ANOMALY_IMMEDIATE_DEDUP_SECONDS` | `60` | Dedup window for immediate-path emissions |
+
+When an anomaly is detected, an event is published to `anomaly-events` Kafka topic with `anomaly_score`, `severity`, `signals`, `detection_mode`, `error_category`, and `error_message` fields.
 
 ## Request Lifecycle Engine (Thread 4)
 
@@ -97,9 +103,14 @@ The Bridge exposes Prometheus-format metrics at `GET /metrics`:
 | `logclaw_bridge_etl_consumed_total` | Counter | Kafka messages (batches) consumed from `raw-logs` |
 | `logclaw_bridge_etl_records_received_total` | Counter | Individual OTLP log records flattened |
 | `logclaw_bridge_etl_produced_total` | Counter | Enriched documents written to `enriched-logs` |
-| `logclaw_bridge_anomalies_detected_total` | Counter | Anomalies detected |
-| `logclaw_bridge_opensearch_indexed_total` | Counter | Documents indexed into OpenSearch |
-| `logclaw_bridge_opensearch_errors_total` | Counter | OpenSearch indexing errors |
+| `logclaw_bridge_anomaly_detected_total` | Counter | Total anomaly events emitted |
+| `logclaw_bridge_anomaly_immediate_detected_total` | Counter | Anomalies detected via immediate path (OOM/crash/resource) |
+| `logclaw_bridge_anomaly_windowed_detected_total` | Counter | Anomalies detected via windowed statistical path |
+| `logclaw_bridge_anomaly_signals_extracted_total` | Counter | Error records with at least one signal extracted |
+| `logclaw_bridge_anomaly_below_threshold_total` | Counter | Signals filtered (below composite score threshold) |
+| `logclaw_bridge_anomaly_std_zero_detected_total` | Counter | Constant error rate cases (previously silent failures) |
+| `logclaw_bridge_indexer_indexed_total` | Counter | Documents indexed into OpenSearch |
+| `logclaw_bridge_indexer_errors_total` | Counter | OpenSearch indexing errors |
 
 ## Configuration
 
@@ -113,8 +124,11 @@ The Bridge exposes Prometheus-format metrics at `GET /metrics`:
 | `OPENSEARCH_ENDPOINT` | Yes | — | OpenSearch cluster URL |
 | `OPENSEARCH_USERNAME` | No | — | OpenSearch Basic Auth username |
 | `OPENSEARCH_PASSWORD` | No | — | OpenSearch Basic Auth password |
-| `ANOMALY_THRESHOLD` | No | `2.5` | Z-score threshold |
-| `WINDOW_SIZE` | No | `50` | Sliding window size |
+| `ANOMALY_ZSCORE_THRESHOLD` | No | `2.0` | Z-score threshold for statistical spike signal |
+| `ANOMALY_WINDOW_SECONDS` | No | `300` | Sliding window duration in seconds |
+| `ANOMALY_COMPOSITE_SCORE_THRESHOLD` | No | `0.4` | Minimum composite score to emit an anomaly event |
+| `ANOMALY_IMMEDIATE_DEDUP_SECONDS` | No | `60` | Dedup window for immediate-path emissions |
+| `ANOMALY_BLAST_RADIUS_WINDOW_SECONDS` | No | `60` | Cross-service error tracking window |
 | `PORT` | No | `8080` | HTTP server port |
 
 ### Runtime Configuration
@@ -125,21 +139,22 @@ The Bridge supports dynamic runtime configuration via the `/config` endpoint:
 # Get current config
 curl http://localhost:8080/config
 
-# Update anomaly threshold
+# Update anomaly thresholds
 curl -X PATCH http://localhost:8080/config \
   -H "Content-Type: application/json" \
-  -d '{"anomalyThreshold": 3.0, "windowSize": 100}'
+  -d '{"zscoreThreshold": 3.0, "windowSeconds": 600, "compositeScoreThreshold": 0.45}'
 ```
 
 ### Helm Values
 
 ```yaml
 logclaw-bridge:
-  bridge:
-    kafkaBrokers: "logclaw-kafka-kafka-bootstrap:9093"
-    opensearchEndpoint: "https://logclaw-opensearch:9200"
-    anomalyThreshold: 2.5
-    windowSize: 50
+  env:
+    KAFKA_BROKERS: "logclaw-kafka-bootstrap:9092"
+    OPENSEARCH_ENDPOINT: "https://logclaw-opensearch:9200"
+    ANOMALY_ZSCORE_THRESHOLD: "2.0"
+    ANOMALY_WINDOW_SECONDS: "300"
+    ANOMALY_COMPOSITE_SCORE_THRESHOLD: "0.4"
 ```
 
 ## Health Check
