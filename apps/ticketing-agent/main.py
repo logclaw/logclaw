@@ -347,9 +347,15 @@ def search_incidents(params):
     service = params.get("service", [None])[0]
     priority = params.get("priority", [None])[0]
     q = params.get("q", [None])[0]
+    search = params.get("search", [None])[0]
+    tenant_id = params.get("tenant_id", [None])[0]
     sort_by = params.get("sort", ["created_at"])[0]
     sort_dir = params.get("order", ["desc"])[0]
     musts = []
+    # tenant_id is the company identifier — always filter to isolate tenants
+    # Use .keyword sub-field for exact match (field is text type with keyword sub-field)
+    if tenant_id:
+        musts.append({"term": {"tenant_id.keyword": tenant_id}})
     if state and state != "all":
         musts.append({"term": {"state": state}})
     if severity:
@@ -360,8 +366,8 @@ def search_incidents(params):
         musts.append({"term": {"service": service}})
     if priority:
         musts.append({"term": {"priority": priority}})
-    if q:
-        musts.append({"multi_match": {"query": q, "fields": ["title", "description", "service", "tags"]}})
+    if q or search:
+        musts.append({"multi_match": {"query": q or search, "fields": ["title", "description", "service", "tags"]}})
     body = {"size": limit, "from": offset, "sort": [{sort_by: sort_dir}]}
     if musts:
         body["query"] = {"bool": {"must": musts}}
@@ -477,12 +483,15 @@ def get_mttr(params):
 
 
 # ── Log context from OpenSearch ────────────────────────────────────────
-def os_context(service):
+def os_context(service, tenant_id=None):
     cfg = get_config()
     max_lines = cfg["anomaly"]["maxLogLinesInTicket"]
+    must = [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]
+    if tenant_id:
+        must.append({"term": {"tenant_id.keyword": tenant_id}})
     q = {
         "size": max_lines,
-        "query": {"bool": {"must": [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]}},
+        "query": {"bool": {"must": must}},
         "sort": [{"_doc": "desc"}],
     }
     try:
@@ -775,18 +784,21 @@ def is_dup_key(dedup_key):
     return False
 
 
-def find_recent_duplicate_in_os(service, error_template, window_minutes):
+def find_recent_duplicate_in_os(service, error_template, window_minutes, tenant_id=None):
     """Check OpenSearch for unresolved incidents with matching service + error within the dedup window.
     Catches duplicates across pod restarts when in-memory registry is empty."""
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=window_minutes)).isoformat()
+        must_clauses = [
+            {"term": {"service": service}},
+            {"range": {"created_at": {"gte": cutoff}}},
+            {"terms": {"state": ["identified", "acknowledged", "investigating"]}},
+        ]
+        if tenant_id:
+            must_clauses.append({"term": {"tenant_id.keyword": tenant_id}})
         q = {
             "size": 1,
-            "query": {"bool": {"must": [
-                {"term": {"service": service}},
-                {"range": {"created_at": {"gte": cutoff}}},
-                {"terms": {"state": ["identified", "acknowledged", "investigating"]}},
-            ], "must_not": [
+            "query": {"bool": {"must": must_clauses, "must_not": [
                 {"terms": {"state": ["resolved", "mitigated"]}},
             ], "should": [
                 {"match": {"title": {"query": error_template[:100], "minimum_should_match": "60%"}}},
@@ -1142,7 +1154,7 @@ def process(event):
     # Persistent dedup: check OpenSearch for unresolved incidents with similar error
     if atype == "request_failure":
         error_template = event.get("error_message", "")
-        os_dup = find_recent_duplicate_in_os(svc, error_template, dedup_mins)
+        os_dup = find_recent_duplicate_in_os(svc, error_template, dedup_mins, tenant_id=event.get("tenant_id"))
         if os_dup:
             # Re-register in memory so subsequent events are caught faster
             dedup_registry[dedup_key] = {
@@ -1271,7 +1283,7 @@ def create_ticket(event, dedup_key, dedup_mins=15):
         "title": title,
         "description": event.get("description", ""),
         "service": svc,
-        "environment": TENANT_ID,
+        "environment": event.get("tenant_id", TENANT_ID),
         "anomaly_type": atype,
         "anomaly_score": event.get("anomaly_score", 0),
         "correlation_id": event.get("event_id", str(uuid.uuid4())),
@@ -1292,7 +1304,7 @@ def create_ticket(event, dedup_key, dedup_mins=15):
         "evidence_logs": evidence_logs,
         "created_at": now, "updated_at": now, "detected_at": now,
         "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
-        "tenant_id": TENANT_ID,
+        "tenant_id": event.get("tenant_id", TENANT_ID),
         "timeline": [
             {"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": f"Anomaly detected: {event.get('description', 'unknown anomaly')[:100]}", "actor": "system"}
         ],
@@ -1301,7 +1313,7 @@ def create_ticket(event, dedup_key, dedup_mins=15):
     }
 
     if atype == "error_rate_spike":
-        evidence = os_context(svc)
+        evidence = os_context(svc, tenant_id=event.get("tenant_id"))
         incident["evidence_logs"] = evidence[:max_lines]
 
     ext_refs = send_webhooks(incident)
@@ -1811,7 +1823,7 @@ class H(BaseHTTPRequestHandler):
                 "title": body.get("title", "Manual incident"),
                 "description": body.get("description", ""),
                 "service": body.get("service", "manual"),
-                "environment": body.get("environment", TENANT_ID),
+                "environment": body.get("environment", params.get("tenant_id", [TENANT_ID])[0]),
                 "anomaly_type": "manual", "anomaly_score": 0,
                 "correlation_id": body.get("correlation_id", str(uuid.uuid4())),
                 "affected_endpoint": body.get("affected_endpoint", ""),
@@ -1823,7 +1835,7 @@ class H(BaseHTTPRequestHandler):
                 "evidence_logs": [],
                 "created_at": now, "updated_at": now, "detected_at": now,
                 "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
-                "tenant_id": TENANT_ID,
+                "tenant_id": params.get("tenant_id", [TENANT_ID])[0],
                 "timeline": [{"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": body.get("message", "Manually created incident"), "actor": body.get("actor", "operator")}],
                 "external_refs": [], "tags": body.get("tags", []),
                 "custom_fields": body.get("custom_fields", {}),

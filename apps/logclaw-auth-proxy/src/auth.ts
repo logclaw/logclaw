@@ -31,11 +31,11 @@ export async function validateApiKey(
   try {
     const result = await dbPool.query(
       `SELECT
-        ak.id, ak."keyPrefix",
-        p.id as "projectId", p."tenantId", p."orgId"
-      FROM "apiKeys" ak
-      JOIN projects p ON ak."projectId" = p.id
-      WHERE ak."keyHash" = $1 AND ak.revoked = false
+        ak.id, ak.key_prefix,
+        p.id as project_id, p.tenant_id, p.org_id
+      FROM api_keys ak
+      JOIN projects p ON ak.project_id = p.id
+      WHERE ak.key_hash = $1 AND ak.revoked = false
       LIMIT 1`,
       [hash]
     );
@@ -46,17 +46,17 @@ export async function validateApiKey(
 
     const row = result.rows[0];
     const validatedKey: ValidatedKey = {
-      projectId: row.projectId,
-      tenantId: row.tenantId,
-      orgId: row.orgId,
-      keyPrefix: row.keyPrefix,
+      projectId: row.project_id,
+      tenantId: row.tenant_id,
+      orgId: row.org_id,
+      keyPrefix: row.key_prefix,
     };
 
     // Cache the result
     keyCache.set(hash, { data: validatedKey, timestamp: Date.now() });
 
     // Fire-and-forget: update lastUsed
-    dbPool.query(`UPDATE "apiKeys" SET "lastUsed" = NOW() WHERE "keyHash" = $1`, [hash]).catch((err: unknown) => {
+    dbPool.query(`UPDATE api_keys SET last_used = NOW() WHERE key_hash = $1`, [hash]).catch((err: unknown) => {
       console.error("Failed to update lastUsed:", err);
     });
 

@@ -74,7 +74,14 @@ app.post("/v1/logs", async (req: Request, res: Response) => {
     });
 
     const responseBody = await response.text();
-    res.status(response.status).set(response.headers).send(responseBody);
+    const fwdHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      // Skip hop-by-hop headers that must not be forwarded
+      if (!["connection", "transfer-encoding", "content-length", "keep-alive"].includes(key.toLowerCase())) {
+        fwdHeaders[key] = value;
+      }
+    });
+    res.status(response.status).set(fwdHeaders).send(responseBody);
   } catch (error: any) {
     console.error("Error forwarding to OTel Collector:", error);
     res.status(502).json({ error: "Failed to forward request to OTel Collector" });
@@ -103,6 +110,8 @@ app.all(/^\/api\//, async (req: Request, res: Response) => {
     }
 
     // Forward to Console API with tenant ID header
+    const hasBody = !["GET", "HEAD", "DELETE"].includes(req.method.toUpperCase()) &&
+      cleanBody !== undefined && cleanBody !== null && Object.keys(cleanBody).length > 0;
     const response = await forwardToConsoleApi(path, {
       method: req.method,
       headers: {
@@ -112,12 +121,18 @@ app.all(/^\/api\//, async (req: Request, res: Response) => {
         "content-type": "application/json",
         ...getTenantIdHeader(validated.tenantId),
       },
-      body: cleanBody,
+      body: hasBody ? cleanBody : undefined,
       timeout: 30000,
     });
 
     const responseBody = await response.text();
-    res.status(response.status).set(response.headers).send(responseBody);
+    const fwdHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      if (!["connection", "transfer-encoding", "content-length", "keep-alive"].includes(key.toLowerCase())) {
+        fwdHeaders[key] = value;
+      }
+    });
+    res.status(response.status).set(fwdHeaders).send(responseBody);
   } catch (error: any) {
     console.error("Error forwarding to Console API:", error);
     res.status(502).json({ error: "Failed to forward request to Console API" });
