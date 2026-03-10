@@ -8,8 +8,8 @@
 # ============================================================================
 set -euo pipefail
 
-NAMESPACE="${NAMESPACE:-logclaw-dev-local}"
-TENANT_ID="${TENANT_ID:-dev-local}"
+NAMESPACE="${NAMESPACE:-logclaw}"
+TENANT_ID="${TENANT_ID:-logclaw}"
 INGESTION_PORT="${INGESTION_PORT:-8080}"
 BATCH_SIZE="${BATCH_SIZE:-50}"
 
