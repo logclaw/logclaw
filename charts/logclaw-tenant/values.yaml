@@ -85,9 +85,6 @@ global:
 # =============================================================
 # SUBCHART ENABLE/DISABLE TOGGLES
 # =============================================================
-platform:
-  enabled: true
-
 ingestion:
   enabled: false               # deprecated: replaced by OTel Collector (OTLP-native ingestion)
 

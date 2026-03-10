@@ -19,10 +19,6 @@ maintainers:
   - name: LogClaw Team
     email: support@logclaw.ai
 dependencies:
-  - name: logclaw-platform
-    version: "0.1.0"
-    repository: "file://../logclaw-platform"
-    condition: platform.enabled
   - name: logclaw-ingestion
     version: "0.1.0"
     repository: "file://../logclaw-ingestion"
