@@ -4,8 +4,12 @@
 # Stage 2: Copy JARs into official Flink image
 # ─────────────────────────────────────────────────────────────
 
+# Keep in sync with pom.xml <version>
+ARG VERSION=0.3.0
+
 # ── Stage 1: Build ──────────────────────────────────────────
 FROM maven:3.9-eclipse-temurin-11 AS builder
+ARG VERSION
 
 WORKDIR /build
 
@@ -23,6 +27,7 @@ RUN mvn clean package -B -q -DskipTests \
 
 # ── Stage 2: Runtime ────────────────────────────────────────
 FROM flink:1.19-java11
+ARG VERSION
 
 # Install GCS Hadoop connector for checkpoint/savepoint storage on GCS
 # https://nightlies.apache.org/flink/flink-docs-release-1.19/docs/deployment/filesystems/gcs/
@@ -32,14 +37,14 @@ RUN mkdir -p /opt/flink/plugins/gcs-fs \
     && echo "GCS plugin: $(stat -c%s /opt/flink/plugins/gcs-fs/flink-gs-fs-hadoop-1.19.1.jar 2>/dev/null || stat -f%z /opt/flink/plugins/gcs-fs/flink-gs-fs-hadoop-1.19.1.jar) bytes"
 
 # Copy fat JARs to /opt/flink/jobs/
-COPY --from=builder /build/logclaw-etl/target/logclaw-etl-0.1.1.jar \
-                    /opt/flink/jobs/logclaw-etl-0.1.1.jar
+COPY --from=builder /build/logclaw-etl/target/logclaw-etl-${VERSION}.jar \
+                    /opt/flink/jobs/logclaw-etl-${VERSION}.jar
 
-COPY --from=builder /build/logclaw-enrichment/target/logclaw-enrichment-0.1.1.jar \
-                    /opt/flink/jobs/logclaw-enrichment-0.1.1.jar
+COPY --from=builder /build/logclaw-enrichment/target/logclaw-enrichment-${VERSION}.jar \
+                    /opt/flink/jobs/logclaw-enrichment-${VERSION}.jar
 
-COPY --from=builder /build/logclaw-anomaly-scorer/target/logclaw-anomaly-scorer-0.1.1.jar \
-                    /opt/flink/jobs/logclaw-anomaly-scorer-0.1.1.jar
+COPY --from=builder /build/logclaw-anomaly-scorer/target/logclaw-anomaly-scorer-${VERSION}.jar \
+                    /opt/flink/jobs/logclaw-anomaly-scorer-${VERSION}.jar
 
 # Verify JARs are not empty
 RUN for jar in /opt/flink/jobs/*.jar; do \
