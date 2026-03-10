@@ -30,6 +30,15 @@ export interface Anomaly {
     error_rate?: number;
     window_seconds?: number;
     message?: string;
+    detection_mode?: "immediate" | "windowed";
+    signal_weights?: {
+      severity_score?: number;
+      pattern_score?: number;
+      ml_score?: number;
+      statistical_score?: number;
+      z_score_raw?: number;
+      total?: number;
+    };
   };
 }
 
