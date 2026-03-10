@@ -122,13 +122,38 @@ export default function OverviewPage() {
         </button>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row or empty state */}
       {!stats ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
+        </div>
+      ) : stats.totalLogs === 0 ? (
+        <div className="rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 px-5 py-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+              <Database className="h-5 w-5 text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-[13px] font-semibold text-[#1d1d1f] mb-2">
+                Ready to monitor your logs?
+              </h3>
+              <p className="text-[12px] text-[#6e6e73] mb-3">
+                Send logs to LogClaw using the OTLP protocol. Get started with our{" "}
+                <a
+                  href="https://docs.logclaw.ai/quickstart-send-logs#logclaw-cloud-managed"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-blue-600 hover:text-blue-700 underline"
+                >
+                  quickstart guide
+                </a>
+                .
+              </p>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="stagger-children grid grid-cols-2 gap-4 lg:grid-cols-4">
