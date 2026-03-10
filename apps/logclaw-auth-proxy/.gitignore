@@ -1,0 +1,7 @@
+node_modules/
+dist/
+build/
+.npm/
+*.log
+.env
+.env.local
