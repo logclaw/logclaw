@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logclaw.io/schemas/anomaly-event.v1.schema.json",
+  "title": "Anomaly Event",
+  "description": "Contract for the anomaly-events Kafka topic. Produced by Flink Anomaly Scorer / Bridge anomaly detector.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "@timestamp",
+    "anomaly_type",
+    "anomaly_score",
+    "severity",
+    "service",
+    "tenant_id"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique identifier for this anomaly event (UUID)."
+    },
+    "@timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Primary timestamp (ISO-8601). Same value as detected_at."
+    },
+    "anomaly_type": {
+      "type": "string",
+      "description": "Classification of the anomaly (e.g. error_spike, fatal_error, timeout)."
+    },
+    "anomaly_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence score (0.0–1.0)."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "Anomaly severity (lowercase). Distinct from log level."
+    },
+    "service": {
+      "type": "string",
+      "description": "Primary affected service."
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant identifier."
+    },
+    "detected_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the anomaly was detected. Same value as @timestamp."
+    },
+    "environment": {
+      "type": "string",
+      "description": "Deployment environment."
+    },
+    "message": {
+      "type": "string",
+      "description": "Short summary of the anomaly."
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed human-readable description."
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "Trace ID of the triggering log, if applicable."
+    },
+    "span_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Span IDs of related logs."
+    },
+    "affected_services": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "All services involved in this anomaly."
+    },
+    "affected_endpoint": {
+      "type": "string",
+      "description": "API endpoint where the anomaly was observed."
+    },
+    "causal_chain": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered list of events leading to the anomaly."
+    },
+    "evidence_logs": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Sample log entries that evidence the anomaly."
+    },
+    "z_score": {
+      "type": "number",
+      "description": "Statistical z-score for windowed anomaly detection."
+    },
+    "error_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Error rate in the detection window."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "acknowledged", "resolved"],
+      "description": "Lifecycle status of the anomaly event."
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Representative error message from the triggering log."
+    },
+    "error_category": {
+      "type": "string",
+      "description": "Classified error category (e.g. database, network, auth)."
+    }
+  },
+  "additionalProperties": false,
+  "_meta": {
+    "version": 1,
+    "kafka_topic": "anomaly-events"
+  }
+}

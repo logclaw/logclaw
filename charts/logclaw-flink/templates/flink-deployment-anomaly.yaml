@@ -47,7 +47,7 @@ spec:
     args:
       - "--kafka.brokers={{ (.Values.global).kafkaBrokers | default "" }}"
       - "--kafka.input.topic={{ ((.Values.global).kafkaTopics).enriched | default "enriched-logs" }}"
-      - "--kafka.output.topic={{ ((.Values.global).kafkaTopics).anomalies | default "anomalies" }}"
+      - "--kafka.output.topic={{ ((.Values.global).kafkaTopics).anomalies | default "anomaly-events" }}"
       - "--kafka.dlq.topic={{ ((.Values.global).kafkaTopics).dlq | default "dlq" }}"
       - "--tenant.id={{ include "logclaw-flink.tenantId" . }}"
       - "--kserve.endpoint=http://logclaw-ml-engine-anomaly-model-predictor.{{ .Release.Namespace }}.svc.{{ include "logclaw-flink.clusterDomain" . }}"

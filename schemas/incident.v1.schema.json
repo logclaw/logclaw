@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logclaw.io/schemas/incident.v1.schema.json",
+  "title": "Incident",
+  "description": "Contract for the logclaw-incidents OpenSearch index. Created by the ticketing agent from anomaly events.",
+  "type": "object",
+  "required": [
+    "ticket_id",
+    "@timestamp",
+    "title",
+    "severity",
+    "status",
+    "service",
+    "tenant_id"
+  ],
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "description": "Unique ticket identifier (e.g. TICK-1740)."
+    },
+    "@timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the incident was created."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable incident title."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "Incident severity (lowercase)."
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["P1", "P2", "P3", "P4"],
+      "description": "Priority level derived from severity."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "acknowledged", "investigating", "resolved", "closed"],
+      "description": "Current incident status."
+    },
+    "service": {
+      "type": "string",
+      "description": "Primary affected service."
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant identifier."
+    },
+    "environment": {
+      "type": "string",
+      "description": "Deployment environment."
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed incident description."
+    },
+    "anomaly_type": {
+      "type": "string",
+      "description": "Type of anomaly that triggered this incident."
+    },
+    "anomaly_score": {
+      "type": "number",
+      "description": "Anomaly confidence score."
+    },
+    "affected_services": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "All services affected."
+    },
+    "affected_endpoint": {
+      "type": "string",
+      "description": "API endpoint involved."
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "Related trace ID."
+    },
+    "evidence_logs": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Sample logs evidencing the incident."
+    },
+    "causal_chain": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered events leading to the incident."
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Representative error message."
+    },
+    "error_category": {
+      "type": "string",
+      "description": "Classified error category."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Alias for @timestamp."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp."
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the incident was resolved."
+    }
+  },
+  "additionalProperties": false,
+  "_meta": {
+    "version": 1,
+    "opensearch_index": "logclaw-incidents"
+  }
+}

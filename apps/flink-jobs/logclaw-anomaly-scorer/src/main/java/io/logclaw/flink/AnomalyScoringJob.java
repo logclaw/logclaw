@@ -178,7 +178,7 @@ public class AnomalyScoringJob {
                 // Skip DLQ records and already-scored records
                 if (record.has("_dlq") || record.has("anomaly_score")) return;
 
-                String severity = record.path("severity").asText("INFO").toUpperCase();
+                String severity = record.path("level").asText("INFO").toUpperCase();
                 String message  = record.path("message").asText("");
                 String service  = record.path("service").asText("unknown");
                 String traceId  = record.path("trace_id").asText("");
@@ -245,42 +245,47 @@ public class AnomalyScoringJob {
 
                 // ── Threshold check — emit anomaly event ──
                 if (score >= threshold) {
+                    String now = Instant.now().toString();
+                    String severityLevel = score >= 0.85 ? "critical" : score >= 0.7 ? "high" : "medium";
+
                     ObjectNode event = mapper.createObjectNode();
                     event.put("event_id", UUID.randomUUID().toString());
+                    event.put("@timestamp", now);
+                    event.put("detected_at", now);
                     event.put("anomaly_type", anomalyType);
                     event.put("anomaly_score", Math.min(score, 1.0));
+                    event.put("severity", severityLevel);
+                    event.put("status", "open");
                     event.put("service", service);
                     event.put("environment", record.path("environment").asText(tenantId));
-                    event.put("severity", score >= 0.85 ? "critical" : score >= 0.7 ? "high" : "medium");
                     event.put("message", message);
+                    event.put("description", String.format(
+                            "%s anomaly detected in %s (score=%.2f, severity=%s): %s",
+                            anomalyType, service, Math.min(score, 1.0), severityLevel,
+                            message.length() > 200 ? message.substring(0, 200) : message));
                     event.put("trace_id", traceId);
+                    event.put("tenant_id", tenantId);
 
                     ArrayNode spanIds = mapper.createArrayNode();
                     if (!spanId.isEmpty()) spanIds.add(spanId);
                     event.set("span_ids", spanIds);
 
-                    // Causal chain (single-service for now; multi-service via windowed join)
                     ArrayNode causalChain = mapper.createArrayNode();
                     causalChain.add(service);
                     event.set("causal_chain", causalChain);
 
-                    // Affected services estimation
                     ArrayNode affected = mapper.createArrayNode();
                     affected.add(service);
                     event.set("affected_services", affected);
 
-                    // Evidence log
                     ArrayNode evidence = mapper.createArrayNode();
                     ObjectNode evidenceEntry = mapper.createObjectNode();
-                    evidenceEntry.put("timestamp", record.path("timestamp").asText(Instant.now().toString()));
+                    evidenceEntry.put("@timestamp", record.path("@timestamp").asText(now));
                     evidenceEntry.put("service", service);
                     evidenceEntry.put("level", severity);
                     evidenceEntry.put("message", message.length() > 500 ? message.substring(0, 500) : message);
                     evidence.add(evidenceEntry);
                     event.set("evidence_logs", evidence);
-
-                    event.put("tenant_id", tenantId);
-                    event.put("detected_at", Instant.now().toString());
 
                     out.collect(mapper.writeValueAsString(event));
 
