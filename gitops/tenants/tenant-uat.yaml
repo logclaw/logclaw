@@ -1,0 +1,59 @@
+# UAT Tenant Configuration
+# ArgoCD ApplicationSet will pick this up and deploy logclaw-tenant chart to UAT cluster
+
+tenantId: "uat"
+clusterServer: "https://kubernetes.default.svc"  # Update if ArgoCD is not in-cluster
+
+# Tenant-specific overrides (optional, defaults from chart apply)
+global:
+  tier: "standard"
+  storageClass: "standard-rwo"
+  storageClassHighThroughput: "standard-rwo"
+  monitoring:
+    enabled: false
+  llm:
+    provider: "disabled"
+
+# Component toggles for UAT
+bridge:
+  enabled: true
+  replicaCount: 1
+
+dashboard:
+  enabled: true
+  replicaCount: 1
+
+otelCollector:
+  enabled: true
+
+kafka:
+  enabled: true
+  replicas: 1
+  volumeSize: "10Gi"
+
+flink:
+  enabled: true
+  taskManager:
+    replicas: 1
+
+opensearch:
+  enabled: true
+  data:
+    replicas: 1
+    diskSize: "10Gi"
+
+airflow:
+  enabled: true
+  replicas: 1
+
+ticketingAgent:
+  enabled: true
+  replicaCount: 1
+
+ingestion:
+  enabled: true
+  replicaCount: 1
+
+mlEngine:
+  enabled: true
+  replicas: 1
