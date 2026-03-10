@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logclaw.io/schemas/enriched-log.v1.schema.json",
+  "title": "Enriched Log",
+  "description": "Contract for the enriched-logs Kafka topic. Produced by Flink ETL / Bridge after OTLP parsing and attribute flattening.",
+  "type": "object",
+  "required": [
+    "@timestamp",
+    "log_id",
+    "level",
+    "message",
+    "service",
+    "tenant_id"
+  ],
+  "properties": {
+    "@timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Primary timestamp (ISO-8601). Mapped as OpenSearch date field."
+    },
+    "log_id": {
+      "type": "string",
+      "description": "Deterministic UUID5 derived from trace_id|span_id|@timestamp. Deduplication key."
+    },
+    "level": {
+      "type": "string",
+      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+      "description": "Log severity. OTLP CRITICAL is normalized to FATAL."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable log body."
+    },
+    "service": {
+      "type": "string",
+      "description": "Originating service name (from resource.service.name)."
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant identifier for multi-tenant isolation."
+    },
+    "observed_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the collector observed the log (OTLP observedTimeUnixNano)."
+    },
+    "ingest_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the ETL pipeline processed this log."
+    },
+    "environment": {
+      "type": "string",
+      "description": "Deployment environment (e.g. production, staging). Falls back to tenant_id."
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "W3C trace ID for distributed tracing correlation."
+    },
+    "span_id": {
+      "type": "string",
+      "description": "W3C span ID."
+    },
+    "scope_name": {
+      "type": "string",
+      "description": "OTLP instrumentation scope name."
+    },
+    "host_name": {
+      "type": "string",
+      "description": "Hostname of the originating machine."
+    },
+    "anomaly_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "ML-assigned anomaly score (0.0–1.0). Added by enrichment job."
+    },
+    "ml_features": {
+      "type": "object",
+      "description": "Feature vector used by the ML model. Added by enrichment job."
+    },
+    "enriched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the enrichment job processed this log."
+    }
+  },
+  "additionalProperties": true,
+  "_meta": {
+    "version": 1,
+    "kafka_topic": "enriched-logs",
+    "field_conventions": {
+      "naming": "snake_case (exception: @timestamp)",
+      "otlp_log_attributes": "flattened to top-level, dots replaced with underscores",
+      "otlp_resource_attributes": "flattened with resource_ prefix, dots replaced with underscores"
+    }
+  }
+}

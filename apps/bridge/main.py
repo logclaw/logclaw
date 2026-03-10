@@ -7,10 +7,9 @@ on per-service error rates), and bulk-indexes enriched logs and anomaly events
 into OpenSearch.
 
 Architecture:
-  Thread 1 (OTLP ETL)  : raw-logs (otlp_json) -> flatten -> enriched-logs
+  Thread 1 (OTLP ETL) : raw-logs (otlp_json) -> flatten -> enriched-logs
   Thread 2 (Anomaly)   : enriched-logs -> z-score detector -> anomaly-events
   Thread 3 (Indexer)   : enriched-logs + anomaly queue -> OpenSearch bulk API
-  Thread 4 (Lifecycle) : error trace_ids -> 5-layer correlation -> request_failure events
   Main thread          : HTTP health/ready/metrics server on :8080
 
 OTLP JSON Wire Format (what arrives on raw-logs topic):
@@ -35,7 +34,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import signal
 import sys
 import threading
@@ -58,8 +56,6 @@ KAFKA_TOPIC_RAW = os.environ.get("KAFKA_TOPIC_RAW", "raw-logs")
 KAFKA_TOPIC_ENRICHED = os.environ.get("KAFKA_TOPIC_ENRICHED", "enriched-logs")
 KAFKA_TOPIC_ANOMALIES = os.environ.get("KAFKA_TOPIC_ANOMALIES", "anomaly-events")
 OPENSEARCH_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "http://localhost:9200")
-OPENSEARCH_USERNAME = os.environ.get("OPENSEARCH_USERNAME", "")
-OPENSEARCH_PASSWORD = os.environ.get("OPENSEARCH_PASSWORD", "")
 TENANT_ID = os.environ.get("TENANT_ID", "dev-local")
 
 BUCKET_WIDTH = 10  # seconds per sliding-window bucket
@@ -71,13 +67,6 @@ _bridge_config = {
     "windowSeconds": int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300")),
     "bulkSize": int(os.environ.get("OPENSEARCH_BULK_SIZE", "500")),
     "bulkIntervalSeconds": float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5")),
-    "lifecycleTimeoutSeconds": int(os.environ.get("LIFECYCLE_TIMEOUT_SECONDS", "10")),
-    "maxPendingRequests": int(os.environ.get("MAX_PENDING_REQUESTS", "10000")),
-    "traceQueryBatchSize": int(os.environ.get("TRACE_QUERY_BATCH_SIZE", "20")),
-    "traceQueryIntervalSeconds": float(os.environ.get("TRACE_QUERY_INTERVAL_SECONDS", "5")),
-    "compositeScoreThreshold": float(os.environ.get("ANOMALY_COMPOSITE_SCORE_THRESHOLD", "0.4")),
-    "immediateDeduplicationSeconds": int(os.environ.get("ANOMALY_IMMEDIATE_DEDUP_SECONDS", "60")),
-    "blastRadiusWindowSeconds": int(os.environ.get("ANOMALY_BLAST_RADIUS_WINDOW_SECONDS", "60")),
 }
 
 
@@ -87,23 +76,17 @@ def get_bridge_config() -> dict:
 
 
 def update_bridge_config(patch: dict) -> dict:
-    valid_keys = {
-        "zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds",
-        "lifecycleTimeoutSeconds", "maxPendingRequests",
-        "traceQueryBatchSize", "traceQueryIntervalSeconds",
-        "compositeScoreThreshold", "immediateDeduplicationSeconds", "blastRadiusWindowSeconds",
-    }
+    valid_keys = {"zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds"}
     with _bridge_config_lock:
         for k, v in patch.items():
             if k not in valid_keys:
                 continue
-            if k in ("zscoreThreshold", "bulkIntervalSeconds", "traceQueryIntervalSeconds",
-                     "compositeScoreThreshold"):
+            if k == "zscoreThreshold":
                 _bridge_config[k] = float(v)
-            elif k in ("windowSeconds", "bulkSize", "lifecycleTimeoutSeconds",
-                       "maxPendingRequests", "traceQueryBatchSize",
-                       "immediateDeduplicationSeconds", "blastRadiusWindowSeconds"):
+            elif k in ("windowSeconds", "bulkSize"):
                 _bridge_config[k] = int(v)
+            elif k == "bulkIntervalSeconds":
+                _bridge_config[k] = float(v)
         return dict(_bridge_config)
 
 # ---------------------------------------------------------------------------
@@ -135,20 +118,6 @@ metrics = {
     "indexer_indexed": 0,
     "indexer_bulk_requests": 0,
     "indexer_errors": 0,
-    "lifecycle_error_detected": 0,
-    "lifecycle_trace_queried": 0,
-    "lifecycle_trace_published": 0,
-    "lifecycle_causal_root_found": 0,
-    "lifecycle_dependency_edges": 0,
-    "lifecycle_skipped_no_traceid": 0,
-    "lifecycle_errors": 0,
-    # Signal-based anomaly detection
-    "anomaly_immediate_detected": 0,
-    "anomaly_windowed_detected": 0,
-    "anomaly_immediate_deduped": 0,
-    "anomaly_below_threshold": 0,
-    "anomaly_signals_extracted": 0,
-    "anomaly_std_zero_detected": 0,
 }
 
 # Readiness flags per consumer group
@@ -156,14 +125,7 @@ ready_flags = {
     "etl": threading.Event(),
     "anomaly": threading.Event(),
     "indexer": threading.Event(),
-    "lifecycle": threading.Event(),
 }
-
-# ── Lifecycle Engine shared state ──────────────────────────────────────
-_pending_traces_lock = threading.Lock()
-pending_traces = {}        # trace_id -> {service, level, message, registered_at}
-processed_traces = {}      # trace_id -> processed_at (epoch)
-service_dependency_graph = defaultdict(lambda: defaultdict(int))  # svc_a -> {svc_b: count}
 
 
 # ---------------------------------------------------------------------------
@@ -201,16 +163,12 @@ def _make_producer() -> KafkaProducer:
 
 
 def _opensearch_client() -> OpenSearch:
-    kwargs = dict(
+    return OpenSearch(
         hosts=[OPENSEARCH_ENDPOINT],
         use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
         verify_certs=False,
-        ssl_show_warn=False,
         timeout=30,
     )
-    if OPENSEARCH_USERNAME:
-        kwargs["http_auth"] = (OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD)
-    return OpenSearch(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +215,11 @@ def etl_consumer_loop():
 # OTLP JSON → flat LogClaw document translator
 # ---------------------------------------------------------------------------
 def _extract_otel_attr_value(attr_value: dict):
-    """Extract a scalar value from an OTLP AnyValue wrapper."""
+    """Extract a scalar value from an OTLP AnyValue wrapper.
+
+    OTLP encodes attribute values as one-of wrappers, e.g.:
+      {"stringValue": "foo"}  |  {"intValue": 42}  |  {"boolValue": true}
+    """
     for key in ("stringValue", "intValue", "doubleValue", "boolValue"):
         if key in attr_value:
             return attr_value[key]
@@ -299,8 +261,9 @@ def _flatten_otlp(raw: dict) -> list[dict]:
 
         resourceLogs[] → scopeLogs[] → logRecords[]
 
-    This function walks the nested structure and produces one flat dict
-    per log record.
+    This function walks the nested structure, extracts resource-level
+    attributes (service.name, tenant_id, etc.), scope info, and each
+    individual log record — producing one flat dict per log record.
     """
     flat_docs: list[dict] = []
     resource_logs = raw.get("resourceLogs", [])
@@ -324,9 +287,14 @@ def _flatten_otlp(raw: dict) -> list[dict]:
                 if not message:
                     message = json.dumps(body_wrapper) if body_wrapper else "(no message)"
 
-                severity = lr.get("severityText", "INFO").upper()
-                if not severity:
-                    severity = "INFO"
+                level = lr.get("severityText", "INFO").upper()
+                if not level:
+                    level = "INFO"
+                # Normalize CRITICAL/ALERT/EMERGENCY → FATAL (six-level enum)
+                if level in ("CRITICAL", "ALERT", "EMERGENCY"):
+                    level = "FATAL"
+                if level.startswith("WARN") and level != "WARN":
+                    level = "WARN"
 
                 timestamp = _nano_to_iso(lr.get("timeUnixNano", "0"))
                 observed_ts = _nano_to_iso(lr.get("observedTimeUnixNano", "0"))
@@ -335,24 +303,36 @@ def _flatten_otlp(raw: dict) -> list[dict]:
                 trace_id = lr.get("traceId", "")
                 span_id = lr.get("spanId", "")
 
+                # ── log_id — deterministic UUID5 for dedup ──
+                if trace_id and timestamp:
+                    log_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{trace_id}|{span_id}|{timestamp}"))
+                else:
+                    log_id = str(uuid.uuid4())
+
+                # ── Environment ──
+                environment = res_attrs.pop("deployment.environment", "") or TENANT_ID
+
                 # ── Log record attributes ──
                 log_attrs = _otel_attrs_to_dict(lr.get("attributes", []))
 
-                # ── Build canonical flat document ──
+                # ── Build canonical flat document (conforms to enriched-log.v1 schema) ──
                 doc = {
-                    "timestamp": timestamp,
+                    "@timestamp": timestamp,
+                    "log_id": log_id,
                     "observed_timestamp": observed_ts,
                     "ingest_timestamp": _now_iso(),
-                    "level": severity,
+                    "level": level,
                     "message": message,
                     "service": service_name,
                     "tenant_id": tenant_id,
+                    "environment": environment,
                     "trace_id": trace_id,
                     "span_id": span_id,
                 }
 
                 # Merge log-record attributes as top-level fields
                 for k, v in log_attrs.items():
+                    # Avoid overwriting core fields
                     safe_key = k.replace(".", "_")
                     if safe_key not in doc:
                         doc[safe_key] = v
@@ -381,18 +361,37 @@ def _flatten_otlp(raw: dict) -> list[dict]:
 def _normalize_legacy(raw: dict) -> dict:
     """Legacy normalizer for non-OTLP flat JSON messages (migration fallback)."""
     doc = dict(raw)
-    if "level" in doc:
-        doc["level"] = str(doc["level"]).upper()
-    else:
-        doc["level"] = "INFO"
+
+    # Normalize level (CRITICAL → FATAL)
+    level = str(doc.get("level", "INFO")).upper()
+    if level in ("CRITICAL", "ALERT", "EMERGENCY"):
+        level = "FATAL"
+    if level.startswith("WARN") and level != "WARN":
+        level = "WARN"
+    doc["level"] = level
 
     if "message" not in doc or not doc["message"]:
         doc["message"] = "(no message)"
 
+    # Migrate timestamp → @timestamp
+    if "timestamp" in doc and "@timestamp" not in doc:
+        doc["@timestamp"] = doc.pop("timestamp")
+    doc.setdefault("@timestamp", _now_iso())
+
     doc["ingest_timestamp"] = _now_iso()
     doc.setdefault("tenant_id", TENANT_ID)
     doc.setdefault("service", "unknown")
-    doc.setdefault("timestamp", _now_iso())
+    doc.setdefault("environment", TENANT_ID)
+
+    # Generate log_id if missing
+    if "log_id" not in doc:
+        tid = doc.get("trace_id", "")
+        sid = doc.get("span_id", "")
+        ts = doc.get("@timestamp", "")
+        if tid and ts:
+            doc["log_id"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{tid}|{sid}|{ts}"))
+        else:
+            doc["log_id"] = str(uuid.uuid4())
 
     return doc
 
@@ -448,67 +447,12 @@ def anomaly_detector_loop():
 def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer"):
     cfg = get_bridge_config()
     service = doc.get("service", "unknown")
-    tenant_id = doc.get("tenant_id", TENANT_ID)
     level = doc.get("level", "INFO").upper()
     is_error = level in ("ERROR", "FATAL", "CRITICAL")
 
-    # ── Thread 4 lifecycle hook: register errors with trace_id (unchanged) ──
-    if is_error:
-        trace_id = doc.get("trace_id", "")
-        if trace_id:
-            with _pending_traces_lock:
-                if trace_id not in processed_traces and trace_id not in pending_traces:
-                    if len(pending_traces) < cfg["maxPendingRequests"]:
-                        pending_traces[trace_id] = {
-                            "service": service,
-                            "level": level,
-                            "message": doc.get("message", ""),
-                            "registered_at": time.time(),
-                        }
-                        metrics["lifecycle_error_detected"] += 1
-        else:
-            metrics["lifecycle_skipped_no_traceid"] += 1
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # STAGE 1: SIGNAL EXTRACTION
-    # Only error-level records carry meaningful incident signals
-    # ═══════════════════════════════════════════════════════════════════════
-    signals: dict[str, float] = {}
-    if is_error:
-        signals = _extract_signals(doc)
-        if signals:
-            metrics["anomaly_signals_extracted"] += 1
-
     now_ts = time.time()
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # STAGE 2a: IMMEDIATE DETECTION
-    # Critical signals (OOM, crash, cascading failure) cannot wait 30s
-    # ═══════════════════════════════════════════════════════════════════════
-    if signals and _should_emit_immediately(signals):
-        # Add blast radius before scoring (may push over threshold)
-        br = _blast_radius_signal(tenant_id, service, now_ts, cfg["blastRadiusWindowSeconds"])
-        if br > 0:
-            signals["context:blast_radius"] = br
-
-        score, severity = _compute_composite_score(signals)
-        dedup_secs = cfg["immediateDeduplicationSeconds"]
-        if score >= cfg["compositeScoreThreshold"]:
-            if _can_emit_immediate(tenant_id, service, signals, now_ts, dedup_secs):
-                _emit_anomaly_event(
-                    doc, signals, score, severity, tenant_id, service,
-                    producer, detection_mode="immediate",
-                )
-            else:
-                metrics["anomaly_immediate_deduped"] += 1
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # STAGE 2b: SLIDING WINDOW UPDATE
-    # Always update buckets regardless of immediate path outcome
-    # ═══════════════════════════════════════════════════════════════════════
-    bucket_ts = int(now_ts // BUCKET_WIDTH) * BUCKET_WIDTH
-    window_key = (tenant_id, service)
-    window = windows[window_key]
+    window = windows[service]
 
     if not window or window[-1][0] != bucket_ts:
         window.append((bucket_ts, SlidingWindowBucket()))
@@ -926,32 +870,30 @@ def _emit_anomaly_event(
         f"signals=[{signal_summary}]"
     )
 
+    now = _now_iso()
     anomaly_event = {
         # ── Backward-compatible fields ──
         "event_id": str(uuid.uuid4()),
-        "timestamp": _now_iso(),
-        "tenant_id": tenant_id,
+        "@timestamp": now,
+        "detected_at": now,
+        "tenant_id": TENANT_ID,
         "anomaly_type": "error_rate_spike",
         "severity": severity,
         "service": service,
-        "description": description,
-        "anomaly_score": score,
-        "affected_endpoint": doc.get("http_url", doc.get("endpoint", "")),
+        "message": f"Error rate spike: z={z_score:.2f} rate={current_rate:.3f} for {service}",
+        "description": (
+            f"Error rate spike detected for service '{service}': "
+            f"z-score={z_score:.2f}, current_rate={current_rate:.3f}, "
+            f"mean_rate={mean:.3f}, std={std:.3f}"
+        ),
+        "anomaly_score": round(anomaly_score, 2),
+        "affected_endpoint": doc.get("endpoint", ""),
+        "affected_services": [service],
+        "evidence_logs": [],
         "status": "open",
-        "environment": tenant_id,
-        "z_score": round(z_score, 2) if z_score is not None else None,
-        "error_rate": round(window_stats["current_rate"], 4) if window_stats else None,
-        "window_buckets": window_stats["buckets"] if window_stats else None,
-        # ── New signal-based fields ──
-        "detection_mode": detection_mode,
-        "signals": signals,
-        "error_message": error_template,
-        "raw_error_message": message[:500],
-        "error_category": error_category,
-        "exception_type": doc.get("exception_type", ""),
-        "http_status_code": doc.get("http_status_code"),
-        "trace_id": doc.get("trace_id", ""),
-        "span_id": doc.get("span_id", ""),
+        "environment": TENANT_ID,
+        "z_score": round(z_score, 2),
+        "error_rate": round(current_rate, 4),
     }
 
     producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
@@ -1000,14 +942,16 @@ def opensearch_indexer_loop():
                             "_index": f"logclaw-logs-{today}",
                             "_source": doc,
                         }
-                        # Idempotent writes: deterministic _id prevents duplicates
-                        # from Kafka reprocessing (e.g. Flink restarts).
+                        # Idempotent writes: use a deterministic _id so duplicate
+                        # Kafka messages (e.g. from Flink restarts) overwrite instead
+                        # of creating extra documents.
                         if isinstance(doc, dict):
                             doc_id = doc.get("log_id")
                             if not doc_id:
+                                # Fallback: hash trace_id + span_id + @timestamp
                                 tid = doc.get("trace_id", "")
                                 sid = doc.get("span_id", "")
-                                ts = doc.get("timestamp", "")
+                                ts = doc.get("@timestamp", "")
                                 if tid and ts:
                                     key = f"{tid}|{sid}|{ts}"
                                     doc_id = hashlib.sha256(key.encode()).hexdigest()[:20]
@@ -1025,10 +969,11 @@ def opensearch_indexer_loop():
                             "_source": anomaly,
                         }
                         if isinstance(anomaly, dict):
-                            a_id = anomaly.get("anomaly_id")
+                            a_id = anomaly.get("event_id")
                             if not a_id:
+                                # Deterministic fallback for anomalies
                                 svc = anomaly.get("service", "")
-                                ts = anomaly.get("timestamp", "")
+                                ts = anomaly.get("@timestamp", "")
                                 if svc and ts:
                                     key = f"anomaly|{svc}|{ts}"
                                     a_id = hashlib.sha256(key.encode()).hexdigest()[:20]
@@ -1078,394 +1023,6 @@ def _flush_bulk(client: OpenSearch, actions: list[dict]):
     except Exception:
         metrics["indexer_errors"] += 1
         log.exception("Bulk index request failed (%d actions)", len(actions))
-
-
-# ---------------------------------------------------------------------------
-# Thread 4: Request Lifecycle Engine — 5-Layer Trace Correlation
-# ---------------------------------------------------------------------------
-# Layer 1: Temporal ordering (sort by timestamp)
-# Layer 2: Topological extraction (service dependency graph)
-# Layer 3: Semantic error fingerprinting (variable-stripped templates)
-# Layer 4: Causal chain analysis (span-tree root cause identification)
-# Layer 5: Blast radius estimation (BFS on dependency graph)
-# ---------------------------------------------------------------------------
-
-# ── Error normalization regexes (compiled once) ────────────────────────
-_RE_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
-_RE_IP = re.compile(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?')
-_RE_TS = re.compile(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:?\d{2})?')
-_RE_NUMERIC_ID = re.compile(r'(?<=[/=:# ])\d{4,}')
-_RE_LONG_QUOTED = re.compile(r'"[^"]{20,}"')
-_RE_HEX_TOKEN = re.compile(r'\b[0-9a-f]{16,}\b', re.I)
-_RE_WHITESPACE = re.compile(r'\s+')
-
-# ── Error category keywords ────────────────────────────────────────────
-_ERROR_CATEGORIES = [
-    ("timeout", ["timeout", "timed out", "deadline exceeded", "context deadline"]),
-    ("connection_refused", ["connection refused", "connect error", "econnrefused", "connection reset"]),
-    ("authentication", ["unauthorized", "forbidden", "auth failed", "invalid token", "401", "403"]),
-    ("rate_limit", ["rate limit", "too many requests", "429", "throttl"]),
-    ("out_of_memory", ["out of memory", "oom", "heap space", "memory limit"]),
-    ("null_pointer", ["null pointer", "nil pointer", "nonetype", "undefined is not", "cannot read prop"]),
-    ("validation", ["validation", "invalid", "malformed", "bad request", "400"]),
-    ("not_found", ["not found", "404", "no such", "does not exist"]),
-    ("database", ["deadlock", "lock timeout", "duplicate key", "constraint violation", "sql"]),
-    ("resource_exhausted", ["disk full", "no space", "resource exhausted", "too many open"]),
-]
-
-
-def _normalize_error(message: str) -> str:
-    """Strip variable parts from error message to create a stable fingerprint template."""
-    msg = message
-    msg = _RE_UUID.sub("<UUID>", msg)
-    msg = _RE_IP.sub("<IP>", msg)
-    msg = _RE_TS.sub("<TS>", msg)
-    msg = _RE_HEX_TOKEN.sub("<HEX>", msg)
-    msg = _RE_NUMERIC_ID.sub("<ID>", msg)
-    msg = _RE_LONG_QUOTED.sub('"<STR>"', msg)
-    msg = msg.lower().strip()
-    msg = _RE_WHITESPACE.sub(" ", msg)
-    return msg
-
-
-def _classify_error(message: str) -> str:
-    """Categorize error by keyword matching."""
-    lower = message.lower()
-    for category, keywords in _ERROR_CATEGORIES:
-        if any(kw in lower for kw in keywords):
-            return category
-    return "unknown"
-
-
-def _find_causal_root(trace_logs: list) -> dict:
-    """Walk trace backwards to find the originating failure (root cause service).
-
-    Strategy: the root cause is the DEEPEST service in the request flow that
-    errored FIRST. Errors in upstream services are considered propagated failures.
-    """
-    if not trace_logs:
-        return {"root_cause_service": "unknown", "root_cause_span_id": "",
-                "causal_chain": [], "error_category": "unknown"}
-
-    # Determine service order from timestamps (first seen = upstream)
-    service_first_seen = {}
-    for entry in trace_logs:
-        svc = entry.get("service", "unknown")
-        if svc not in service_first_seen:
-            service_first_seen[svc] = entry.get("timestamp", "")
-
-    service_order = sorted(service_first_seen.keys(), key=lambda s: service_first_seen[s])
-
-    # Find error entries per service (earliest error per service)
-    service_errors = {}
-    for entry in trace_logs:
-        svc = entry.get("service", "unknown")
-        lvl = entry.get("level", "INFO").upper()
-        if lvl in ("ERROR", "FATAL", "CRITICAL") and svc not in service_errors:
-            service_errors[svc] = entry
-
-    if not service_errors:
-        return {"root_cause_service": "unknown", "root_cause_span_id": "",
-                "causal_chain": [], "error_category": "unknown"}
-
-    # Root cause = deepest service in flow that errored
-    # (latest in service_order = deepest in call chain)
-    root_svc = None
-    root_entry = None
-    for svc in reversed(service_order):
-        if svc in service_errors:
-            root_svc = svc
-            root_entry = service_errors[svc]
-            break
-
-    if not root_svc:
-        # Fallback: earliest error by timestamp
-        earliest = min(service_errors.values(), key=lambda e: e.get("timestamp", ""))
-        root_svc = earliest.get("service", "unknown")
-        root_entry = earliest
-
-    # Build causal chain: root_cause → propagated services (in flow order)
-    root_idx = service_order.index(root_svc) if root_svc in service_order else -1
-    causal_chain = [root_svc]
-    for svc in reversed(service_order[:root_idx]):
-        if svc in service_errors:
-            causal_chain.append(svc)
-
-    error_msg = root_entry.get("message", "")
-    error_category = _classify_error(error_msg)
-
-    return {
-        "root_cause_service": root_svc,
-        "root_cause_span_id": root_entry.get("span_id", ""),
-        "causal_chain": causal_chain,
-        "error_category": error_category,
-    }
-
-
-def _estimate_blast_radius(root_cause_service: str, dep_graph: dict) -> dict:
-    """BFS on service dependency graph to estimate impact of failure in root_cause_service."""
-    if not dep_graph or root_cause_service not in dep_graph:
-        # Check reverse: who calls this service?
-        callers = set()
-        for caller, callees in dep_graph.items():
-            if root_cause_service in callees:
-                callers.add(caller)
-        if not callers:
-            return {"impact_score": 0.0, "affected_downstream": [],
-                    "estimated_user_impact": "low"}
-        total_services = len(set(dep_graph.keys()) | {s for callees in dep_graph.values() for s in callees})
-        impact_score = len(callers) / max(total_services, 1)
-        impact_level = "high" if len(callers) > 3 else "medium" if len(callers) > 1 else "low"
-        return {"impact_score": round(impact_score, 2),
-                "affected_downstream": sorted(callers),
-                "estimated_user_impact": impact_level}
-
-    # BFS: find all services reachable from root_cause_service
-    visited = set()
-    queue = deque([root_cause_service])
-    while queue:
-        svc = queue.popleft()
-        if svc in visited:
-            continue
-        visited.add(svc)
-        for callee in dep_graph.get(svc, {}):
-            if callee not in visited:
-                queue.append(callee)
-
-    # Also find reverse callers (who depends on this service)
-    callers = set()
-    for caller, callees in dep_graph.items():
-        if root_cause_service in callees:
-            callers.add(caller)
-
-    all_affected = (visited | callers) - {root_cause_service}
-    total_services = len(set(dep_graph.keys()) | {s for callees in dep_graph.values() for s in callees})
-    impact_score = len(all_affected) / max(total_services, 1)
-    impact_level = "high" if len(all_affected) > 3 else "medium" if len(all_affected) > 1 else "low"
-    return {
-        "impact_score": round(impact_score, 2),
-        "affected_downstream": sorted(all_affected),
-        "estimated_user_impact": impact_level,
-    }
-
-
-def _query_trace_logs(os_client: OpenSearch, trace_id: str) -> list:
-    """Query OpenSearch for all logs with the given trace_id."""
-    try:
-        resp = os_client.search(
-            index="logclaw-logs-*",
-            body={
-                "query": {"term": {"trace_id": trace_id}},
-                "size": 200,
-                "sort": [{"timestamp": {"order": "asc"}}],
-                "_source": ["timestamp", "service", "level", "message", "span_id", "trace_id", "tenant_id"],
-            },
-        )
-        return [hit["_source"] for hit in resp.get("hits", {}).get("hits", [])]
-    except Exception:
-        log.exception("Failed to query trace_id=%s from OpenSearch", trace_id)
-        return []
-
-
-def request_lifecycle_loop():
-    """Thread 4: 5-layer trace correlation engine.
-
-    Polls pending_traces for error logs with trace_ids, queries OpenSearch
-    for the full request lifecycle, performs causal analysis, and publishes
-    enriched request_failure events to the anomaly-events Kafka topic.
-    """
-    log.info("Lifecycle engine starting")
-    producer = None
-    os_client = None
-    try:
-        producer = _make_producer()
-        os_client = _opensearch_client()
-        ready_flags["lifecycle"].set()
-        log.info("Lifecycle engine ready")
-
-        while not shutdown_event.is_set():
-            try:
-                cfg = get_bridge_config()
-                delay = cfg["lifecycleTimeoutSeconds"]
-                batch_size = cfg["traceQueryBatchSize"]
-                interval = cfg["traceQueryIntervalSeconds"]
-                now = time.time()
-
-                # Collect expired pending traces
-                batch = []
-                with _pending_traces_lock:
-                    # Prune processed_traces older than 15 min
-                    stale = [tid for tid, ts in processed_traces.items() if now - ts > 900]
-                    for tid in stale:
-                        del processed_traces[tid]
-
-                    # Collect traces that have waited long enough
-                    expired = [
-                        tid for tid, info in pending_traces.items()
-                        if now - info["registered_at"] >= delay
-                    ]
-                    for tid in expired[:batch_size]:
-                        batch.append((tid, pending_traces.pop(tid)))
-
-                if not batch:
-                    shutdown_event.wait(timeout=interval)
-                    continue
-
-                # Process each trace
-                for trace_id, trigger_info in batch:
-                    try:
-                        _process_trace(trace_id, trigger_info, os_client, producer)
-                    except Exception:
-                        metrics["lifecycle_errors"] += 1
-                        log.exception("Lifecycle error processing trace_id=%s", trace_id)
-                    finally:
-                        with _pending_traces_lock:
-                            processed_traces[trace_id] = time.time()
-
-                shutdown_event.wait(timeout=interval)
-
-            except Exception:
-                if not shutdown_event.is_set():
-                    metrics["lifecycle_errors"] += 1
-                    log.exception("Lifecycle loop error")
-                    time.sleep(5)
-    finally:
-        _close_safely(producer, "Lifecycle producer")
-        log.info("Lifecycle engine stopped")
-
-
-def _process_trace(trace_id: str, trigger_info: dict, os_client: OpenSearch, producer: KafkaProducer):
-    """Process a single trace: query, correlate (5 layers), and publish."""
-    # ── QUERY: Fetch all logs for this trace ───────────────────────
-    trace_logs = _query_trace_logs(os_client, trace_id)
-    metrics["lifecycle_trace_queried"] += 1
-
-    if not trace_logs:
-        log.debug("No logs found for trace_id=%s (may not be indexed yet)", trace_id)
-        return
-
-    # ── Layer 1: Temporal ordering (already sorted by timestamp from query) ──
-    request_trace = []
-    for entry in trace_logs:
-        request_trace.append({
-            "timestamp": entry.get("timestamp", ""),
-            "service": entry.get("service", "unknown"),
-            "level": entry.get("level", "INFO"),
-            "message": entry.get("message", ""),
-            "span_id": entry.get("span_id", ""),
-        })
-
-    # ── Layer 2: Topological extraction ────────────────────────────
-    seen_services = []
-    seen_set = set()
-    for entry in request_trace:
-        svc = entry["service"]
-        if svc not in seen_set:
-            seen_services.append(svc)
-            seen_set.add(svc)
-
-    affected_services = seen_services
-    request_flow = list(seen_services)  # service call order by first appearance
-
-    # Update global dependency graph (adjacent services in flow are connected)
-    for i in range(len(request_flow) - 1):
-        caller = request_flow[i]
-        callee = request_flow[i + 1]
-        service_dependency_graph[caller][callee] += 1
-        metrics["lifecycle_dependency_edges"] = sum(
-            len(callees) for callees in service_dependency_graph.values()
-        )
-
-    # ── Layer 3: Semantic error fingerprinting ─────────────────────
-    error_message = trigger_info.get("message", "")
-    normalized_template = _normalize_error(error_message)
-    error_category = _classify_error(error_message)
-
-    # ── Layer 4: Causal chain analysis ─────────────────────────────
-    causal = _find_causal_root(request_trace)
-    root_cause_service = causal["root_cause_service"]
-    causal_chain = causal["causal_chain"]
-    root_cause_span_id = causal["root_cause_span_id"]
-    if causal["error_category"] != "unknown":
-        error_category = causal["error_category"]
-
-    metrics["lifecycle_causal_root_found"] += 1
-
-    # ── Layer 5: Blast radius estimation ───────────────────────────
-    blast_radius = _estimate_blast_radius(root_cause_service, dict(service_dependency_graph))
-
-    # ── Determine severity from error level ────────────────────────
-    trigger_level = trigger_info.get("level", "ERROR").upper()
-    if trigger_level == "FATAL":
-        severity = "critical"
-        anomaly_score = 0.98
-    elif trigger_level == "CRITICAL":
-        severity = "critical"
-        anomaly_score = 0.95
-    else:
-        severity = "high"
-        anomaly_score = 0.90
-
-    # ── Collect all span_ids ───────────────────────────────────────
-    span_ids = sorted({e["span_id"] for e in request_trace if e.get("span_id")})
-
-    # ── Resolve tenant_id from trace logs ────────────────────────
-    trace_tenant_id = TENANT_ID
-    for entry in trace_logs:
-        tid = entry.get("tenant_id")
-        if tid:
-            trace_tenant_id = tid
-            break
-
-    # ── Build description ──────────────────────────────────────────
-    cascade = " -> ".join(causal_chain) if causal_chain else root_cause_service
-    description = (
-        f"Request failure in {root_cause_service} ({error_category})"
-        f" causing cascade: {cascade}"
-    )
-
-    # ── PUBLISH: Enriched anomaly event ────────────────────────────
-    anomaly_event = {
-        "event_id": str(uuid.uuid4()),
-        "timestamp": _now_iso(),
-        "tenant_id": trace_tenant_id,
-        "anomaly_type": "request_failure",
-        "severity": severity,
-        "service": root_cause_service,
-        "description": description,
-        "anomaly_score": round(anomaly_score, 2),
-
-        # Trace data
-        "trace_id": trace_id,
-        "span_ids": span_ids,
-        "affected_services": affected_services,
-        "request_flow": request_flow,
-        "request_trace": request_trace,
-
-        # Causal analysis (Layer 4)
-        "error_message": normalized_template,
-        "raw_error_message": error_message[:500],
-        "causal_chain": causal_chain,
-        "root_cause_service": root_cause_service,
-        "root_cause_span_id": root_cause_span_id,
-        "error_category": error_category,
-
-        # Blast radius (Layer 5)
-        "blast_radius": blast_radius,
-
-        "root_cause": "",  # populated by ticketing agent LLM
-        "status": "open",
-        "environment": trace_tenant_id,
-    }
-
-    producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
-    anomaly_queue.append(anomaly_event)
-    metrics["lifecycle_trace_published"] += 1
-    log.info(
-        "Lifecycle event: trace_id=%s root_cause=%s category=%s chain=%s blast=%.0f%%",
-        trace_id, root_cause_service, error_category,
-        " -> ".join(causal_chain), blast_radius["impact_score"] * 100,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1591,9 +1148,6 @@ def main():
     log.info("  ANOMALY_WINDOW_SECONDS = %d", cfg["windowSeconds"])
     log.info("  OPENSEARCH_BULK_SIZE   = %d", cfg["bulkSize"])
     log.info("  OPENSEARCH_BULK_INTRVL = %.1fs", cfg["bulkIntervalSeconds"])
-    log.info("  LIFECYCLE_TIMEOUT      = %ds", cfg["lifecycleTimeoutSeconds"])
-    log.info("  TRACE_QUERY_BATCH      = %d", cfg["traceQueryBatchSize"])
-    log.info("  TRACE_QUERY_INTERVAL   = %.1fs", cfg["traceQueryIntervalSeconds"])
     log.info("=" * 60)
 
     # Validate required env vars
@@ -1607,7 +1161,6 @@ def main():
         threading.Thread(target=etl_consumer_loop, name="otlp-etl-consumer", daemon=True),
         threading.Thread(target=anomaly_detector_loop, name="anomaly-detector", daemon=True),
         threading.Thread(target=opensearch_indexer_loop, name="opensearch-indexer", daemon=True),
-        threading.Thread(target=request_lifecycle_loop, name="lifecycle-engine", daemon=True),
     ]
     for t in threads:
         t.start()

@@ -2,3 +2,10 @@ node_modules/
 .next/
 out/
 .env*.local
+
+package-lock.json
+
+node_modules
+.next
+
+.claude/launch.json

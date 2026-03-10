@@ -30,19 +30,23 @@ import java.util.UUID;
  * normalises them into the LogClaw canonical schema, and writes the result to
  * the {@code enriched-logs} topic for downstream enrichment and anomaly scoring.
  *
- * <p>Canonical schema fields:
+ * <p>Output conforms to {@code schemas/enriched-log.v1.schema.json}:
  * <ul>
- *   <li>{@code log_id}        – deterministic UUID for dedup</li>
- *   <li>{@code timestamp}     – ISO-8601 from OTel timeUnixNano / observedTimestamp</li>
- *   <li>{@code severity}      – normalised: TRACE, DEBUG, INFO, WARN, ERROR, FATAL</li>
- *   <li>{@code service}       – extracted from resource attributes</li>
- *   <li>{@code environment}   – tenant environment label</li>
- *   <li>{@code message}       – log body text</li>
- *   <li>{@code trace_id}      – OTel trace correlation</li>
- *   <li>{@code span_id}       – OTel span correlation</li>
- *   <li>{@code attributes}    – merged resource + log attributes</li>
- *   <li>{@code tenant_id}     – multi-tenant isolation key</li>
+ *   <li>{@code @timestamp}         – ISO-8601 (OpenSearch primary date field)</li>
+ *   <li>{@code log_id}             – deterministic UUID for dedup</li>
+ *   <li>{@code level}              – normalised: TRACE, DEBUG, INFO, WARN, ERROR, FATAL</li>
+ *   <li>{@code service}            – extracted from resource attributes</li>
+ *   <li>{@code environment}        – tenant environment label</li>
+ *   <li>{@code message}            – log body text</li>
+ *   <li>{@code trace_id}           – OTel trace correlation</li>
+ *   <li>{@code span_id}            – OTel span correlation</li>
+ *   <li>{@code scope_name}         – OTel instrumentation scope</li>
+ *   <li>{@code observed_timestamp} – when collector observed the log</li>
+ *   <li>{@code ingest_timestamp}   – when ETL processed the log</li>
+ *   <li>{@code tenant_id}          – multi-tenant isolation key</li>
  * </ul>
+ * <p>OTLP attributes are flattened to top-level fields (dots→underscores).
+ * Resource attributes use a {@code resource_} prefix.
  */
 public class EtlParsingJob {
 
@@ -193,9 +197,8 @@ public class EtlParsingJob {
                 else if (root.has("body") || root.has("severityText")) {
                     out.collect(toCanonical(root, mapper.createObjectNode()));
                 }
-                // Pass through already-canonical records
-                else if (root.has("log_id") && root.has("service")) {
-                    // Already in canonical form — enrich tenant_id if missing
+                // Pass through already-canonical records (must have @timestamp + level)
+                else if (root.has("log_id") && root.has("@timestamp") && root.has("level")) {
                     if (!root.has("tenant_id")) {
                         ((ObjectNode) root).put("tenant_id", tenantId);
                     }
@@ -243,27 +246,44 @@ public class EtlParsingJob {
                 out.put("log_id", UUID.randomUUID().toString());
             }
 
-            // timestamp
+            // @timestamp — primary timestamp (OpenSearch date field)
             if (!tsNano.isEmpty()) {
                 try {
                     long nanos = Long.parseLong(tsNano);
-                    out.put("timestamp", Instant.ofEpochSecond(
+                    out.put("@timestamp", Instant.ofEpochSecond(
                             nanos / 1_000_000_000L, nanos % 1_000_000_000L).toString());
                 } catch (NumberFormatException e) {
-                    out.put("timestamp", tsNano);
+                    out.put("@timestamp", tsNano);
                 }
+            } else if (logRecord.has("@timestamp")) {
+                out.put("@timestamp", logRecord.get("@timestamp").asText());
             } else if (logRecord.has("timestamp")) {
-                out.put("timestamp", logRecord.get("timestamp").asText());
+                out.put("@timestamp", logRecord.get("timestamp").asText());
             } else {
-                out.put("timestamp", Instant.now().toString());
+                out.put("@timestamp", Instant.now().toString());
             }
 
-            // severity — normalise
-            String severity = logRecord.path("severityText").asText("INFO").toUpperCase();
-            if (severity.startsWith("WARN")) severity = "WARN";
-            if (severity.equals("CRITICAL") || severity.equals("ALERT") || severity.equals("EMERGENCY"))
-                severity = "FATAL";
-            out.put("severity", severity);
+            // observed_timestamp — when collector observed the log
+            String observedNano = logRecord.path("observedTimeUnixNano").asText("");
+            if (!observedNano.isEmpty()) {
+                try {
+                    long nanos = Long.parseLong(observedNano);
+                    out.put("observed_timestamp", Instant.ofEpochSecond(
+                            nanos / 1_000_000_000L, nanos % 1_000_000_000L).toString());
+                } catch (NumberFormatException e) {
+                    out.put("observed_timestamp", observedNano);
+                }
+            }
+
+            // ingest_timestamp — when ETL processed this log
+            out.put("ingest_timestamp", Instant.now().toString());
+
+            // level — normalise (CRITICAL → FATAL)
+            String level = logRecord.path("severityText").asText("INFO").toUpperCase();
+            if (level.startsWith("WARN")) level = "WARN";
+            if (level.equals("CRITICAL") || level.equals("ALERT") || level.equals("EMERGENCY"))
+                level = "FATAL";
+            out.put("level", level);
 
             // service — from resource attributes
             String service = extractAttribute(resource.path("attributes"), "service.name");
@@ -292,11 +312,22 @@ public class EtlParsingJob {
             out.put("trace_id", traceId);
             out.put("span_id", spanId);
 
-            // merge attributes
-            ObjectNode attrs = mapper.createObjectNode();
-            mergeAttributes(attrs, resource.path("attributes"));
-            mergeAttributes(attrs, logRecord.path("attributes"));
-            out.set("attributes", attrs);
+            // scope_name — OTel instrumentation scope
+            String scopeName = logRecord.path("scope").path("name").asText("");
+            if (!scopeName.isEmpty()) {
+                out.put("scope_name", scopeName);
+            }
+
+            // host_name — from resource attributes
+            String hostName = extractAttribute(resource.path("attributes"), "host.name");
+            if (!hostName.isEmpty()) {
+                out.put("host_name", hostName);
+            }
+
+            // Flatten resource attributes with resource_ prefix (dots → underscores)
+            flattenAttributes(out, resource.path("attributes"), "resource_");
+            // Flatten log attributes to top-level (dots → underscores)
+            flattenAttributes(out, logRecord.path("attributes"), "");
 
             // tenant
             out.put("tenant_id", tenantId);
@@ -317,15 +348,18 @@ public class EtlParsingJob {
             return "";
         }
 
-        private void mergeAttributes(ObjectNode target, JsonNode attributes) {
+        /**
+         * Flattens OTLP attributes to top-level fields on the target object.
+         * Dots in keys are replaced with underscores to prevent OpenSearch
+         * from interpreting them as nested objects.
+         *
+         * @param prefix  "" for log attributes, "resource_" for resource attributes
+         */
+        private void flattenAttributes(ObjectNode target, JsonNode attributes, String prefix) {
             if (attributes == null || attributes.isMissingNode()) return;
             if (attributes.isArray()) {
                 for (JsonNode attr : attributes) {
-                    // Replace dots with underscores to prevent OpenSearch
-                    // from interpreting dotted keys as nested objects
-                    // (e.g. "service.name" → "service_name" avoids conflict
-                    //  when another log has "service" as a plain string)
-                    String key = attr.path("key").asText().replace('.', '_');
+                    String key = prefix + attr.path("key").asText().replace('.', '_');
                     JsonNode val = attr.path("value");
                     if (val.has("stringValue")) target.put(key, val.get("stringValue").asText());
                     else if (val.has("intValue")) target.put(key, val.get("intValue").asLong());
@@ -336,7 +370,7 @@ public class EtlParsingJob {
                 Iterator<Map.Entry<String, JsonNode>> fields = attributes.fields();
                 while (fields.hasNext()) {
                     Map.Entry<String, JsonNode> f = fields.next();
-                    target.set(f.getKey().replace('.', '_'), f.getValue());
+                    target.set(prefix + f.getKey().replace('.', '_'), f.getValue());
                 }
             }
         }
