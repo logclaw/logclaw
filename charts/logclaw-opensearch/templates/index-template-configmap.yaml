@@ -9,6 +9,40 @@ metadata:
     logclaw.io/tenant: {{ include "logclaw-opensearch.tenantId" . }}
     logclaw.io/component: "hot-tier-storage"
 data:
+  ism-policy-anomalies.json: |
+    {
+      "policy": {
+        "policy_id": "logclaw-anomaly-lifecycle",
+        "description": "Lifecycle policy for anomaly indices — delete after retention period",
+        "default_state": "hot",
+        "states": [
+          {
+            "name": "hot",
+            "actions": [],
+            "transitions": [
+              {
+                "state_name": "delete",
+                "conditions": {
+                  "min_index_age": {{ printf "%dd" (int .Values.opensearch.ism.anomalyRetentionDays) | quote }}
+                }
+              }
+            ]
+          },
+          {
+            "name": "delete",
+            "actions": [{"delete": {}}],
+            "transitions": []
+          }
+        ],
+        "ism_template": [
+          {
+            "index_patterns": ["logclaw-anomalies-*"],
+            "priority": 100
+          }
+        ]
+      }
+    }
+
   ism-policy.json: |
     {
       "policy": {
@@ -153,6 +187,8 @@ data:
         "settings": {
           "number_of_shards": 1,
           "number_of_replicas": 1,
+          "index.lifecycle.name": "logclaw-anomaly-lifecycle",
+          "index.lifecycle.rollover_alias": "logclaw-anomalies",
           "index.codec": "best_compression",
           "index.refresh_interval": "5s"
         },

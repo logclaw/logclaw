@@ -5,10 +5,13 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse, parse_qs
 
-# Trust internal cluster TLS certificates (self-signed by OpenSearch operator)
-_ssl_ctx = ssl.create_default_context()
-_ssl_ctx.check_hostname = False
-_ssl_ctx.verify_mode = ssl.CERT_NONE
+# Trust internal cluster TLS certificates (self-signed by OpenSearch operator).
+# Set OPENSEARCH_VERIFY_CERTS=true to enforce CA validation (opt-in for production).
+_os_ssl_ctx = None
+if os.environ.get("OPENSEARCH_VERIFY_CERTS", "false").lower() != "true":
+    _os_ssl_ctx = ssl.create_default_context()
+    _os_ssl_ctx.check_hostname = False
+    _os_ssl_ctx.verify_mode = ssl.CERT_NONE
 
 # ── Infrastructure (immutable — require restart) ─────────────────────
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
@@ -78,6 +81,7 @@ _config = {
         "deduplicationWindowMinutes": int(os.environ.get("ANOMALY_DEDUPLICATION_WINDOW_MINUTES", "15")),
         "contextWindowSeconds": int(os.environ.get("ANOMALY_CONTEXT_WINDOW_SECONDS", "300")),
         "maxLogLinesInTicket": int(os.environ.get("ANOMALY_MAX_LOG_LINES_IN_TICKET", "50")),
+        "incidentRetentionDays": int(os.environ.get("INCIDENT_RETENTION_DAYS", "97")),
     },
     "llm": {
         "provider": os.environ.get("LLM_PROVIDER", "disabled"),
@@ -156,9 +160,44 @@ def audit_record(incident_id, action, actor="system", details=None):
     return entry
 
 
-def log(m):
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{ts}] {m}", flush=True)
+import logging as _stdlib_logging
+
+
+def _setup_otel_logging():
+    try:
+        from opentelemetry._logs import set_logger_provider
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+        from opentelemetry.instrumentation.logging import LoggingInstrumentor
+        from opentelemetry.sdk._logs import LoggerProvider
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, ConsoleLogExporter
+        from opentelemetry.sdk.resources import Resource
+
+        resource = Resource.create({
+            "service.name": os.environ.get("OTEL_SERVICE_NAME", "logclaw-ticketing-agent"),
+            "tenant.id": TENANT_ID,
+        })
+        provider = LoggerProvider(resource=resource)
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+        if endpoint:
+            provider.add_log_record_processor(
+                BatchLogRecordProcessor(OTLPLogExporter(endpoint=f"{endpoint}/v1/logs"))
+            )
+        provider.add_log_record_processor(BatchLogRecordProcessor(ConsoleLogExporter()))
+        set_logger_provider(provider)
+        _stdlib_logging.basicConfig(level=_stdlib_logging.INFO, stream=sys.stdout)
+        LoggingInstrumentor().instrument(set_logging_format=True)
+    except ImportError:
+        _stdlib_logging.basicConfig(level=_stdlib_logging.INFO, stream=sys.stdout)
+
+
+_setup_otel_logging()
+_tkt_logger = _stdlib_logging.getLogger("logclaw.ticketing-agent")
+
+
+def log(m, level="info", **extra):
+    getattr(_tkt_logger, level, _tkt_logger.info)(
+        m, extra={"tenant_id": TENANT_ID, **extra}
+    )
 
 
 def now_iso():
@@ -177,7 +216,7 @@ def os_req(method, path, body=None):
     if _os_auth_header:
         headers["Authorization"] = _os_auth_header
     req = Request(url, data, headers, method=method)
-    resp = urlopen(req, timeout=10, context=_ssl_ctx).read()
+    resp = urlopen(req, timeout=10, context=_os_ssl_ctx).read()
     if not resp:
         return {}
     return json.loads(resp)
@@ -189,7 +228,7 @@ def ensure_index():
     except HTTPError as e:
         if e.code == 404:
             mapping = {
-                "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                "settings": {"number_of_shards": 1, "number_of_replicas": 1},
                 "mappings": {
                     "properties": {
                         "id": {"type": "keyword"},
@@ -418,6 +457,24 @@ def get_stats():
         }
     except Exception:
         return {"total": 0, "by_state": {}, "by_severity": {}, "by_urgency": {}, "by_priority": {}, "by_service": {}, **stats}
+
+
+def purge_old_incidents():
+    """Delete incidents older than incidentRetentionDays. Fire-and-forget safe."""
+    days = get_config()["anomaly"]["incidentRetentionDays"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        r = os_req("POST", f"{INCIDENT_INDEX}/_delete_by_query?conflicts=proceed", {
+            "query": {"range": {"created_at": {"lt": cutoff}}}
+        })
+        deleted = r.get("deleted", 0)
+        if deleted:
+            log(f"Purged {deleted} incidents older than {days}d")
+    except Exception as e:
+        log(f"Incident purge failed: {e}")
+
+
+_last_purge = 0.0
 
 
 # ── MTTR Metrics (FireHydrant-style) ───────────────────────────────────
@@ -1355,6 +1412,9 @@ def kafka_loop():
         )
         consumer_ready.set()
         log("Kafka consumer ready")
+        global _last_purge
+        purge_old_incidents()
+        _last_purge = time.time()
         while True:
             for tp, msgs in c.poll(timeout_ms=2000).items():
                 for msg in msgs:
@@ -1363,6 +1423,9 @@ def kafka_loop():
                         process(msg.value)
                     except Exception as e:
                         log(f"Process error: {e}")
+            if time.time() - _last_purge >= 86400:
+                purge_old_incidents()
+                _last_purge = time.time()
             time.sleep(0.5)
     except ImportError:
         log("kafka-python-ng not installed, HTTP-only mode")

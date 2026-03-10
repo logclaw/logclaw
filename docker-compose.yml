@@ -95,6 +95,9 @@ services:
       - OPENSEARCH_ENDPOINT=http://opensearch:9200
       - ANOMALY_THRESHOLD=2.5
       - WINDOW_SIZE=50
+      - OTEL_SERVICE_NAME=logclaw-bridge
+      - OTEL_RESOURCE_ATTRIBUTES=tenant.id=${LOGCLAW_TENANT_ID:-logclaw}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -116,6 +119,9 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - OPENSEARCH_ENDPOINT=http://opensearch:9200
       - LLM_PROVIDER=disabled
+      - OTEL_SERVICE_NAME=logclaw-ticketing-agent
+      - OTEL_RESOURCE_ATTRIBUTES=tenant.id=${LOGCLAW_TENANT_ID:-logclaw}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     ports:
       - "18081:8080"
     restart: unless-stopped
@@ -136,7 +142,9 @@ services:
     environment:
       - LOGCLAW_MODE=standalone
       - NEXT_PUBLIC_LOGCLAW_MODE=standalone
-      - OTEL_COLLECTOR_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=logclaw-dashboard
+      - OTEL_RESOURCE_ATTRIBUTES=tenant.id=${LOGCLAW_TENANT_ID:-logclaw}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - BRIDGE_ENDPOINT=http://bridge:8080
       - OPENSEARCH_ENDPOINT=http://opensearch:9200
       - OPENSEARCH_USER=admin

@@ -102,7 +102,17 @@ export function createProxyHandler(
         headers: resHeaders,
       });
     } catch (err) {
-      console.error(`Proxy error [${envKey}] → ${target}:`, err);
+      try {
+        const { logs, SeverityNumber } = await import("@opentelemetry/api-logs");
+        logs.getLogger("logclaw-dashboard").emit({
+          severityNumber: SeverityNumber.ERROR,
+          severityText: "ERROR",
+          body: `Proxy error [${envKey}] → ${target}`,
+          attributes: { envKey, target, error: String(err) },
+        });
+      } catch {
+        console.error(`Proxy error [${envKey}] → ${target}:`, err);
+      }
       return NextResponse.json(
         { error: `Upstream ${envKey} unreachable`, target },
         { status: 502 },

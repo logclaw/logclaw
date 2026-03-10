@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "cwd": "/Users/robeltegegne/Desktop/BirrPay-all/logclaw-enterprise"
+    },
+    {
+      "name": "logclaw-dashboard",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["/opt/homebrew/bin/npm", "run", "dev"],
+      "port": 3000,
+      "cwd": "/Users/robeltegegne/Desktop/BirrPay-all/logclaw/apps/dashboard"
     }
   ]
 }

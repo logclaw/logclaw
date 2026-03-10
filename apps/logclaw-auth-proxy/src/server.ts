@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { Pool } from "pg";
+import { logger, shutdownLogger } from "./logger.js";
 import { validateApiKey, ValidatedKey } from "./auth.js";
 import {
   injectTenantIdIntoOtlp,
@@ -18,6 +20,35 @@ const dbPool = new Pool({
 // Middleware: Parse JSON
 app.use(express.json({ limit: "50mb" }));
 app.use(express.raw({ type: "application/x-protobuf", limit: "50mb" }));
+
+// Middleware: Rate limiting (keyed by API key, falls back to IP)
+// Applied BEFORE auth so unauthenticated floods are also throttled.
+const keyExtractor = (req: Request): string =>
+  (req.headers["x-logclaw-api-key"] as string) || req.ip || "unknown";
+
+app.use(
+  "/v1/logs",
+  rateLimit({
+    windowMs: 60_000,
+    max: parseInt(process.env.RATE_LIMIT_INGESTION_RPM || "100"),
+    keyGenerator: keyExtractor,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Ingestion rate limit exceeded — retry after 1 minute" },
+  })
+);
+
+app.use(
+  /^\/api\//,
+  rateLimit({
+    windowMs: 60_000,
+    max: parseInt(process.env.RATE_LIMIT_API_RPM || "60"),
+    keyGenerator: keyExtractor,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "API rate limit exceeded — retry after 1 minute" },
+  })
+);
 
 // Middleware: API Key validation
 app.use(async (req: Request, res: Response, next: NextFunction) => {
@@ -44,7 +75,7 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
 // Middleware: Log requests
 app.use((req: Request, res: Response, next: NextFunction) => {
   const validated = (req as any).validatedKey;
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - tenant: ${validated?.tenantId || "none"}`);
+  logger.info("request", { method: req.method, path: req.path, tenantId: validated?.tenantId || "none" });
   next();
 });
 
@@ -83,7 +114,7 @@ app.post("/v1/logs", async (req: Request, res: Response) => {
     });
     res.status(response.status).set(fwdHeaders).send(responseBody);
   } catch (error: any) {
-    console.error("Error forwarding to OTel Collector:", error);
+    logger.error("Forward to OTel Collector failed", { error: error?.message });
     res.status(502).json({ error: "Failed to forward request to OTel Collector" });
   }
 });
@@ -134,14 +165,14 @@ app.all(/^\/api\//, async (req: Request, res: Response) => {
     });
     res.status(response.status).set(fwdHeaders).send(responseBody);
   } catch (error: any) {
-    console.error("Error forwarding to Console API:", error);
+    logger.error("Forward to Console API failed", { error: error?.message });
     res.status(502).json({ error: "Failed to forward request to Console API" });
   }
 });
 
 // Error handling
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error("Unhandled error:", err);
+  logger.error("Unhandled error", { error: err?.message });
   res.status(500).json({ error: "Internal server error" });
 });
 
@@ -150,14 +181,17 @@ const PORT = parseInt(process.env.PORT || "4318");
 const GRPC_PORT = parseInt(process.env.GRPC_PORT || "4317");
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Auth Proxy] Listening on HTTP port ${PORT}`);
-  console.log(`[Auth Proxy] Forwarding to OTel Collector: ${process.env.OTEL_COLLECTOR_HTTP_ENDPOINT}`);
-  console.log(`[Auth Proxy] Forwarding to Console API: ${process.env.CONSOLE_API_ENDPOINT}`);
+  logger.info("Auth Proxy started", {
+    port: PORT,
+    otelCollector: process.env.OTEL_COLLECTOR_HTTP_ENDPOINT,
+    consoleApi: process.env.CONSOLE_API_ENDPOINT,
+  });
 });
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {
-  console.log("[Auth Proxy] Received SIGTERM, shutting down gracefully...");
+  logger.info("Received SIGTERM, shutting down gracefully");
+  await shutdownLogger();
   await dbPool.end();
   process.exit(0);
 });

@@ -110,8 +110,35 @@ data:
             return dict(_bridge_config)
 
     # ---------------------------------------------------------------------------
-    # Logging
+    # Logging — OTEL-instrumented, with JSON-stdout fallback
     # ---------------------------------------------------------------------------
+    def _setup_otel_logging():
+        try:
+            from opentelemetry._logs import set_logger_provider
+            from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+            from opentelemetry.instrumentation.logging import LoggingInstrumentor
+            from opentelemetry.sdk._logs import LoggerProvider
+            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, ConsoleLogExporter
+            from opentelemetry.sdk.resources import Resource
+
+            resource = Resource.create({
+                "service.name": os.environ.get("OTEL_SERVICE_NAME", "logclaw-bridge"),
+                "tenant.id": TENANT_ID,
+            })
+            provider = LoggerProvider(resource=resource)
+            endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+            if endpoint:
+                provider.add_log_record_processor(
+                    BatchLogRecordProcessor(OTLPLogExporter(endpoint=f"{endpoint}/v1/logs"))
+                )
+            provider.add_log_record_processor(BatchLogRecordProcessor(ConsoleLogExporter()))
+            set_logger_provider(provider)
+            LoggingInstrumentor().instrument(set_logging_format=True)
+        except ImportError:
+            pass  # OTel not installed — stdout-only mode
+
+    _setup_otel_logging()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -154,6 +181,9 @@ data:
         "indexer": threading.Event(),
         "lifecycle": threading.Event(),
     }
+
+    # Worker thread references — populated in main(); checked by /health
+    _worker_threads: dict = {}
 
     # ── Lifecycle Engine shared state ──────────────────────────────────────
     _pending_traces_lock = threading.Lock()
@@ -200,7 +230,7 @@ data:
         kwargs = dict(
             hosts=[OPENSEARCH_ENDPOINT],
             use_ssl=OPENSEARCH_ENDPOINT.startswith("https"),
-            verify_certs=False,
+            verify_certs=os.environ.get("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true",
             ssl_show_warn=False,
             timeout=30,
         )
@@ -1058,12 +1088,22 @@ data:
         # ── GET ──────────────────────────────────────────────────────────
         def do_GET(self):
             if self.path == "/health":
-                self._respond_json(200, {
-                    "status": "healthy",
-                    "service": "logclaw-bridge",
-                    "tenant_id": TENANT_ID,
-                    "timestamp": _now_iso(),
-                })
+                dead = [name for name, t in _worker_threads.items() if not t.is_alive()]
+                if dead:
+                    self._respond_json(503, {
+                        "status": "unhealthy",
+                        "service": "logclaw-bridge",
+                        "tenant_id": TENANT_ID,
+                        "dead_threads": dead,
+                        "timestamp": _now_iso(),
+                    })
+                else:
+                    self._respond_json(200, {
+                        "status": "healthy",
+                        "service": "logclaw-bridge",
+                        "tenant_id": TENANT_ID,
+                        "timestamp": _now_iso(),
+                    })
             elif self.path == "/ready":
                 all_ready = all(f.is_set() for f in ready_flags.values())
                 if all_ready:
@@ -1187,6 +1227,7 @@ data:
         for t in threads:
             t.start()
             log.info("Started thread: %s", t.name)
+        _worker_threads.update({t.name: t for t in threads})
 
         # Start HTTP health server
         server = HTTPServer(("0.0.0.0", 8080), HealthHandler)

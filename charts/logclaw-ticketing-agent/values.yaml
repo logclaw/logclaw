@@ -107,6 +107,7 @@ config:
     contextWindowSeconds: 300
     maxLogLinesInTicket: 50
     deduplicationWindowMinutes: 15
+    incidentRetentionDays: 97  # Days to keep incidents; override via INCIDENT_RETENTION_DAYS env var
 
   # ── Kafka consumer ────────────────────────────────────────────────────────────
   kafka:

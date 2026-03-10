@@ -4,13 +4,40 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync/atomic"
 	"time"
 
 	"github.com/logclaw/agent/collectors"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
+
+func setupLogging(ctx context.Context, tenantID string) (*sdklog.LoggerProvider, *slog.Logger) {
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName("logclaw-agent"),
+		semconv.TenantIDKey.String(tenantID),
+	)
+	opts := []sdklog.LoggerProviderOption{sdklog.WithResource(res)}
+	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
+		exp, err := otlploghttp.New(ctx, otlploghttp.WithEndpoint(endpoint))
+		if err == nil {
+			opts = append(opts, sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)))
+		}
+	}
+	provider := sdklog.NewLoggerProvider(opts...)
+	logger := slog.New(otelslog.NewHandler("logclaw-agent", otelslog.WithLoggerProvider(provider))).With(
+		"tenant.id", tenantID,
+	)
+	slog.SetDefault(logger)
+	return provider, logger
+}
 
 // MetricsPayload is the JSON response served on GET /metrics.
 type MetricsPayload struct {
@@ -74,11 +101,15 @@ func collect(tenantID, namespace string) MetricsPayload {
 }
 
 func main() {
+	ctx := context.Background()
 	tenantID := mustEnv("LOGCLAW_TENANT_ID")
 	namespace := os.Getenv("LOGCLAW_NAMESPACE")
 	if namespace == "" {
 		namespace = "default"
 	}
+
+	provider, _ := setupLogging(ctx, tenantID)
+	defer func() { _ = provider.Shutdown(ctx) }()
 
 	interval := 30 * time.Second
 
@@ -116,22 +147,26 @@ func main() {
 
 	// ── Start HTTP server ──────────────────────────────────────
 	go func() {
-		log.Printf("HTTP server listening on :8080")
+		slog.InfoContext(ctx, "HTTP server listening", "port", 8080)
 		if err := http.ListenAndServe(":8080", mux); err != nil {
 			log.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
 	// ── Collection loop ────────────────────────────────────────
-	log.Printf("LogClaw agent starting: tenant=%s namespace=%s interval=%s", tenantID, namespace, interval)
+	slog.InfoContext(ctx, "LogClaw agent starting", "tenant", tenantID, "namespace", namespace, "interval", interval.String())
 
 	for {
 		payload := collect(tenantID, namespace)
 		latestMetrics.Store(&payload)
 		ready.Store(true)
 
-		log.Printf("Metrics collected: kafka_topics=%d flink_jobs=%d eso_secrets=%d os_status=%s",
-			len(payload.KafkaLag), len(payload.FlinkJobs), len(payload.ESOStatus), payload.OsHealth.Status)
+		slog.InfoContext(ctx, "Metrics collected",
+			"kafka_topics", len(payload.KafkaLag),
+			"flink_jobs", len(payload.FlinkJobs),
+			"eso_secrets", len(payload.ESOStatus),
+			"os_status", payload.OsHealth.Status,
+		)
 
 		time.Sleep(interval)
 	}

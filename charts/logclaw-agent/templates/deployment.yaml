@@ -49,6 +49,13 @@ spec:
               value: {{ include "logclaw-agent.tenantId" . | quote }}
             - name: LOGCLAW_NAMESPACE
               value: {{ include "logclaw-agent.stackNamespace" . | quote }}
+            # ── OTEL Logging ────────────────────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-agent"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant.id={{ include "logclaw-agent.tenantId" . }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
           livenessProbe:
             httpGet:
               path: /health

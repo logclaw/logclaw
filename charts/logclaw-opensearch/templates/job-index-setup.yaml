@@ -68,6 +68,22 @@ spec:
                 -d "$(cat /config/index-template.json)"
               echo ""
 
+              echo "Applying anomaly ISM policy ..."
+              curl -sk -X PUT \
+                "${OPENSEARCH_URL}/_plugins/_ism/policies/logclaw-anomaly-lifecycle" \
+                -H "Content-Type: application/json" \
+                ${AUTH_OPTS} \
+                -d "$(cat /config/ism-policy-anomalies.json)"
+              echo ""
+
+              echo "Applying anomaly index template ..."
+              curl -sk -X PUT \
+                "${OPENSEARCH_URL}/_index_template/logclaw-anomalies" \
+                -H "Content-Type: application/json" \
+                ${AUTH_OPTS} \
+                -d "$(cat /config/anomaly-template.json)"
+              echo ""
+
               echo "Setup complete."
           {{- if not .Values.opensearch.devMode.enabled }}
           env:

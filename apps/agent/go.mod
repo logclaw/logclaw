@@ -7,6 +7,11 @@ require (
 	k8s.io/apimachinery v0.29.3
 	k8s.io/api v0.29.3
 	sigs.k8s.io/controller-runtime v0.17.3
+	go.opentelemetry.io/otel v1.32.0
+	go.opentelemetry.io/otel/log v0.8.0
+	go.opentelemetry.io/otel/sdk/log v0.8.0
+	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.8.0
+	go.opentelemetry.io/contrib/bridges/otelslog v0.8.0
 )
 
 require (

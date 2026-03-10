@@ -14,6 +14,8 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
     {{- if .Values.global.tls.enabled }}
     cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
     {{- end }}
@@ -90,6 +92,8 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
     {{- if .Values.global.tls.enabled }}
     cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
     {{- end }}

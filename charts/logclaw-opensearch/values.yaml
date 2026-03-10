@@ -54,9 +54,10 @@ opensearch:
 
   # Index Lifecycle Management (ISM) policy
   ism:
-    hotRetentionDays: 7     # Delete indices older than this
-    rolloverSize: "50gb"    # Rollover when index exceeds this size
-    rolloverAge: "1d"       # Or when older than 1 day
+    hotRetentionDays: 9        # Delete log indices older than this (logclaw-logs-*); override via helm upgrade --set
+    anomalyRetentionDays: 97   # Delete anomaly indices older than this (logclaw-anomalies-*); override via helm upgrade --set
+    rolloverSize: "50gb"       # Rollover when index exceeds this size
+    rolloverAge: "1d"          # Or when older than 1 day
 
 podDisruptionBudget:
   dataNodes:

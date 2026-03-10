@@ -55,6 +55,11 @@ spec:
             - name: DB_URL
               value: {{ .Values.database.connectionString | quote }}
             {{- end }}
+            # ── OTEL Logging ────────────────────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-auth-proxy"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}

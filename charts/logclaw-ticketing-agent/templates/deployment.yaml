@@ -89,6 +89,18 @@ spec:
               value: {{ .Values.config.anomaly.maxLogLinesInTicket | quote }}
             - name: ANOMALY_DEDUPLICATION_WINDOW_MINUTES
               value: {{ .Values.config.anomaly.deduplicationWindowMinutes | quote }}
+            - name: INCIDENT_RETENTION_DAYS
+              value: {{ .Values.config.anomaly.incidentRetentionDays | default "97" | quote }}
+            # ── OpenSearch TLS ────────────────────────────────────────────────
+            - name: OPENSEARCH_VERIFY_CERTS
+              value: {{ .Values.config.opensearch.verifyCerts | default "false" | quote }}
+            # ── OTEL Logging ────────────────────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-ticketing-agent"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant.id={{ include "logclaw-ticketing-agent.tenantId" . }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
             # ── Kafka consumer ────────────────────────────────────────────────
             - name: KAFKA_CONSUMER_GROUP
               value: {{ .Values.config.kafka.consumerGroup | quote }}

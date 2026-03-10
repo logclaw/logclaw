@@ -84,6 +84,15 @@ spec:
               value: {{ .Values.config.opensearch.bulkSize | quote }}
             - name: OPENSEARCH_BULK_INTERVAL_SECONDS
               value: {{ .Values.config.opensearch.bulkIntervalSeconds | quote }}
+            - name: OPENSEARCH_VERIFY_CERTS
+              value: {{ (.Values.config.opensearch).verifyCerts | default "false" | quote }}
+            # ── OTEL Logging ────────────────────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-bridge"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant.id={{ include "logclaw-bridge.tenantId" . }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
             # ── Anomaly detection ───────────────────────────────────────────
             - name: ANOMALY_ZSCORE_THRESHOLD
               value: {{ .Values.config.anomaly.zscoreThreshold | quote }}
