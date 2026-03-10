@@ -1,0 +1,44 @@
+# CI test values for logclaw-auth-proxy chart
+# Provides all required global.* values that would normally come from the umbrella chart.
+# Suitable for `helm lint`, `helm template`, and local `kind` development.
+
+replicaCount: 1
+
+image:
+  repository: "node"
+  tag: "20-slim"
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# Use direct connection string instead of secretRef so lint doesn't require a k8s Secret
+database:
+  secretRef: null
+  connectionString: "postgresql://logclaw:logclaw@localhost:5432/logclaw"
+
+env:
+  LOG_LEVEL: info
+  API_KEY_CACHE_TTL: "3600"
+  OTEL_COLLECTOR_HTTP_ENDPOINT: http://logclaw-otel-collector:4318
+  OTEL_COLLECTOR_GRPC_ENDPOINT: localhost:4317
+  CONSOLE_API_ENDPOINT: http://logclaw-enterprise:3000
+
+# ── Global values (normally injected by umbrella chart) ────────────────────────
+global:
+  tenantId: "dev-local"
+  clusterDomain: "cluster.local"
+  imagePullSecrets: []
+  secretStore:
+    name: "logclaw-secret-store"
+    kind: "ClusterSecretStore"
+  monitoring:
+    enabled: false
+    prometheusNamespace: "monitoring"
