@@ -1,7 +1,7 @@
 kafka-python-ng==2.2.3
 opensearch-py==2.4.2
 numpy==1.26.4
-lz4==4.3.3
+lz4==4.4.5
 opentelemetry-sdk>=1.26.0
 opentelemetry-exporter-otlp-proto-http>=1.26.0
 opentelemetry-instrumentation-logging>=0.48b0
