@@ -1,5 +1,5 @@
 kafka-python-ng==2.2.3
-opensearch-py==2.4.2
+opensearch-py==3.1.0
 numpy==1.26.4
 lz4==4.3.3
 opentelemetry-sdk>=1.26.0
