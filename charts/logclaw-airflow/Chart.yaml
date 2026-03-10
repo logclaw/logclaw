@@ -9,8 +9,8 @@ version: 0.1.0
 appVersion: "2.9.3"
 kubeVersion: ">=1.27.0-0"
 maintainers:
-  - name: LogClaw Platform Team
-    email: platform@logclaw.io
+  - name: LogClaw Team
+    email: support@logclaw.ai
 dependencies:
   - name: airflow
     version: "1.14.0"

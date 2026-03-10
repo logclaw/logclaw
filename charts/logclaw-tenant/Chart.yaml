@@ -16,8 +16,8 @@ keywords:
   - kafka
   - flink
 maintainers:
-  - name: LogClaw Platform Team
-    email: platform@logclaw.io
+  - name: LogClaw Team
+    email: support@logclaw.ai
 dependencies:
   - name: logclaw-platform
     version: "0.1.0"
