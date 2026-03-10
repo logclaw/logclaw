@@ -444,18 +444,16 @@ def anomaly_detector_loop():
         log.info("Anomaly detector stopped")
 
 
-def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
+def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer"):
     cfg = get_bridge_config()
     service = doc.get("service", "unknown")
     level = doc.get("level", "INFO").upper()
     is_error = level in ("ERROR", "FATAL", "CRITICAL")
 
     now_ts = time.time()
-    bucket_ts = int(now_ts // BUCKET_WIDTH) * BUCKET_WIDTH
 
     window = windows[service]
 
-    # Get or create current bucket
     if not window or window[-1][0] != bucket_ts:
         window.append((bucket_ts, SlidingWindowBucket()))
     current_bucket = window[-1][1]
@@ -463,41 +461,418 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
     if is_error:
         current_bucket.error_count += 1
 
-    # Prune expired buckets (use runtime windowSeconds)
     cutoff = now_ts - cfg["windowSeconds"]
     while window and window[0][0] < cutoff:
         window.popleft()
 
-    # Need at least 3 buckets for meaningful statistics
+    # ═══════════════════════════════════════════════════════════════════════
+    # STAGE 2c: WINDOWED STATISTICAL SIGNALS
+    # Z-score is ONE signal among many, not the sole gatekeeper
+    # ═══════════════════════════════════════════════════════════════════════
+    # Need at least 3 buckets to compute meaningful statistics
     if len(window) < 3:
         return
 
-    # Compute error rates per bucket
     rates = []
     for _, bucket in window:
-        if bucket.total_count > 0:
-            rates.append(bucket.error_count / bucket.total_count)
-        else:
-            rates.append(0.0)
+        rates.append(bucket.error_count / bucket.total_count if bucket.total_count > 0 else 0.0)
 
     rates_arr = np.array(rates, dtype=np.float64)
     mean = np.mean(rates_arr)
     std = np.std(rates_arr)
+    current_rate = rates[-1]
+    z_score: float | None = None
 
     if std < 1e-9:
-        return  # No variance, cannot compute z-score
+        # FIX: std=0 (constant error rate) is no longer silently dropped.
+        # A constant HIGH error rate is a sustained failure — it IS an incident.
+        metrics["anomaly_std_zero_detected"] += 1
+        if mean >= 0.5:
+            signals["zscore:sustained_failure"] = min(mean * 2.0, 1.0)
+        elif mean >= 0.1:
+            signals["zscore:elevated_baseline"] = mean
+        # z_score stays None — composite scoring continues below
+    else:
+        z_score = (current_rate - mean) / std
+        if z_score >= cfg["zscoreThreshold"]:
+            signals["zscore:spike"] = min(z_score / 5.0, 1.0)
 
-    current_rate = rates[-1]
-    z_score = (current_rate - mean) / std
+    # ═══════════════════════════════════════════════════════════════════════
+    # STAGE 2d: CONTEXTUAL SIGNALS (blast radius, velocity, recurrence)
+    # ═══════════════════════════════════════════════════════════════════════
+    if is_error:
+        br = _blast_radius_signal(tenant_id, service, now_ts, cfg["blastRadiusWindowSeconds"])
+        if br > 0:
+            signals["context:blast_radius"] = br
 
-    if z_score < cfg["zscoreThreshold"]:
+        vel = _velocity_signal(window, current_bucket)
+        if vel > 0:
+            signals["context:velocity"] = vel
+
+        error_template = _normalize_error(doc.get("message", ""))
+        rec = _recurrence_signal(tenant_id, error_template, now_ts)
+        if rec > 0:
+            signals["context:recurrence"] = rec
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # STAGE 3: DECISION ENGINE — emit if composite score meets threshold
+    # ═══════════════════════════════════════════════════════════════════════
+    if not signals:
         return
 
-    # Determine severity
-    severity, anomaly_score = _classify_zscore(z_score)
+    score, severity = _compute_composite_score(signals)
+
+    if score < cfg["compositeScoreThreshold"]:
+        metrics["anomaly_below_threshold"] += 1
+        return
+
+    window_stats = {
+        "current_rate": current_rate,
+        "buckets": len(window),
+        "mean_rate": mean,
+        "std": std,
+    }
+    _emit_anomaly_event(
+        doc, signals, score, severity, tenant_id, service,
+        producer, detection_mode="windowed",
+        z_score=z_score,
+        window_stats=window_stats,
+    )
+
+
+def _classify_zscore(z: float) -> tuple[str, float]:
+    if z >= 4.0:
+        return "critical", 0.98
+    elif z >= 3.0:
+        return "high", 0.90
+    elif z >= 2.5:
+        return "medium", 0.80
+    else:
+        return "low", 0.70
+
+
+# ---------------------------------------------------------------------------
+# Signal-Based Incident Classification (Thread 2 helpers)
+# ---------------------------------------------------------------------------
+
+# Severity weights by log level
+_SEVERITY_WEIGHTS: dict[str, float] = {
+    "FATAL": 1.0,
+    "CRITICAL": 0.95,
+    "ERROR": 0.70,
+    "WARN": 0.30,
+    "WARNING": 0.30,
+}
+
+# Pattern groups — language-agnostic regex scanning exception_type + message.
+# A single record can match MULTIPLE patterns (multi-signal).
+_EXCEPTION_PATTERNS: list[tuple[str, re.Pattern, float]] = [
+    # (name, compiled_regex, weight)
+    ("oom",        re.compile(r"out.?of.?memory|oom|heap.?space|memory.?limit|gc.?overhead|java\.lang\.OutOfMemoryError", re.I), 0.95),
+    ("crash",      re.compile(r"segfault|sigsegv|sigabrt|sigkill|panic:|fatal error|core.?dump|stack.?overflow|process.?died|killed", re.I), 0.95),
+    ("resource",   re.compile(r"resource.?exhausted|no.?space.?left|disk.?full|too.?many.?open.?files|file.?descriptor|ulimit", re.I), 0.80),
+    ("dependency", re.compile(r"service.?unavailable|bad.?gateway|upstream.?connect|upstream.?unavailable|circuit.?break|502|503|504", re.I), 0.75),
+    ("db",         re.compile(r"deadlock|lock.?timeout|duplicate.?key|constraint.?violation|sql.?exception|transaction.?abort|connection.?pool.?exhausted|too.?many.?connections", re.I), 0.75),
+    ("timeout",    re.compile(r"timeout|timed?.?out|deadline.?exceeded|context.?deadline|read.?timeout|write.?timeout|connect.?timeout|operation.?timed", re.I), 0.70),
+    ("connection", re.compile(r"econnrefused|econnreset|broken.?pipe|connection.?refused|connection.?reset|socket.?closed|eof.?error|network.?unreachable", re.I), 0.65),
+    ("auth",       re.compile(r"unauthorized|forbidden|access.?denied|invalid.?token|signature.?verification|jwt.?expired|permission.?denied", re.I), 0.40),
+]
+
+# Patterns that warrant IMMEDIATE emission without waiting for windowed stats
+_IMMEDIATE_PATTERN_NAMES: frozenset[str] = frozenset({"oom", "crash", "resource"})
+
+# Composite score category weights (must sum to 1.0)
+_CATEGORY_WEIGHTS: dict[str, float] = {
+    "pattern":     0.30,  # Exception/message patterns (what type of failure)
+    "statistical": 0.25,  # Z-score spike or sustained failure rate
+    "context":     0.15,  # Blast radius + velocity + recurrence
+    "http":        0.10,  # HTTP 5xx evidence
+    "severity":    0.10,  # Log level weight
+    "structural":  0.10,  # Stacktrace depth + error category
+}
+
+# ── Shared state for signal tracking (Thread 2 only — no cross-thread contention) ──
+_service_error_tracker: dict[str, dict[str, float]] = defaultdict(dict)   # tenant -> {svc: last_err_ts}
+_error_template_history: dict = defaultdict(lambda: defaultdict(lambda: {"count": 0, "first_seen": 0.0, "last_seen": 0.0}))
+_immediate_dedup: dict[tuple, float] = {}   # (tenant, service, pattern) -> last_emit_ts
+
+
+def _http_signal(status_code) -> tuple[str, float]:
+    """Map HTTP status code to (signal_name, weight). Returns ('', 0.0) if not incident-worthy."""
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return "", 0.0
+    if code == 503:
+        return "http:service_unavailable", 0.90
+    elif code == 502:
+        return "http:bad_gateway", 0.80
+    elif code == 504:
+        return "http:gateway_timeout", 0.85
+    elif code >= 500:
+        return "http:server_error", 0.70
+    elif code == 429:
+        return "http:rate_limit", 0.50
+    elif code in (401, 403):
+        return "http:auth_error", 0.40
+    return "", 0.0
+
+
+def _stacktrace_signal(stacktrace: str) -> float:
+    """Estimate stacktrace depth signal weight from frame count."""
+    if not stacktrace:
+        return 0.0
+    # Count frames for Java, Python, Go, Node.js
+    frame_count = (
+        stacktrace.count("\n\tat ")          # Java
+        + stacktrace.count("\n  File ")      # Python
+        + stacktrace.count("\ngoroutine ")   # Go
+        + stacktrace.count("\n    at ")      # Node.js / Rust
+    )
+    if frame_count >= 16:
+        return 0.30
+    elif frame_count >= 6:
+        return 0.15
+    elif frame_count >= 2:
+        return 0.05
+    return 0.0
+
+
+def _extract_signals(doc: dict) -> dict[str, float]:
+    """Extract a signal vector {signal_name: weight} from an enriched log record.
+
+    Pattern-based: new or unknown exception types are still scored via
+    severity, HTTP code, stacktrace, and message content. Not if/else.
+    """
+    signals: dict[str, float] = {}
+    level = doc.get("level", "INFO").upper()
+    message = doc.get("message", "")
+    exception_type = doc.get("exception_type", "") or ""
+    exception_msg = doc.get("exception_message", "") or ""
+    stacktrace = doc.get("exception_stacktrace", "") or ""
+    http_status = doc.get("http_status_code")
+
+    # Combined text for pattern matching (language-agnostic)
+    combined = f"{exception_type} {exception_msg} {message}"
+
+    # Severity signal
+    sev = _SEVERITY_WEIGHTS.get(level, 0.0)
+    if sev > 0:
+        signals["severity"] = sev
+
+    # Exception pattern signals (multi-match)
+    for name, regex, weight in _EXCEPTION_PATTERNS:
+        if regex.search(combined):
+            signals[f"pattern:{name}"] = weight
+
+    # HTTP status signal
+    if http_status is not None:
+        sig_name, sig_weight = _http_signal(http_status)
+        if sig_name:
+            signals[sig_name] = sig_weight
+
+    # Stacktrace depth signal
+    st_weight = _stacktrace_signal(stacktrace)
+    if st_weight > 0:
+        signals["structural:stacktrace"] = st_weight
+
+    # Reuse existing category classifier for structural signal
+    if level in ("ERROR", "FATAL", "CRITICAL"):
+        cat = _classify_error(combined)
+        if cat != "unknown":
+            signals[f"structural:category:{cat}"] = 0.30
+
+    return signals
+
+
+def _blast_radius_signal(tenant_id: str, service: str, now: float, window_seconds: int) -> float:
+    """Track how many services are simultaneously erroring per tenant."""
+    tracker = _service_error_tracker[tenant_id]
+    tracker[service] = now
+    # Prune stale entries
+    stale = [s for s, ts in tracker.items() if now - ts > window_seconds]
+    for s in stale:
+        del tracker[s]
+    count = len(tracker)
+    if count >= 5:
+        return 0.90
+    elif count >= 3:
+        return 0.60
+    elif count >= 2:
+        return 0.30
+    return 0.0
+
+
+def _velocity_signal(window: deque, current_bucket: SlidingWindowBucket) -> float:
+    """Detect rapid error acceleration vs. historical average."""
+    if len(window) < 2:
+        return 0.0
+    prev_errors = [b.error_count for _, b in list(window)[:-1]]
+    avg_prev = sum(prev_errors) / len(prev_errors) if prev_errors else 0.0
+    cur = current_bucket.error_count
+    if avg_prev < 1:
+        if cur >= 10:
+            return 0.80
+        elif cur >= 5:
+            return 0.60
+        elif cur >= 2:
+            return 0.40
+        return 0.0
+    ratio = cur / avg_prev
+    if ratio >= 5.0:
+        return 0.80
+    elif ratio >= 3.0:
+        return 0.50
+    elif ratio >= 2.0:
+        return 0.30
+    return 0.0
+
+
+def _recurrence_signal(tenant_id: str, error_template: str, now: float) -> float:
+    """Boost score for novel error templates; dampen heavily recurring ones."""
+    key = hashlib.md5(error_template.encode()).hexdigest()[:16]
+    entry = _error_template_history[tenant_id][key]
+    is_new = entry["count"] == 0
+    entry["count"] += 1
+    if is_new:
+        entry["first_seen"] = now
+    entry["last_seen"] = now
+    # Periodic prune (every 200 records per template)
+    if entry["count"] % 200 == 0:
+        history = _error_template_history[tenant_id]
+        stale = [k for k, v in history.items() if now - v["last_seen"] > 3600]
+        for k in stale:
+            del history[k]
+    if is_new:
+        return 0.30   # Novel pattern — boost
+    elif entry["count"] <= 5:
+        return 0.10   # Recently appeared
+    return 0.0         # Well-known, no signal contribution
+
+
+def _compute_composite_score(signals: dict[str, float]) -> tuple[float, str]:
+    """Combine signal vector into a composite [0,1] score and severity label.
+
+    Groups signals by category, takes the max per category, then computes
+    a weighted sum using _CATEGORY_WEIGHTS. This avoids double-counting
+    multiple signals in the same category.
+    """
+    buckets: dict[str, list[float]] = {k: [] for k in _CATEGORY_WEIGHTS}
+
+    for name, weight in signals.items():
+        if name.startswith("pattern:"):
+            buckets["pattern"].append(weight)
+        elif name.startswith("zscore:"):
+            buckets["statistical"].append(weight)
+        elif name.startswith("http:"):
+            buckets["http"].append(weight)
+        elif name in ("context:blast_radius", "context:velocity", "context:recurrence"):
+            buckets["context"].append(weight)
+        elif name == "severity":
+            buckets["severity"].append(weight)
+        else:
+            buckets["structural"].append(weight)
+
+    composite = 0.0
+    for cat, weights in buckets.items():
+        if weights:
+            composite += max(weights) * _CATEGORY_WEIGHTS.get(cat, 0.0)
+
+    composite = min(round(composite, 3), 1.0)
+
+    # Critical immediate patterns (OOM, crash, resource) guarantee minimum score of 0.65.
+    # The statistical/context categories are unavailable on the immediate path, so
+    # we compensate to ensure these always exceed the ticketing agent threshold (0.5).
+    immediate_matched = any(
+        signals.get(f"pattern:{p}", 0) >= 0.80
+        for p in _IMMEDIATE_PATTERN_NAMES
+    )
+    if immediate_matched:
+        composite = max(composite, 0.65)
+
+    if composite >= 0.85:
+        severity = "critical"
+    elif composite >= 0.65:
+        severity = "high"
+    elif composite >= 0.45:
+        severity = "medium"
+    else:
+        severity = "low"
+
+    return composite, severity
+
+
+def _should_emit_immediately(signals: dict[str, float]) -> bool:
+    """Return True when signals indicate a process is actively dying right now.
+
+    These patterns cannot wait 30s for windowed statistics.
+    """
+    for name, weight in signals.items():
+        if name.startswith("pattern:"):
+            pattern_type = name[len("pattern:"):]
+            if pattern_type in _IMMEDIATE_PATTERN_NAMES and weight >= 0.80:
+                return True
+    # FATAL + any pattern match
+    if signals.get("severity", 0) >= 0.95:
+        pattern_weights = [v for k, v in signals.items() if k.startswith("pattern:")]
+        if pattern_weights and max(pattern_weights) >= 0.50:
+            return True
+    # Cascading failure across services
+    if signals.get("context:blast_radius", 0) >= 0.60:
+        return True
+    return False
+
+
+def _can_emit_immediate(tenant_id: str, service: str, signals: dict[str, float], now: float,
+                         dedup_seconds: int) -> bool:
+    """Rate-limit immediate emissions: 1 per (tenant, service, dominant_pattern) per dedup window."""
+    dominant = max(
+        ((k, v) for k, v in signals.items() if k.startswith("pattern:")),
+        key=lambda x: x[1],
+        default=("pattern:unknown", 0.0),
+    )[0]
+    key = (tenant_id, service, dominant)
+    last = _immediate_dedup.get(key, 0.0)
+    if now - last < dedup_seconds:
+        return False
+    _immediate_dedup[key] = now
+    # Prune stale entries
+    stale = [k for k, ts in _immediate_dedup.items() if now - ts > dedup_seconds * 5]
+    for k in stale:
+        del _immediate_dedup[k]
+    return True
+
+
+def _emit_anomaly_event(
+    doc: dict,
+    signals: dict[str, float],
+    score: float,
+    severity: str,
+    tenant_id: str,
+    service: str,
+    producer: "KafkaProducer",
+    detection_mode: str,
+    z_score: float | None = None,
+    window_stats: dict | None = None,
+):
+    """Build and publish a signal-enriched anomaly event to Kafka + anomaly_queue."""
+    message = doc.get("message", "")
+    error_template = _normalize_error(message)
+    error_category = _classify_error(message)
+
+    # Human-readable summary of top 3 signals
+    top_signals = sorted(signals.items(), key=lambda x: x[1], reverse=True)[:3]
+    signal_summary = ", ".join(f"{k}={v:.2f}" for k, v in top_signals)
+
+    description = (
+        f"Incident signal detected for service '{service}': "
+        f"score={score:.2f}, severity={severity}, mode={detection_mode}, "
+        f"signals=[{signal_summary}]"
+    )
 
     now = _now_iso()
     anomaly_event = {
+        # ── Backward-compatible fields ──
         "event_id": str(uuid.uuid4()),
         "@timestamp": now,
         "detected_at": now,
@@ -533,21 +908,14 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
     producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
     anomaly_queue.append(anomaly_event)
     metrics["anomaly_detected"] += 1
-    log.info(
-        "Anomaly detected: service=%s severity=%s z_score=%.2f score=%.2f",
-        service, severity, z_score, anomaly_score,
-    )
-
-
-def _classify_zscore(z: float) -> tuple[str, float]:
-    if z >= 4.0:
-        return "critical", 0.98
-    elif z >= 3.0:
-        return "high", 0.90
-    elif z >= 2.5:
-        return "medium", 0.80
+    if detection_mode == "immediate":
+        metrics["anomaly_immediate_detected"] += 1
     else:
-        return "low", 0.70
+        metrics["anomaly_windowed_detected"] += 1
+    log.info(
+        "Anomaly [%s]: service=%s severity=%s score=%.2f signals=%d",
+        detection_mode, service, severity, score, len(signals),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +1025,8 @@ def _flush_bulk(client: OpenSearch, actions: list[dict]):
         if errors:
             metrics["indexer_errors"] += len(errors)
             log.warning("Bulk index had %d errors out of %d actions", len(errors), len(actions))
+            for err in errors[:3]:
+                log.warning("Bulk error detail: %s", err)
         else:
             log.debug("Bulk indexed %d documents", success)
     except Exception:

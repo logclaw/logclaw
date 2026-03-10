@@ -1,0 +1,36 @@
+releases:
+  - name: logclaw-console
+    namespace: logclaw
+    chart: ../charts/logclaw-console
+    set:
+      - name: image.tag
+        value: {{ env "CONSOLE_TAG" | default "0.2.0" }}
+      - name: replicaCount
+        value: {{ env "CONSOLE_REPLICAS" | default "1" }}
+      # Backend stack release name (defaults assume "logclaw" release)
+      - name: endpoints.opensearch
+        value: {{ env "OPENSEARCH_ENDPOINT" | default "https://logclaw-logclaw-opensearch.logclaw.svc:9200" }}
+      - name: endpoints.opensearchPasswordSecret
+        value: logclaw-logclaw-opensearch-admin-password
+      - name: endpoints.otelCollector
+        value: {{ env "OTEL_COLLECTOR_ENDPOINT" | default "http://logclaw-logclaw-otel-collector.logclaw.svc:4318" }}
+      - name: endpoints.ticketing
+        value: {{ env "TICKETING_ENDPOINT" | default "http://logclaw-logclaw-ticketing-agent.logclaw.svc:8080" }}
+      - name: endpoints.bridge
+        value: {{ env "BRIDGE_ENDPOINT" | default "http://logclaw-logclaw-bridge.logclaw.svc:8080" }}
+      - name: endpoints.feast
+        value: {{ env "FEAST_ENDPOINT" | default "http://logclaw-logclaw-ml-engine-feast-server.logclaw.svc:6567" }}
+      - name: endpoints.airflow
+        value: {{ env "AIRFLOW_ENDPOINT" | default "http://logclaw-webserver.logclaw.svc:8080" }}
+      - name: endpoints.agent
+        value: {{ env "AGENT_ENDPOINT" | default "http://logclaw-logclaw-agent.logclaw.svc:8080" }}
+      - name: nodeTlsRejectUnauthorized
+        value: "0"
+      # Disable HPA/PDB for single-replica UAT
+      - name: autoscaling.enabled
+        value: "false"
+      - name: podDisruptionBudget.enabled
+        value: "false"
+      # Allow writable rootfs for Next.js cache
+      - name: containerSecurityContext.readOnlyRootFilesystem
+        value: "false"

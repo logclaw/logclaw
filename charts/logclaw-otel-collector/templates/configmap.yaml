@@ -28,7 +28,11 @@ data:
         limit_mib: {{ .Values.config.processors.memoryLimiter.limitMib }}
         spike_limit_mib: {{ .Values.config.processors.memoryLimiter.spikeLimitMib }}
 
-      # Inject tenant_id as a resource attribute
+      # Inject tenant_id as a resource attribute.
+      # action: insert — only sets the value when not already present.
+      # Logs arriving via the console API already carry the correct tenant_id
+      # (injected from the API key). Logs from internal k8s pods with no
+      # tenant_id attribute fall back to the Helm-configured default below.
       resource:
         attributes:
           - key: tenant_id
