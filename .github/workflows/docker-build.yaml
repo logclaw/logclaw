@@ -68,19 +68,14 @@ jobs:
         include:
           - image: dashboard
             context: apps/dashboard
-            app-version: "2.0.0"
           - image: bridge
             context: apps/bridge
-            app-version: "1.0.0"
           - image: ticketing-agent
             context: apps/ticketing-agent
-            app-version: "1.0.0"
           - image: agent
             context: apps/agent
-            app-version: "0.1.0"
           - image: auth-proxy
             context: apps/logclaw-auth-proxy
-            app-version: "1.0.0"
 
     steps:
       # matrix context is only available at step level, not job-level if
@@ -104,6 +99,22 @@ jobs:
 
       - uses: actions/checkout@v4
         if: steps.gate.outputs.should_build == 'true'
+
+      # ── Read version from source (package.json or VERSION file) ──
+      - name: Read app version
+        if: steps.gate.outputs.should_build == 'true'
+        id: version
+        run: |
+          CTX="${{ matrix.context }}"
+          if [ -f "$CTX/package.json" ]; then
+            VERSION=$(python3 -c "import sys,json; print(json.load(open('$CTX/package.json'))['version'])")
+          elif [ -f "$CTX/VERSION" ]; then
+            VERSION=$(cat "$CTX/VERSION" | tr -d '[:space:]')
+          else
+            VERSION="0.0.0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 ${{ matrix.image }} version: $VERSION"
 
       # ── Docker Buildx (multi-arch) ──
       - name: Set up QEMU
@@ -131,8 +142,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY_PATH }}/logclaw-${{ matrix.image }}
           tags: |
-            # Semantic version from Chart.yaml appVersion
-            type=raw,value=${{ matrix.app-version }},enable={{is_default_branch}}
+            # Semantic version read from package.json or VERSION file
+            type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
             # Git SHA (always, for traceability)
             type=sha,prefix=sha-,format=short
             # latest (only on main)
@@ -175,5 +186,5 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| **Registry** | \`${{ env.REGISTRY_PATH }}/logclaw-${{ matrix.image }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Tags** | \`${{ matrix.app-version }}\`, \`sha-${GITHUB_SHA::7}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tags** | \`${{ steps.version.outputs.version }}\`, \`sha-${GITHUB_SHA::7}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Platforms** | \`linux/amd64\`, \`linux/arm64\` |" >> $GITHUB_STEP_SUMMARY

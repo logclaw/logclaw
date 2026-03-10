@@ -11,23 +11,23 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
+    "@opentelemetry/api-logs": "^0.53.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.53.0",
+    "@opentelemetry/resources": "^1.26.0",
+    "@opentelemetry/sdk-logs": "^0.53.0",
+    "@opentelemetry/semantic-conventions": "^1.26.0",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.0",
     "node-fetch": "^3.3.0",
-    "pg": "^8.11.0",
-    "dotenv": "^16.3.1",
-    "@opentelemetry/api-logs": "^0.53.0",
-    "@opentelemetry/sdk-logs": "^0.53.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.53.0",
-    "@opentelemetry/resources": "^1.26.0",
-    "@opentelemetry/semantic-conventions": "^1.26.0"
+    "pg": "^8.11.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0",
-    "tsx": "^4.7.0",
     "@types/express": "^4.17.20",
     "@types/node": "^20.10.0",
     "@types/pg": "^8.10.0",
-    "eslint": "^8.54.0"
+    "eslint": "^8.54.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.9.3"
   }
 }
