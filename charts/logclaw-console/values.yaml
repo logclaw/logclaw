@@ -4,8 +4,8 @@ replicaCount: 2
 
 image:
   repository: "ghcr.io/logclaw/logclaw-enterprise"
-  tag: "1.0.0"
-  pullPolicy: IfNotPresent
+  tag: "latest"
+  pullPolicy: Always
 
 imagePullSecrets:
   - name: ghcr-logclaw
