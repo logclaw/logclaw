@@ -21,32 +21,17 @@ const dbPool = new Pool({
 app.use(express.json({ limit: "50mb" }));
 app.use(express.raw({ type: "application/x-protobuf", limit: "50mb" }));
 
-// Middleware: Rate limiting (keyed by API key, falls back to IP)
-// Applied BEFORE auth so unauthenticated floods are also throttled.
-const keyExtractor = (req: Request): string =>
-  (req.headers["x-logclaw-api-key"] as string) || req.ip || "unknown";
-
+// ── Pre-auth IP rate limiter (DoS protection for unauthenticated floods) ──
+// Keyed by IP only. Low limit — legitimate callers always send an API key.
 app.use(
-  "/v1/logs",
   rateLimit({
     windowMs: 60_000,
-    max: parseInt(process.env.RATE_LIMIT_INGESTION_RPM || "100"),
-    keyGenerator: keyExtractor,
+    max: parseInt(process.env.RATE_LIMIT_UNAUTH_RPM || "200"),
+    keyGenerator: (req: Request) => req.ip || "unknown",
+    skip: (req: Request) => Boolean(req.headers["x-logclaw-api-key"]),
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "Ingestion rate limit exceeded — retry after 1 minute" },
-  })
-);
-
-app.use(
-  /^\/api\//,
-  rateLimit({
-    windowMs: 60_000,
-    max: parseInt(process.env.RATE_LIMIT_API_RPM || "60"),
-    keyGenerator: keyExtractor,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: "API rate limit exceeded — retry after 1 minute" },
+    message: { error: "Rate limit exceeded" },
   })
 );
 
@@ -71,6 +56,34 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   (req as any).validatedKey = validated;
   next();
 });
+
+// ── Post-auth per-tenantId rate limiters ──
+// OTEL BatchLogRecordProcessor: 512 records/batch, 5s flush → 12 req/min per
+// SDK instance. 6000 req/min = DoS threshold only (~500 concurrent pods).
+// OTEL SDKs drop batches on 429 — this limit must never fire under normal load.
+const tenantKeyExtractor = (req: Request): string =>
+  (req as any).validatedKey?.tenantId || req.ip || "unknown";
+
+const ingestLimiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_INGESTION_RPM || "6000"),
+  keyGenerator: tenantKeyExtractor,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Ingestion rate limit exceeded — retry after 1 minute" },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_API_RPM || "300"),
+  keyGenerator: tenantKeyExtractor,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "API rate limit exceeded — retry after 1 minute" },
+});
+
+app.use("/v1/logs", ingestLimiter);
+app.use(/^\/api\//, apiLimiter);
 
 // Middleware: Log requests
 app.use((req: Request, res: Response, next: NextFunction) => {
