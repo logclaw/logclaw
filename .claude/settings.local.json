@@ -6,7 +6,6 @@
       "mcp__Desktop_Commander__list_directory",
       "WebFetch(domain:github.com)",
       "mcp__Desktop_Commander__read_file",
-      "WebFetch(domain:incidentfox.mintlify.app)",
       "WebFetch(domain:hub.docker.com)"
     ]
   }
