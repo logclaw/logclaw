@@ -519,6 +519,15 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: KafkaProducer):
         "environment": TENANT_ID,
         "z_score": round(z_score, 2),
         "error_rate": round(current_rate, 4),
+        # Signal-based detection metadata
+        "detection_mode": "windowed",
+        "signal_weights": {
+            "severity_score": 0.0,
+            "pattern_score": 0.0,
+            "statistical_score": round(anomaly_score, 2),
+            "z_score_raw": round(z_score, 2),
+            "total": round(anomaly_score, 2),
+        },
     }
 
     producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)

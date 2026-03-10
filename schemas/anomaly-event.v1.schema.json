@@ -113,6 +113,41 @@
     "error_category": {
       "type": "string",
       "description": "Classified error category (e.g. database, network, auth)."
+    },
+    "detection_mode": {
+      "type": "string",
+      "enum": ["immediate", "windowed"],
+      "description": "How this anomaly was detected. 'immediate' fires on critical patterns/severity without waiting for time windows. 'windowed' fires from statistical z-score analysis over sliding time windows."
+    },
+    "signal_weights": {
+      "type": "object",
+      "description": "Breakdown of individual signal contributions to the composite anomaly_score.",
+      "properties": {
+        "severity_score": {
+          "type": "number",
+          "description": "Score contribution from log severity level (FATAL=0.5, ERROR=0.4, WARN=0.15)."
+        },
+        "pattern_score": {
+          "type": "number",
+          "description": "Score contribution from critical/error pattern matching (0.35 critical, 0.15 error)."
+        },
+        "ml_score": {
+          "type": "number",
+          "description": "Score contribution from ML features (error_rate_1h, anomaly_history)."
+        },
+        "statistical_score": {
+          "type": "number",
+          "description": "Score from z-score windowed statistical analysis (Bridge only)."
+        },
+        "z_score_raw": {
+          "type": "number",
+          "description": "Raw z-score value before threshold mapping (Bridge only)."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total composite score (same as anomaly_score, capped at 1.0)."
+        }
+      }
     }
   },
   "additionalProperties": false,

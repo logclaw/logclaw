@@ -184,32 +184,39 @@ public class AnomalyScoringJob {
                 String traceId  = record.path("trace_id").asText("");
                 String spanId   = record.path("span_id").asText("");
 
-                // ── Score calculation ──
+                // ── Score calculation with individual signal tracking ──
                 double score = 0.0;
                 String anomalyType = "unknown";
+                double severityScore = 0.0;
+                double patternScore = 0.0;
+                double mlScore = 0.0;
+                boolean isImmediate = false;
 
                 // Rule 1: Severity-based scoring
                 switch (severity) {
                     case "FATAL":
-                        score += 0.5;
+                        severityScore = 0.5;
                         anomalyType = "fatal_error";
+                        isImmediate = true;  // FATAL always fires immediately
                         break;
                     case "ERROR":
-                        score += 0.4;
+                        severityScore = 0.4;
                         anomalyType = "error";
                         break;
                     case "WARN":
-                        score += 0.15;
+                        severityScore = 0.15;
                         anomalyType = "warning";
                         break;
                     default:
                         // INFO/DEBUG/TRACE — still check patterns
                         break;
                 }
+                score += severityScore;
 
                 // Rule 2: Critical error pattern matching
                 if (CRITICAL_PATTERNS.matcher(message).find()) {
-                    score += 0.35;
+                    patternScore = 0.35;
+                    isImmediate = true;  // Critical patterns fire immediately
                     // Classify the anomaly type
                     String msgLower = message.toLowerCase();
                     if (msgLower.contains("outofmemory") || msgLower.contains("oom") || msgLower.contains("heap"))
@@ -229,19 +236,21 @@ public class AnomalyScoringJob {
                     else if (msgLower.contains("crash") || msgLower.contains("panic") || msgLower.contains("segfault"))
                         anomalyType = "crash";
                 } else if (ERROR_PATTERNS.matcher(message).find()) {
-                    score += 0.15;
+                    patternScore = 0.15;
                     if (anomalyType.equals("error") || anomalyType.equals("unknown"))
                         anomalyType = "request_failure";
                 }
+                score += patternScore;
 
                 // Rule 3: ML features boost
                 JsonNode mlFeatures = record.path("ml_features");
                 if (!mlFeatures.isMissingNode()) {
                     double errorRate = mlFeatures.path("error_rate_1h").asDouble(0.0);
                     int anomalyHistory = mlFeatures.path("anomaly_history_count").asInt(0);
-                    if (errorRate > 0.1) score += 0.1;
-                    if (anomalyHistory > 5) score += 0.1;
+                    if (errorRate > 0.1) mlScore += 0.1;
+                    if (anomalyHistory > 5) mlScore += 0.1;
                 }
+                score += mlScore;
 
                 // ── Threshold check — emit anomaly event ──
                 if (score >= threshold) {
@@ -265,6 +274,16 @@ public class AnomalyScoringJob {
                             message.length() > 200 ? message.substring(0, 200) : message));
                     event.put("trace_id", traceId);
                     event.put("tenant_id", tenantId);
+
+                    // Signal-based detection metadata
+                    event.put("detection_mode", isImmediate ? "immediate" : "windowed");
+
+                    ObjectNode signalWeights = mapper.createObjectNode();
+                    signalWeights.put("severity_score", severityScore);
+                    signalWeights.put("pattern_score", patternScore);
+                    signalWeights.put("ml_score", mlScore);
+                    signalWeights.put("total", Math.min(score, 1.0));
+                    event.set("signal_weights", signalWeights);
 
                     ArrayNode spanIds = mapper.createArrayNode();
                     if (!spanId.isEmpty()) spanIds.add(spanId);
