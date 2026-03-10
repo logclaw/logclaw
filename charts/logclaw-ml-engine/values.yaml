@@ -6,6 +6,10 @@ serviceAccount:
   annotations: {}
   name: ""
 
+externalSecret:
+  secretStoreName: "logclaw-secret-store"
+  secretStoreKind: "ClusterSecretStore"
+
 mlEngine:
   redis:
     bundled: true    # false = use external Redis
