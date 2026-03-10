@@ -1,0 +1,41 @@
+replicaCount: 1
+
+image:
+  repository: "ghcr.io/logclaw/logclaw-enterprise"
+  tag: "0.2.0"
+
+imagePullSecrets: []
+
+# Secret must be created externally before deploying
+secretName: "logclaw-console-secrets"
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+containerSecurityContext:
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+cloudsql:
+  enabled: false
+
+externalSecret:
+  enabled: false
+
+nodeTlsRejectUnauthorized: "0"
