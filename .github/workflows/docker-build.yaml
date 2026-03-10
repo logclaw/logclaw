@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: "Image to build (dashboard, bridge, ticketing-agent, agent, auth-proxy, or all)"
+        description: "Image to build (dashboard, bridge, ticketing-agent, agent, auth-proxy, flink-jobs, or all)"
         required: false
         default: "all"
 
@@ -37,6 +37,7 @@ jobs:
       ticketing-agent: ${{ steps.filter.outputs.ticketing-agent }}
       agent: ${{ steps.filter.outputs.agent }}
       auth-proxy: ${{ steps.filter.outputs.auth-proxy }}
+      flink-jobs: ${{ steps.filter.outputs.flink-jobs }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -53,6 +54,8 @@ jobs:
               - 'apps/agent/**'
             auth-proxy:
               - 'apps/logclaw-auth-proxy/**'
+            flink-jobs:
+              - 'apps/flink-jobs/**'
 
   # ── Build matrix ───────────────────────────────────────────────
   build:
@@ -76,6 +79,8 @@ jobs:
             context: apps/agent
           - image: auth-proxy
             context: apps/logclaw-auth-proxy
+          - image: flink-jobs
+            context: apps/flink-jobs
 
     steps:
       # matrix context is only available at step level, not job-level if
@@ -93,6 +98,7 @@ jobs:
             ticketing-agent) [[ "${{ needs.changes.outputs.ticketing-agent }}" == "true" ]]  && SHOULD_BUILD=true ;;
             agent)           [[ "${{ needs.changes.outputs.agent }}" == "true" ]]            && SHOULD_BUILD=true ;;
             auth-proxy)      [[ "${{ needs.changes.outputs.auth-proxy }}" == "true" ]]       && SHOULD_BUILD=true ;;
+            flink-jobs)      [[ "${{ needs.changes.outputs.flink-jobs }}" == "true" ]]       && SHOULD_BUILD=true ;;
           esac
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
           echo "🔍 ${{ matrix.image }}: should_build=$SHOULD_BUILD"
@@ -110,6 +116,8 @@ jobs:
             VERSION=$(python3 -c "import sys,json; print(json.load(open('$CTX/package.json'))['version'])")
           elif [ -f "$CTX/VERSION" ]; then
             VERSION=$(cat "$CTX/VERSION" | tr -d '[:space:]')
+          elif [ -f "$CTX/pom.xml" ]; then
+            VERSION=$(python3 -c "import xml.etree.ElementTree as ET; ns={'m':'http://maven.apache.org/POM/4.0.0'}; print(ET.parse('$CTX/pom.xml').getroot().find('m:version',ns).text)")
           else
             VERSION="0.0.0"
           fi
