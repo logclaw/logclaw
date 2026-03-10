@@ -5,7 +5,7 @@ replicaCount: 2
 
 image:
   repository: "otel/opentelemetry-collector-contrib"
-  tag: "0.114.0"
+  tag: "0.115.0"
   pullPolicy: IfNotPresent
 
 serviceAccount:
