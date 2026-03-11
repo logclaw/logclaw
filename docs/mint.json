@@ -80,7 +80,8 @@
     {
       "group": "Integrations",
       "pages": [
-        "integrations"
+        "integrations",
+        "integrations/mcp"
       ]
     },
     {

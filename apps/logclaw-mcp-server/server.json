@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.RobelDev/logclaw-mcp-server",
+  "description": "Connect AI coding tools to LogClaw incidents, logs, and anomaly detections.",
+  "repository": {
+    "url": "https://github.com/logclaw/logclaw",
+    "source": "github"
+  },
+  "version": "1.0.4",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "logclaw-mcp-server",
+      "version": "1.0.4",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LOGCLAW_API_KEY",
+          "description": "Your LogClaw project API key (starts with lc_proj_)",
+          "required": true
+        },
+        {
+          "name": "LOGCLAW_ENDPOINT",
+          "description": "LogClaw auth proxy endpoint (default: https://ticket.logclaw.ai)",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

@@ -32,3 +32,9 @@ node_modules/
 dist/
 build/
 .next/
+
+# Wrangler local state
+.wrangler/
+
+# MCP Registry tokens
+.mcpregistry_*

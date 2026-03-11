@@ -1,0 +1,203 @@
+---
+title: "MCP Server"
+description: "Connect Claude Code, Cursor, or Windsurf to LogClaw incidents, logs, and anomalies via the Model Context Protocol."
+icon: "robot"
+---
+
+import { Card, CardGroup, CodeGroup, Info, Tip } from "mintlify/components";
+
+Connect your AI coding tools to LogClaw incidents, logs, and anomalies via the [Model Context Protocol](https://modelcontextprotocol.io). Works with **Claude Code**, **Cursor**, **Windsurf**, **Claude.ai**, and any MCP-compatible client.
+
+<CardGroup cols={2}>
+  <Card title="Remote (Cloud)" icon="cloud" href="#remote-cloud">
+    Connect via URL — no installation needed
+  </Card>
+  <Card title="Local (npm)" icon="npm" href="#local-npm">
+    Install locally via `npx logclaw-mcp-server`
+  </Card>
+</CardGroup>
+
+---
+
+## Remote (Cloud)
+
+Connect directly via URL — no installation required. LogClaw's remote MCP server uses **OAuth 2.1** and **Streamable HTTP** transport.
+
+```
+https://mcp.logclaw.ai
+```
+
+<Info>
+When you connect, you'll be prompted to enter your LogClaw API key. The key is encrypted and never exposed to the MCP client.
+</Info>
+
+### Claude Desktop / Claude.ai
+
+Add LogClaw as a remote MCP server:
+
+1. Open **Settings → MCP Servers → Add Server**
+2. Enter the URL: `https://mcp.logclaw.ai`
+3. Complete the OAuth flow by entering your API key
+
+### Any MCP Client (URL-based)
+
+For any MCP client that supports remote servers, use:
+
+| Setting | Value |
+|---------|-------|
+| **Server URL** | `https://mcp.logclaw.ai` |
+| **Transport** | Streamable HTTP |
+| **Auth** | OAuth 2.1 (automatic) |
+
+---
+
+## Local (npm)
+
+Install and run the MCP server locally via stdio transport:
+
+```bash
+npx logclaw-mcp-server
+```
+
+The server communicates over **stdio** using the Model Context Protocol. Your AI tool launches it automatically — you just need to add the config once.
+
+### Setup
+
+<CodeGroup>
+
+```json Claude Code (~/.claude.json)
+{
+  "mcpServers": {
+    "logclaw": {
+      "command": "npx",
+      "args": ["-y", "logclaw-mcp-server"],
+      "env": {
+        "LOGCLAW_ENDPOINT": "https://ticket.logclaw.ai",
+        "LOGCLAW_API_KEY": "lc_proj_..."
+      }
+    }
+  }
+}
+```
+
+```json Cursor (.cursor/mcp.json)
+{
+  "mcpServers": {
+    "logclaw": {
+      "command": "npx",
+      "args": ["-y", "logclaw-mcp-server"],
+      "env": {
+        "LOGCLAW_ENDPOINT": "https://ticket.logclaw.ai",
+        "LOGCLAW_API_KEY": "lc_proj_..."
+      }
+    }
+  }
+}
+```
+
+```json Windsurf (.windsurf/mcp.json)
+{
+  "mcpServers": {
+    "logclaw": {
+      "command": "npx",
+      "args": ["-y", "logclaw-mcp-server"],
+      "env": {
+        "LOGCLAW_ENDPOINT": "https://ticket.logclaw.ai",
+        "LOGCLAW_API_KEY": "lc_proj_..."
+      }
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LOGCLAW_API_KEY` | Yes | Your LogClaw project API key (starts with `lc_proj_`) |
+| `LOGCLAW_ENDPOINT` | No | Auth proxy endpoint (default: `https://ticket.logclaw.ai`) |
+
+Get your API key from the [LogClaw Console](https://console.logclaw.ai) under **Settings → API Keys**.
+
+---
+
+## Available Tools
+
+The MCP server exposes 8 tools that your AI assistant can call:
+
+| Tool | Description |
+|------|-------------|
+| `logclaw_list_incidents` | List and filter incidents by severity, state, service, or search query |
+| `logclaw_get_incident` | Full incident details — root cause, causal chain, evidence logs, traces, timeline, blast radius |
+| `logclaw_update_incident` | Transition incident state (acknowledge, investigate, mitigate, resolve) or add a note |
+| `logclaw_search_logs` | Search raw logs by service, level, time range, and query |
+| `logclaw_get_anomalies` | Get recent anomaly detections (Z-score analysis on error rates) |
+| `logclaw_service_health` | Check LogClaw pipeline health status and latency |
+| `logclaw_bulk_update` | Update multiple incidents at once (acknowledge, investigate, mitigate, or resolve) |
+| `logclaw_export_incidents` | Export incidents in CSV, markdown table, or JSON format |
+
+---
+
+## Example Prompts
+
+Once connected, try asking your AI assistant:
+
+<CardGroup cols={2}>
+  <Card title="Triage incidents" icon="fire">
+    "What incidents are open right now?"
+  </Card>
+  <Card title="Root cause analysis" icon="magnifying-glass">
+    "Show me the root cause for TICK-0037"
+  </Card>
+  <Card title="Search logs" icon="scroll">
+    "Search for ERROR logs from auth-service in the last 30 minutes"
+  </Card>
+  <Card title="Query anomalies" icon="chart-line">
+    "Are there any critical anomalies?"
+  </Card>
+  <Card title="Update incidents" icon="check">
+    "Acknowledge TICK-0042 and add a note that I'm looking into it"
+  </Card>
+  <Card title="Health check" icon="heart-pulse">
+    "Is the LogClaw pipeline healthy?"
+  </Card>
+  <Card title="Bulk update" icon="list-check">
+    "Acknowledge TICK-0037, TICK-0038, and TICK-0039"
+  </Card>
+  <Card title="Export incidents" icon="file-export">
+    "Export all critical incidents as a markdown table"
+  </Card>
+</CardGroup>
+
+---
+
+## Self-Hosted
+
+Running LogClaw on your own infrastructure? Point `LOGCLAW_ENDPOINT` to your auth proxy:
+
+```bash
+LOGCLAW_ENDPOINT=https://logclaw.internal.company.com \
+  LOGCLAW_API_KEY=lc_proj_... \
+  npx logclaw-mcp-server
+```
+
+<Tip>
+**Air-gapped?** Install the package from a private registry or copy the `dist/` folder directly. The MCP server has zero runtime network dependencies beyond reaching your auth proxy.
+</Tip>
+
+---
+
+## Source Code
+
+<CardGroup cols={2}>
+  <Card title="GitHub" icon="github" href="https://github.com/logclaw/logclaw/tree/main/apps/logclaw-mcp-server">
+    View source code and contribute
+  </Card>
+  <Card title="npm" icon="npm" href="https://www.npmjs.com/package/logclaw-mcp-server">
+    logclaw-mcp-server on npm
+  </Card>
+</CardGroup>

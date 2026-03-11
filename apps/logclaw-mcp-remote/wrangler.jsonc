@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "logclaw-mcp-remote",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  /**
+   * Secrets (set via `npx wrangler secret put <NAME>`):
+   *   COOKIE_ENCRYPTION_KEY — random 32+ char string for encrypting cookies
+   */
+  "migrations": [
+    {
+      "new_sqlite_classes": ["LogClawMCP"],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "LogClawMCP",
+        "name": "MCP_OBJECT"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "7c64418a289d4a39862347c5de97685e"
+    }
+  ],
+  "vars": {
+    "LOGCLAW_ENDPOINT": "https://uat-ticket.logclaw.ai"
+  },
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "mcp.logclaw.ai/*",
+      "zone_name": "logclaw.ai"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8787
+  }
+}
