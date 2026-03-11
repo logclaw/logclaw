@@ -368,9 +368,14 @@ data:
         service = params.get("service", [None])[0]
         priority = params.get("priority", [None])[0]
         q = params.get("q", [None])[0]
+        search = params.get("search", [None])[0]
+        tenant_id = params.get("tenant_id", [None])[0]
         sort_by = params.get("sort", ["created_at"])[0]
         sort_dir = params.get("order", ["desc"])[0]
         musts = []
+        # tenant_id is the company identifier — always filter to isolate tenants
+        if tenant_id:
+            musts.append({"term": {"tenant_id.keyword": tenant_id}})
         if state and state != "all":
             musts.append({"term": {"state": state}})
         if severity:
@@ -381,8 +386,8 @@ data:
             musts.append({"term": {"service": service}})
         if priority:
             musts.append({"term": {"priority": priority}})
-        if q:
-            musts.append({"multi_match": {"query": q, "fields": ["title", "description", "service", "tags"]}})
+        if q or search:
+            musts.append({"multi_match": {"query": q or search, "fields": ["title", "description", "service", "tags"]}})
         body = {"size": limit, "from": offset, "sort": [{sort_by: sort_dir}]}
         if musts:
             body["query"] = {"bool": {"must": musts}}
