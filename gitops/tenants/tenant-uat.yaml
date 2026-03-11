@@ -50,6 +50,12 @@ ticketingAgent:
   enabled: true
   replicaCount: 1
 
+# ── Ingress hosts for UAT ─────────────────────────────────────────────
+ingress:
+  enabled: true
+  ticketing:
+    host: uat-ticket.logclaw.ai
+
 ingestion:
   enabled: true
   replicaCount: 1

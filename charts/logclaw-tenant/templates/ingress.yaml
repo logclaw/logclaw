@@ -42,9 +42,10 @@ spec:
 ---
 {{- /* ════════════════════════════════════════════════════════════════════
      Ingress: OTLP gRPC endpoint (Auth Proxy — gRPC :4317)
-     Forwards to: logclaw-auth-proxy for API key validation + tenant_id injection
+     Requires a separate gRPC host to avoid conflict with HTTP ingress.
+     Only enabled if ingress.otel.grpcHost is set.
      ════════════════════════════════════════════════════════════════════ */}}
-{{- if .Values.ingress.otel }}
+{{- if and .Values.ingress.otel .Values.ingress.otel.grpcHost }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -63,11 +64,11 @@ spec:
   {{- if .Values.global.tls.enabled }}
   tls:
     - hosts:
-        - {{ .Values.ingress.otel.host }}
+        - {{ .Values.ingress.otel.grpcHost }}
       secretName: {{ .Release.Name }}-otel-grpc-tls
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.otel.host }}
+    - host: {{ .Values.ingress.otel.grpcHost }}
       http:
         paths:
           - path: /
@@ -116,6 +117,47 @@ spec:
                 name: {{ .Release.Name }}-logclaw-auth-proxy
                 port:
                   number: 4318
+{{- end }}
+---
+{{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: Ticketing Agent (Incident API — HTTP :8080)
+     Forwards to: logclaw-ticketing-agent for incident management
+     UAT: uat-ticket.logclaw.ai  |  Prod: ticket.logclaw.ai
+     ════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.ingress.ticketing }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-ticketing
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.ticketing.host }}
+      secretName: {{ .Release.Name }}-ticketing-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.ticketing.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-logclaw-ticketing-agent
+                port:
+                  number: 8080
 {{- end }}
 ---
 {{- /* ════════════════════════════════════════════════════════════════════
