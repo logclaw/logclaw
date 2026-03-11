@@ -1,6 +1,6 @@
 {
   "name": "logclaw-mcp-server",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "LogClaw MCP Server — expose incidents, logs, and anomalies to AI coding tools",
   "type": "module",
   "bin": {
@@ -24,7 +24,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/logclaw/logclaw",
+    "url": "git+https://github.com/logclaw/logclaw.git",
     "directory": "apps/logclaw-mcp-server"
   },
   "homepage": "https://logclaw.ai/docs/mcp",

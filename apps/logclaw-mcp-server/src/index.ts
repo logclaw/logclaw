@@ -26,7 +26,7 @@ import { serviceHealth } from "./tools/health.js";
 
 const server = new McpServer({
   name: "logclaw",
-  version: "1.0.5",
+  version: "1.0.6",
 });
 
 // ── Register tools ──────────────────────────────────────────
