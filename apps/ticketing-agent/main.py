@@ -391,9 +391,9 @@ def search_incidents(params):
     sort_dir = params.get("order", ["desc"])[0]
     musts = []
     # tenant_id is the company identifier — always filter to isolate tenants
-    # Use .keyword sub-field for exact match (field is text type with keyword sub-field)
+    # Use bool/should to handle both mapping types: pure keyword and text+keyword subfield
     if tenant_id:
-        musts.append({"term": {"tenant_id.keyword": tenant_id}})
+        musts.append({"bool": {"should": [{"term": {"tenant_id": tenant_id}}, {"term": {"tenant_id.keyword": tenant_id}}], "minimum_should_match": 1}})
     if state and state != "all":
         musts.append({"term": {"state": state}})
     if severity:
@@ -544,7 +544,7 @@ def os_context(service, tenant_id=None):
     max_lines = cfg["anomaly"]["maxLogLinesInTicket"]
     must = [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]
     if tenant_id:
-        must.append({"term": {"tenant_id.keyword": tenant_id}})
+        must.append({"bool": {"should": [{"term": {"tenant_id": tenant_id}}, {"term": {"tenant_id.keyword": tenant_id}}], "minimum_should_match": 1}})
     q = {
         "size": max_lines,
         "query": {"bool": {"must": must}},
@@ -851,7 +851,7 @@ def find_recent_duplicate_in_os(service, error_template, window_minutes, tenant_
             {"terms": {"state": ["identified", "acknowledged", "investigating"]}},
         ]
         if tenant_id:
-            must_clauses.append({"term": {"tenant_id.keyword": tenant_id}})
+            must_clauses.append({"bool": {"should": [{"term": {"tenant_id": tenant_id}}, {"term": {"tenant_id.keyword": tenant_id}}], "minimum_should_match": 1}})
         q = {
             "size": 1,
             "query": {"bool": {"must": must_clauses, "must_not": [
