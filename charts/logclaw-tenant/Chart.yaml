@@ -5,8 +5,8 @@ description: >
   Installs all subsystems: OTel Collector (OTLP ingestion), Kafka, Flink, OpenSearch,
   ML engine, Airflow, Ticketing Agent, Bridge (trace correlation), and Dashboard.
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 2.0.0
+appVersion: "2.0.0"   # Release: OPUS
 kubeVersion: ">=1.27.0-0"
 keywords:
   - logclaw
@@ -19,10 +19,6 @@ maintainers:
   - name: LogClaw Team
     email: support@logclaw.ai
 dependencies:
-  - name: logclaw-ingestion
-    version: "0.1.0"
-    repository: "file://../logclaw-ingestion"
-    condition: ingestion.enabled
   - name: logclaw-otel-collector
     version: "0.2.0"
     repository: "file://../logclaw-otel-collector"

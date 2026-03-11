@@ -29,7 +29,7 @@
     }
   ],
   "vars": {
-    "LOGCLAW_ENDPOINT": "https://uat-ticket.logclaw.ai"
+    "LOGCLAW_ENDPOINT": "https://ticket.logclaw.ai"
   },
   "workers_dev": true,
   "routes": [

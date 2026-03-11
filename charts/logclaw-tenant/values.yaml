@@ -88,9 +88,6 @@ global:
 # =============================================================
 # SUBCHART ENABLE/DISABLE TOGGLES
 # =============================================================
-ingestion:
-  enabled: false               # deprecated: replaced by OTel Collector (OTLP-native ingestion)
-
 otelCollector:
   enabled: true                 # OTLP ingestion gateway (gRPC :4317, HTTP :4318)
 

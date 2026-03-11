@@ -36,12 +36,12 @@ Apache Kafka cluster {{ .Release.Name }} has been deployed successfully.
   The Strimzi User Operator creates a Secret for each KafkaUser.
   Credentials are stored in:
 
-    Ingestion service:  secret/logclaw-ingestion   (namespace: {{ .Release.Namespace }})
-    Flink jobs:         secret/logclaw-flink        (namespace: {{ .Release.Namespace }})
-    Kafka Connect:      secret/logclaw-connect       (namespace: {{ .Release.Namespace }})
+    OTel Collector:     secret/logclaw-otel-collector (namespace: {{ .Release.Namespace }})
+    Flink jobs:         secret/logclaw-flink          (namespace: {{ .Release.Namespace }})
+    Kafka Connect:      secret/logclaw-connect        (namespace: {{ .Release.Namespace }})
 
   Retrieve a password:
-    kubectl get secret logclaw-ingestion -n {{ .Release.Namespace }} \
+    kubectl get secret logclaw-otel-collector -n {{ .Release.Namespace }} \
       -o jsonpath='{.data.password}' | base64 --decode
 
   Check user status:

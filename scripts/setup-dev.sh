@@ -147,22 +147,21 @@ fi
 # ── Step 10: Smoke test ──────────────────────────────────────────────
 step "10" "Smoke test — send a test log"
 
-info "Port-forwarding ingestion service..."
-kubectl port-forward svc/logclaw-ingestion-${TENANT_ID} 8080:8080 -n "${NAMESPACE}" &>/dev/null &
+info "Port-forwarding OTel Collector..."
+kubectl port-forward svc/logclaw-logclaw-otel-collector 4318:4318 -n "${NAMESPACE}" &>/dev/null &
 PF_PID=$!
 sleep 3
 
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080 \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:4318/v1/logs \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: ${TENANT_ID}" \
-  -d '{"timestamp":"2026-03-03T12:00:00Z","level":"ERROR","service":"test-service","message":"Smoke test log from setup script","trace_id":"00000000000000000000000000000001","span_id":"0000000000000001"}' 2>/dev/null || echo "000")
+  -d '{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"test-service"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"1709467200000000000","severityText":"ERROR","body":{"stringValue":"Smoke test log from setup script"}}]}]}]}' 2>/dev/null || echo "000")
 
 kill $PF_PID 2>/dev/null || true
 
 if [ "$STATUS" = "200" ]; then
-  ok "Log ingestion working (HTTP ${STATUS})"
+  ok "Log ingestion working via OTel Collector (HTTP ${STATUS})"
 else
-  warn "Ingestion returned HTTP ${STATUS} — may need a moment to start"
+  warn "OTel Collector returned HTTP ${STATUS} — may need a moment to start"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────
@@ -176,8 +175,8 @@ echo ""
 echo -e "  ${CYAN}Dashboard${RESET}        kubectl port-forward svc/logclaw-dashboard-${TENANT_ID} 3333:3000 -n ${NAMESPACE}"
 echo "                   → http://localhost:3333"
 echo ""
-echo -e "  ${CYAN}Log Ingestion${RESET}    kubectl port-forward svc/logclaw-ingestion-${TENANT_ID} 8080:8080 -n ${NAMESPACE}"
-echo "                   → POST http://localhost:8080 (Header: X-Tenant-ID: ${TENANT_ID})"
+echo -e "  ${CYAN}OTel Collector${RESET}   kubectl port-forward svc/logclaw-logclaw-otel-collector 4318:4318 -n ${NAMESPACE}"
+echo "                   → POST http://localhost:4318/v1/logs (OTLP HTTP)"
 echo ""
 echo -e "  ${CYAN}OpenSearch${RESET}       kubectl port-forward svc/logclaw-opensearch-${TENANT_ID} 9200:9200 -n ${NAMESPACE}"
 echo "                   → http://localhost:9200"
@@ -192,10 +191,9 @@ echo "    python3 scripts/generate-applepay-logs-2.py   # 400 infra/security err
 echo ""
 echo "  Ingest logs:"
 echo ""
-echo "    kubectl port-forward svc/logclaw-ingestion-${TENANT_ID} 8080:8080 -n ${NAMESPACE} &"
-echo '    curl -X POST http://localhost:8080 \'
+echo "    kubectl port-forward svc/logclaw-logclaw-otel-collector 4318:4318 -n ${NAMESPACE} &"
+echo '    curl -X POST http://localhost:4318/v1/logs \'
 echo '      -H "Content-Type: application/json" \'
-echo "      -H \"X-Tenant-ID: ${TENANT_ID}\" \\"
 echo '      -d @scripts/applepay-otel-500.json'
 echo ""
 echo "  Monitor pods:"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# LogClaw — Log Ingestion Helper
+# LogClaw — Log Ingestion Helper (via OTel Collector OTLP HTTP endpoint)
 # Usage:
 #   ./scripts/ingest-logs.sh <json-file>           # Ingest a JSON log file
 #   ./scripts/ingest-logs.sh --generate             # Generate + ingest sample logs
@@ -10,7 +10,7 @@ set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-logclaw}"
 TENANT_ID="${TENANT_ID:-logclaw}"
-INGESTION_PORT="${INGESTION_PORT:-8080}"
+OTEL_PORT="${OTEL_PORT:-4318}"
 BATCH_SIZE="${BATCH_SIZE:-50}"
 
 GREEN="\033[32m"
@@ -25,16 +25,16 @@ usage() {
   echo "  $0 --smoke         Send a single test log"
   echo ""
   echo "Environment variables:"
-  echo "  NAMESPACE          Kubernetes namespace (default: logclaw-dev-local)"
-  echo "  TENANT_ID          Tenant ID header (default: dev-local)"
-  echo "  INGESTION_PORT     Local port for ingestion (default: 8080)"
+  echo "  NAMESPACE          Kubernetes namespace (default: logclaw)"
+  echo "  TENANT_ID          Tenant ID (default: logclaw)"
+  echo "  OTEL_PORT          Local port for OTel Collector (default: 4318)"
   exit 1
 }
 
 ensure_port_forward() {
-  if ! curl -s -o /dev/null -w "" http://localhost:${INGESTION_PORT} 2>/dev/null; then
-    echo -e "${CYAN}Starting port-forward to ingestion service...${RESET}"
-    kubectl port-forward "svc/logclaw-ingestion-${TENANT_ID}" "${INGESTION_PORT}:8080" -n "${NAMESPACE}" &>/dev/null &
+  if ! curl -s -o /dev/null -w "" http://localhost:${OTEL_PORT}/v1/logs 2>/dev/null; then
+    echo -e "${CYAN}Starting port-forward to OTel Collector...${RESET}"
+    kubectl port-forward "svc/logclaw-logclaw-otel-collector" "${OTEL_PORT}:4318" -n "${NAMESPACE}" &>/dev/null &
     PF_PID=$!
     sleep 3
     trap "kill ${PF_PID} 2>/dev/null || true" EXIT
@@ -43,17 +43,18 @@ ensure_port_forward() {
 
 smoke_test() {
   ensure_port_forward
-  echo -e "${CYAN}Sending smoke test log...${RESET}"
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:${INGESTION_PORT}" \
+  echo -e "${CYAN}Sending smoke test log via OTLP...${RESET}"
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:${OTEL_PORT}/v1/logs" \
     -H "Content-Type: application/json" \
-    -H "X-Tenant-ID: ${TENANT_ID}" \
     -d "{
-      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",
-      \"level\": \"ERROR\",
-      \"service\": \"smoke-test\",
-      \"message\": \"Smoke test from ingest-logs.sh\",
-      \"trace_id\": \"$(python3 -c 'import uuid; print(uuid.uuid4().hex)')\",
-      \"span_id\": \"$(python3 -c 'import uuid; print(uuid.uuid4().hex[:16])')\"
+      \"resourceLogs\": [{
+        \"resource\": {\"attributes\": [{\"key\": \"service.name\", \"value\": {\"stringValue\": \"smoke-test\"}}]},
+        \"scopeLogs\": [{\"logRecords\": [{
+          \"timeUnixNano\": \"$(date +%s)000000000\",
+          \"severityText\": \"ERROR\",
+          \"body\": {\"stringValue\": \"Smoke test from ingest-logs.sh\"}
+        }]}]
+      }]
     }")
   if [ "$STATUS" = "200" ]; then
     echo -e "${GREEN}✓ Smoke test passed (HTTP 200)${RESET}"
@@ -72,7 +73,7 @@ ingest_file() {
 
   ensure_port_forward
 
-  echo -e "${CYAN}Ingesting logs from ${FILE}...${RESET}"
+  echo -e "${CYAN}Ingesting logs from ${FILE} via OTel Collector...${RESET}"
   python3 -c "
 import json, urllib.request, time, sys
 
@@ -86,9 +87,9 @@ success = errors = 0
 for i, log in enumerate(logs):
     data = json.dumps(log).encode('utf-8')
     req = urllib.request.Request(
-        'http://localhost:${INGESTION_PORT}',
+        'http://localhost:${OTEL_PORT}/v1/logs',
         data=data,
-        headers={'Content-Type': 'application/json', 'X-Tenant-ID': '${TENANT_ID}'},
+        headers={'Content-Type': 'application/json'},
         method='POST'
     )
     try:

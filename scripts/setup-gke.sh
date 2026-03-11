@@ -292,8 +292,8 @@ fi
 # ── Step 12: Ingest sample data ───────────────────────────────────────────
 step "12" "Ingest sample Apple Pay OTel logs"
 
-info "Port-forwarding ingestion service..."
-kubectl port-forward svc/logclaw-ingestion-${TENANT_ID} 8080:8080 -n "${NAMESPACE}" &>/dev/null &
+info "Port-forwarding OTel Collector..."
+kubectl port-forward svc/logclaw-logclaw-otel-collector 4318:4318 -n "${NAMESPACE}" &>/dev/null &
 PF_PID=$!
 sleep 5
 
@@ -306,20 +306,20 @@ if [ -f scripts/generate-applepay-logs.py ] && [ -f scripts/generate-applepay-lo
   for logfile in scripts/applepay-otel-500.json scripts/applepay-otel-400-batch2.json; do
     if [ -f "$logfile" ]; then
       COUNT=$(python3 -c "import json; print(len(json.load(open('$logfile'))))" 2>/dev/null || echo "?")
-      info "  Ingesting ${logfile} (${COUNT} logs)..."
+      info "  Ingesting ${logfile} (${COUNT} logs) via OTel Collector..."
       python3 -c "
 import json, urllib.request
 logs = json.load(open('$logfile'))
 for log in logs:
-    req = urllib.request.Request('http://localhost:8080',
+    req = urllib.request.Request('http://localhost:4318/v1/logs',
         data=json.dumps(log).encode(),
-        headers={'Content-Type': 'application/json', 'X-Tenant-ID': '${TENANT_ID}'})
+        headers={'Content-Type': 'application/json'})
     try: urllib.request.urlopen(req, timeout=5)
     except: pass
 " 2>/dev/null || warn "  Some logs may have failed to ingest"
     fi
   done
-  ok "Sample logs ingested"
+  ok "Sample logs ingested via OTel Collector"
 else
   warn "Log generation scripts not found — skipping sample data"
 fi
@@ -352,8 +352,8 @@ echo ""
 echo -e "  ${CYAN}Airflow${RESET}      kubectl port-forward svc/logclaw-airflow-${TENANT_ID}-webserver 8080:8080 -n ${NAMESPACE}"
 echo "               → http://localhost:8080 (admin/admin)"
 echo ""
-echo -e "  ${CYAN}Ingestion${RESET}    kubectl port-forward svc/logclaw-ingestion-${TENANT_ID} 8080:8080 -n ${NAMESPACE}"
-echo "               → POST http://localhost:8080 (Header: X-Tenant-ID: ${TENANT_ID})"
+echo -e "  ${CYAN}OTel Collector${RESET} kubectl port-forward svc/logclaw-logclaw-otel-collector 4318:4318 -n ${NAMESPACE}"
+echo "               → POST http://localhost:4318/v1/logs (OTLP HTTP)"
 echo ""
 echo "  ── Scaling Guide ────────────────────────────────────────"
 echo ""
