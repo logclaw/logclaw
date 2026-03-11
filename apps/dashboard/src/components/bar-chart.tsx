@@ -27,7 +27,7 @@ export default function BarChart({ title, data }: BarChartProps) {
       <div className="space-y-3">
         {data.map((d, i) => (
           <div key={d.label} className="flex items-center gap-2 sm:gap-3">
-            <span className="w-14 truncate text-[11px] font-medium text-[#6e6e73] sm:w-20 sm:text-[12px]">
+            <span className="w-24 truncate text-[11px] font-medium text-[#6e6e73] sm:w-36 sm:text-[12px]" title={d.label}>
               {d.label}
             </span>
             <div className="relative flex-1 h-[22px] overflow-hidden rounded-full bg-[#f5f5f7]">
