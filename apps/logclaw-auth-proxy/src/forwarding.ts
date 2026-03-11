@@ -67,11 +67,43 @@ export async function forwardToConsoleApi(
 }
 
 /**
+ * Forward request to Ticketing Agent endpoint
+ */
+export async function forwardToTicketingAgent(
+  path: string,
+  options: ForwardOptions
+): Promise<Response> {
+  const endpoint = process.env.TICKETING_AGENT_ENDPOINT || "http://logclaw-ticketing-agent:8080";
+  const url = `${endpoint}${path}`;
+
+  const fetchOptions: any = {
+    method: options.method,
+    headers: options.headers,
+    timeout: options.timeout || 30000,
+  };
+
+  if (options.body) {
+    fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+
+  try {
+    const response = await fetch(url, fetchOptions);
+    return response;
+  } catch (error) {
+    console.error(`Failed to forward to Ticketing Agent: ${url}`, error);
+    throw error;
+  }
+}
+
+/**
  * Determine which backend to use based on path
  */
-export function routeToBackend(path: string): "otel" | "console" {
+export function routeToBackend(path: string): "otel" | "console" | "ticketing" {
   if (path.startsWith("/v1/logs")) {
     return "otel";
+  }
+  if (path.startsWith("/ticketing/")) {
+    return "ticketing";
   }
   if (path.startsWith("/api/")) {
     return "console";

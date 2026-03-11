@@ -55,9 +55,14 @@ spec:
             - name: DB_URL
               value: {{ .Values.database.connectionString | quote }}
             {{- end }}
+            # ── Backend Services ───────────────────────────────────────────
+            - name: TICKETING_AGENT_ENDPOINT
+              value: "http://{{ .Release.Name }}-logclaw-ticketing-agent.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:8080"
             # ── OTEL Logging ────────────────────────────────────────────────
             - name: OTEL_SERVICE_NAME
               value: "logclaw-auth-proxy"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant_id={{ include "logclaw-auth-proxy.logclawTenantId" . }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
             {{- range $key, $value := .Values.env }}

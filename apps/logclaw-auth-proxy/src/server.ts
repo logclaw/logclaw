@@ -9,7 +9,7 @@ import {
   stripTenantIdFromQuery,
   getTenantIdHeader,
 } from "./tenant-enforcer.js";
-import { forwardToOtelCollectorHttp, forwardToConsoleApi, routeToBackend } from "./forwarding.js";
+import { forwardToOtelCollectorHttp, forwardToConsoleApi, forwardToTicketingAgent, routeToBackend } from "./forwarding.js";
 
 const app = express();
 const dbPool = new Pool({
@@ -84,6 +84,7 @@ const apiLimiter = rateLimit({
 
 app.use("/v1/logs", ingestLimiter);
 app.use(/^\/api\//, apiLimiter);
+app.use(/^\/ticketing\//, apiLimiter);
 
 // Middleware: Log requests
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -129,6 +130,52 @@ app.post("/v1/logs", async (req: Request, res: Response) => {
   } catch (error: any) {
     logger.error("Forward to OTel Collector failed", { error: error?.message });
     res.status(502).json({ error: "Failed to forward request to OTel Collector" });
+  }
+});
+
+// ── Ticketing Agent endpoints (incidents API — auth + tenant isolation) ──
+// Ingress rewrites uat-ticket.logclaw.ai/* → /ticketing/* so this route
+// catches all ticketing requests. We strip the /ticketing prefix, inject
+// the validated tenant_id as a query param, and forward to the agent.
+app.all(/^\/ticketing\//, async (req: Request, res: Response) => {
+  const validated = (req as any).validatedKey as ValidatedKey;
+
+  try {
+    // Strip caller's tenant_id (anti-spoofing)
+    const cleanQuery = stripTenantIdFromQuery(req.query as Record<string, any>);
+
+    // Inject validated tenant_id
+    cleanQuery.tenant_id = validated.tenantId;
+
+    // Remove /ticketing prefix → forward to ticketing agent
+    const backendPath = req.path.replace(/^\/ticketing/, "") || "/";
+    const queryString = new URLSearchParams(cleanQuery as Record<string, string>).toString();
+    const fullPath = queryString ? `${backendPath}?${queryString}` : backendPath;
+
+    const hasBody = !["GET", "HEAD", "DELETE"].includes(req.method.toUpperCase()) &&
+      req.body !== undefined && req.body !== null && Object.keys(req.body).length > 0;
+
+    const response = await forwardToTicketingAgent(fullPath, {
+      method: req.method,
+      headers: {
+        "content-type": "application/json",
+        ...getTenantIdHeader(validated.tenantId),
+      },
+      body: hasBody ? req.body : undefined,
+      timeout: 30000,
+    });
+
+    const responseBody = await response.text();
+    const fwdHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      if (!["connection", "transfer-encoding", "content-length", "keep-alive"].includes(key.toLowerCase())) {
+        fwdHeaders[key] = value;
+      }
+    });
+    res.status(response.status).set(fwdHeaders).send(responseBody);
+  } catch (error: any) {
+    logger.error("Forward to Ticketing Agent failed", { error: error?.message });
+    res.status(502).json({ error: "Failed to forward request to Ticketing Agent" });
   }
 });
 
@@ -198,6 +245,7 @@ app.listen(PORT, "0.0.0.0", () => {
     port: PORT,
     otelCollector: process.env.OTEL_COLLECTOR_HTTP_ENDPOINT,
     consoleApi: process.env.CONSOLE_API_ENDPOINT,
+    ticketingAgent: process.env.TICKETING_AGENT_ENDPOINT,
   });
 });
 
