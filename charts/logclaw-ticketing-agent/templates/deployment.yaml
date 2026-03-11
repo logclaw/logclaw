@@ -173,6 +173,9 @@ spec:
             - name: config
               mountPath: /config
               readOnly: true
+            - name: app
+              mountPath: /app
+              readOnly: true
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -185,3 +188,6 @@ spec:
         - name: config
           configMap:
             name: {{ include "logclaw-ticketing-agent.configMapName" . }}
+        - name: app
+          configMap:
+            name: {{ include "logclaw-ticketing-agent.fullname" . }}-app
