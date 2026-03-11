@@ -202,11 +202,12 @@ curl -X POST http://localhost:4318/v1/logs \
   }'
 ```
 
-### curl — Batch (Multiple Records)
+### curl — Batch (Multiple Records, LogClaw Cloud)
 
 ```bash
-curl -X POST http://localhost:4318/v1/logs \
+curl -X POST https://otel.logclaw.ai/v1/logs \
   -H "Content-Type: application/json" \
+  -H "x-logclaw-api-key: $LOGCLAW_API_KEY" \
   -d '{
     "resourceLogs": [{
       "resource": {
