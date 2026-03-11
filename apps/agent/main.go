@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
@@ -22,7 +23,7 @@ func setupLogging(ctx context.Context, tenantID string) (*sdklog.LoggerProvider,
 	res := resource.NewWithAttributes(
 		semconv.SchemaURL,
 		semconv.ServiceName("logclaw-agent"),
-		semconv.TenantIDKey.String(tenantID),
+		attribute.String("tenant.id", tenantID),
 	)
 	opts := []sdklog.LoggerProviderOption{sdklog.WithResource(res)}
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {

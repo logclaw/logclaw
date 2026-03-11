@@ -154,8 +154,8 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
             # Git SHA (always, for traceability)
             type=sha,prefix=sha-,format=short
-            # latest (only on main)
-            type=raw,value=latest,enable={{is_default_branch}}
+            # Release codename (only on main)
+            type=raw,value=opus,enable={{is_default_branch}}
             # PR number (for PR builds)
             type=ref,event=pr
 
