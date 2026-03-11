@@ -1,8 +1,10 @@
 name: Publish Helm Charts
 
 on:
-  push:
-    tags: ["v*"]
+  # Disabled auto-trigger — was creating unwanted charts/* packages in GHCR.
+  # Use workflow_dispatch to publish manually when needed.
+  # push:
+  #   tags: ["v*"]
   workflow_dispatch:
 
 jobs:
