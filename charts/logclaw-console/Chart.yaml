@@ -4,8 +4,8 @@ description: >
   LogClaw Enterprise Console: Multi-tenant SaaS dashboard with Clerk auth,
   project management, API key management, and OTLP log ingestion proxy.
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 2.0.0
+appVersion: "2.0.0"
 kubeVersion: ">=1.27.0-0"
 maintainers:
   - name: LogClaw Team

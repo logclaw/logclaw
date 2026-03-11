@@ -5,7 +5,7 @@ description: >
   Deployed via OpenSearch Kubernetes Operator CRD.
   Requires opensearch-operator v2.6.1+ pre-installed on the cluster.
 type: application
-version: 0.1.0
+version: 2.0.0
 appVersion: "2.14.0"
 kubeVersion: ">=1.27.0-0"
 maintainers:

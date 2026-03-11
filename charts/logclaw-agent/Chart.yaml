@@ -2,8 +2,8 @@ apiVersion: v2
 name: logclaw-agent
 description: LogClaw in-cluster infrastructure health agent — serves K8s CRD metrics via HTTP
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 2.0.0
+appVersion: "2.0.0"
 keywords:
   - logclaw
   - monitoring
