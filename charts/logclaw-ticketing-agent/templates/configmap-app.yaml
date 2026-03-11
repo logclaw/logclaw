@@ -159,7 +159,6 @@ data:
 
             resource = Resource.create({
                 "service.name": os.environ.get("OTEL_SERVICE_NAME", "logclaw-ticketing-agent"),
-                "tenant.id": TENANT_ID,
             })
             provider = LoggerProvider(resource=resource)
             endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
@@ -517,12 +516,15 @@ data:
 
 
     # ── Log context from OpenSearch ────────────────────────────────────────
-    def os_context(service):
+    def os_context(service, tenant_id=None):
         cfg = get_config()
         max_lines = cfg["anomaly"]["maxLogLinesInTicket"]
+        must = [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]
+        if tenant_id:
+            must.append({"term": {"tenant_id.keyword": tenant_id}})
         q = {
             "size": max_lines,
-            "query": {"bool": {"must": [{"term": {"service": service}}, {"terms": {"level": ["ERROR", "FATAL", "WARN"]}}]}},
+            "query": {"bool": {"must": must}},
             "sort": [{"_doc": "desc"}],
         }
         try:
@@ -757,8 +759,12 @@ data:
         atype = event.get("anomaly_type", "unknown")
 
         if atype == "request_failure":
-            error_pattern = event.get("root_cause", "")[:50]
-            dedup_key = f"{svc}:{atype}:{hashlib.md5(error_pattern.encode()).hexdigest()[:8]}"
+            # Semantic fingerprinting: normalized error template + category + root cause service
+            error_template = event.get("error_message", "")  # already normalized by bridge
+            error_category = event.get("error_category", "unknown")
+            root_svc = event.get("root_cause_service", svc)
+            fingerprint = f"{root_svc}:{error_category}:{error_template}"
+            dedup_key = f"{root_svc}:request_failure:{hashlib.md5(fingerprint.encode()).hexdigest()[:12]}"
         else:
             dedup_key = f"{svc}:{atype}"
 
@@ -823,7 +829,7 @@ data:
             "title": title,
             "description": event.get("description", ""),
             "service": svc,
-            "environment": TENANT_ID,
+            "environment": event.get("tenant_id", TENANT_ID),
             "anomaly_type": atype,
             "anomaly_score": event.get("anomaly_score", 0),
             "correlation_id": event.get("event_id", str(uuid.uuid4())),
@@ -843,7 +849,7 @@ data:
             "evidence_logs": [],
             "created_at": now, "updated_at": now, "detected_at": now,
             "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
-            "tenant_id": TENANT_ID,
+            "tenant_id": event.get("tenant_id", TENANT_ID),
             "timeline": [
                 {"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": f"Anomaly detected: {event.get('description', 'unknown anomaly')[:100]}", "actor": "system"}
             ],
@@ -852,7 +858,7 @@ data:
         }
 
         if atype == "error_rate_spike":
-            evidence = os_context(svc)
+            evidence = os_context(svc, tenant_id=event.get("tenant_id"))
             incident["evidence_logs"] = evidence[:max_lines]
 
         ext_refs = send_webhooks(incident)
@@ -1285,7 +1291,7 @@ data:
                     "evidence_logs": [],
                     "created_at": now, "updated_at": now, "detected_at": now,
                     "acknowledged_at": None, "mitigated_at": None, "resolved_at": None,
-                    "tenant_id": TENANT_ID,
+                    "tenant_id": params.get("tenant_id", [TENANT_ID])[0],
                     "timeline": [{"id": gen_request_id(), "timestamp": now, "type": "state_change", "state": "identified", "message": body.get("message", "Manually created incident"), "actor": body.get("actor", "operator")}],
                     "external_refs": [], "tags": body.get("tags", []),
                     "custom_fields": body.get("custom_fields", {}),
