@@ -34,6 +34,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import threading
@@ -67,6 +68,9 @@ _bridge_config = {
     "windowSeconds": int(os.environ.get("ANOMALY_WINDOW_SECONDS", "300")),
     "bulkSize": int(os.environ.get("OPENSEARCH_BULK_SIZE", "500")),
     "bulkIntervalSeconds": float(os.environ.get("OPENSEARCH_BULK_INTERVAL_SECONDS", "5")),
+    "compositeScoreThreshold": float(os.environ.get("ANOMALY_COMPOSITE_THRESHOLD", "0.3")),
+    "blastRadiusWindowSeconds": int(os.environ.get("ANOMALY_BLAST_RADIUS_WINDOW", "300")),
+    "immediateDedupSeconds": int(os.environ.get("ANOMALY_IMMEDIATE_DEDUP_SECONDS", "300")),
 }
 
 
@@ -76,17 +80,18 @@ def get_bridge_config() -> dict:
 
 
 def update_bridge_config(patch: dict) -> dict:
-    valid_keys = {"zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds"}
+    valid_keys = {
+        "zscoreThreshold", "windowSeconds", "bulkSize", "bulkIntervalSeconds",
+        "compositeScoreThreshold", "blastRadiusWindowSeconds", "immediateDedupSeconds",
+    }
     with _bridge_config_lock:
         for k, v in patch.items():
             if k not in valid_keys:
                 continue
-            if k == "zscoreThreshold":
+            if k in ("zscoreThreshold", "bulkIntervalSeconds", "compositeScoreThreshold"):
                 _bridge_config[k] = float(v)
-            elif k in ("windowSeconds", "bulkSize"):
+            elif k in ("windowSeconds", "bulkSize", "blastRadiusWindowSeconds", "immediateDedupSeconds"):
                 _bridge_config[k] = int(v)
-            elif k == "bulkIntervalSeconds":
-                _bridge_config[k] = float(v)
         return dict(_bridge_config)
 
 # ---------------------------------------------------------------------------
@@ -141,6 +146,10 @@ metrics = {
     "anomaly_consumed": 0,
     "anomaly_detected": 0,
     "anomaly_errors": 0,
+    "anomaly_std_zero_detected": 0,
+    "anomaly_below_threshold": 0,
+    "anomaly_immediate_detected": 0,
+    "anomaly_windowed_detected": 0,
     "indexer_consumed": 0,
     "indexer_indexed": 0,
     "indexer_bulk_requests": 0,
@@ -479,8 +488,10 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
     service = doc.get("service", "unknown")
     level = doc.get("level", "INFO").upper()
     is_error = level in ("ERROR", "FATAL", "CRITICAL")
+    tenant_id = doc.get("tenant_id", TENANT_ID)
 
     now_ts = time.time()
+    bucket_ts = int(now_ts // BUCKET_WIDTH) * BUCKET_WIDTH
 
     window = windows[service]
 
@@ -496,6 +507,25 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
         window.popleft()
 
     # ═══════════════════════════════════════════════════════════════════════
+    # STAGE 1: Extract per-record signals (pattern, severity, HTTP, structural)
+    # ═══════════════════════════════════════════════════════════════════════
+    signals = _extract_signals(doc)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # STAGE 2a: IMMEDIATE EMISSION — OOM, crash, resource exhaustion
+    # These cannot wait for windowed statistics.
+    # ═══════════════════════════════════════════════════════════════════════
+    if signals and _should_emit_immediately(signals):
+        if _can_emit_immediate(tenant_id, service, signals, now_ts,
+                               cfg.get("immediateDedupSeconds", 300)):
+            score, severity = _compute_composite_score(signals)
+            _emit_anomaly_event(
+                doc, signals, score, severity, tenant_id, service,
+                producer, detection_mode="immediate",
+            )
+            return
+
+    # ═══════════════════════════════════════════════════════════════════════
     # STAGE 2c: WINDOWED STATISTICAL SIGNALS
     # Z-score is ONE signal among many, not the sole gatekeeper
     # ═══════════════════════════════════════════════════════════════════════
@@ -508,8 +538,8 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
         rates.append(bucket.error_count / bucket.total_count if bucket.total_count > 0 else 0.0)
 
     rates_arr = np.array(rates, dtype=np.float64)
-    mean = np.mean(rates_arr)
-    std = np.std(rates_arr)
+    mean = float(np.mean(rates_arr))
+    std = float(np.std(rates_arr))
     current_rate = rates[-1]
     z_score: float | None = None
 
@@ -523,7 +553,7 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
             signals["zscore:elevated_baseline"] = mean
         # z_score stays None — composite scoring continues below
     else:
-        z_score = (current_rate - mean) / std
+        z_score = float((current_rate - mean) / std)
         if z_score >= cfg["zscoreThreshold"]:
             signals["zscore:spike"] = min(z_score / 5.0, 1.0)
 
@@ -531,7 +561,8 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
     # STAGE 2d: CONTEXTUAL SIGNALS (blast radius, velocity, recurrence)
     # ═══════════════════════════════════════════════════════════════════════
     if is_error:
-        br = _blast_radius_signal(tenant_id, service, now_ts, cfg["blastRadiusWindowSeconds"])
+        br = _blast_radius_signal(tenant_id, service, now_ts,
+                                  cfg.get("blastRadiusWindowSeconds", 300))
         if br > 0:
             signals["context:blast_radius"] = br
 
@@ -552,7 +583,7 @@ def _process_anomaly_record(doc: dict, windows: dict, producer: "KafkaProducer")
 
     score, severity = _compute_composite_score(signals)
 
-    if score < cfg["compositeScoreThreshold"]:
+    if score < cfg.get("compositeScoreThreshold", 0.3):
         metrics["anomaly_below_threshold"] += 1
         return
 
@@ -579,6 +610,54 @@ def _classify_zscore(z: float) -> tuple[str, float]:
         return "medium", 0.80
     else:
         return "low", 0.70
+
+
+# ---------------------------------------------------------------------------
+# Error normalization & classification (used by signal detection + lifecycle)
+# ---------------------------------------------------------------------------
+_RE_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
+_RE_IP = re.compile(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?')
+_RE_TS = re.compile(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:?\d{2})?')
+_RE_NUMERIC_ID = re.compile(r'(?<=[/=:# ])\d{4,}')
+_RE_LONG_QUOTED = re.compile(r'"[^"]{20,}"')
+_RE_HEX_TOKEN = re.compile(r'\b[0-9a-f]{16,}\b', re.I)
+_RE_WHITESPACE = re.compile(r'\s+')
+
+_ERROR_CATEGORIES = [
+    ("timeout", ["timeout", "timed out", "deadline exceeded", "context deadline"]),
+    ("connection_refused", ["connection refused", "connect error", "econnrefused", "connection reset"]),
+    ("authentication", ["unauthorized", "forbidden", "auth failed", "invalid token", "401", "403"]),
+    ("rate_limit", ["rate limit", "too many requests", "429", "throttl"]),
+    ("out_of_memory", ["out of memory", "oom", "heap space", "memory limit"]),
+    ("null_pointer", ["null pointer", "nil pointer", "nonetype", "undefined is not", "cannot read prop"]),
+    ("validation", ["validation", "invalid", "malformed", "bad request", "400"]),
+    ("not_found", ["not found", "404", "no such", "does not exist"]),
+    ("database", ["deadlock", "lock timeout", "duplicate key", "constraint violation", "sql"]),
+    ("resource_exhausted", ["disk full", "no space", "resource exhausted", "too many open"]),
+]
+
+
+def _normalize_error(message: str) -> str:
+    """Strip variable parts from error message to create a stable fingerprint template."""
+    msg = message
+    msg = _RE_UUID.sub("<UUID>", msg)
+    msg = _RE_IP.sub("<IP>", msg)
+    msg = _RE_TS.sub("<TS>", msg)
+    msg = _RE_HEX_TOKEN.sub("<HEX>", msg)
+    msg = _RE_NUMERIC_ID.sub("<ID>", msg)
+    msg = _RE_LONG_QUOTED.sub('"<STR>"', msg)
+    msg = msg.lower().strip()
+    msg = _RE_WHITESPACE.sub(" ", msg)
+    return msg
+
+
+def _classify_error(message: str) -> str:
+    """Categorize error by keyword matching."""
+    lower = message.lower()
+    for category, keywords in _ERROR_CATEGORIES:
+        if any(kw in lower for kw in keywords):
+            return category
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -890,50 +969,57 @@ def _emit_anomaly_event(
     error_template = _normalize_error(message)
     error_category = _classify_error(message)
 
+    # Extract stats from window_stats or use defaults
+    current_rate = window_stats.get("current_rate", 0.0) if window_stats else 0.0
+    mean_rate = window_stats.get("mean_rate", 0.0) if window_stats else 0.0
+    std_val = window_stats.get("std", 0.0) if window_stats else 0.0
+
     # Human-readable summary of top 3 signals
     top_signals = sorted(signals.items(), key=lambda x: x[1], reverse=True)[:3]
     signal_summary = ", ".join(f"{k}={v:.2f}" for k, v in top_signals)
 
-    description = (
-        f"Incident signal detected for service '{service}': "
-        f"score={score:.2f}, severity={severity}, mode={detection_mode}, "
-        f"signals=[{signal_summary}]"
-    )
+    if z_score is not None:
+        description = (
+            f"Error rate spike detected for service '{service}': "
+            f"z-score={z_score:.2f}, current_rate={current_rate:.3f}, "
+            f"mean_rate={mean_rate:.3f}, std={std_val:.3f}"
+        )
+        msg_text = f"Error rate spike: z={z_score:.2f} rate={current_rate:.3f} for {service}"
+    else:
+        description = (
+            f"Incident signal detected for service '{service}': "
+            f"score={score:.2f}, severity={severity}, mode={detection_mode}, "
+            f"signals=[{signal_summary}]"
+        )
+        msg_text = f"Anomaly detected: score={score:.2f} [{signal_summary}] for {service}"
 
     now = _now_iso()
     anomaly_event = {
-        # ── Backward-compatible fields ──
         "event_id": str(uuid.uuid4()),
         "@timestamp": now,
         "detected_at": now,
-        "tenant_id": TENANT_ID,
+        "tenant_id": tenant_id,
         "anomaly_type": "error_rate_spike",
         "severity": severity,
         "service": service,
-        "message": f"Error rate spike: z={z_score:.2f} rate={current_rate:.3f} for {service}",
-        "description": (
-            f"Error rate spike detected for service '{service}': "
-            f"z-score={z_score:.2f}, current_rate={current_rate:.3f}, "
-            f"mean_rate={mean:.3f}, std={std:.3f}"
-        ),
-        "anomaly_score": round(anomaly_score, 2),
+        "message": msg_text,
+        "description": description,
+        "anomaly_score": round(score, 2),
         "affected_endpoint": doc.get("endpoint", ""),
         "affected_services": [service],
         "evidence_logs": [],
         "status": "open",
-        "environment": TENANT_ID,
-        "z_score": round(z_score, 2),
+        "environment": tenant_id,
+        "z_score": round(z_score, 2) if z_score is not None else None,
         "error_rate": round(current_rate, 4),
-        # Signal-based detection metadata
-        "detection_mode": "windowed",
-        "signal_weights": {
-            "severity_score": 0.0,
-            "pattern_score": 0.0,
-            "statistical_score": round(anomaly_score, 2),
-            "z_score_raw": round(z_score, 2),
-            "total": round(anomaly_score, 2),
-        },
+        "detection_mode": detection_mode,
+        "signal_weights": {k: round(v, 3) for k, v in signals.items()},
+        "error_template": error_template,
+        "error_category": error_category,
     }
+
+    if window_stats:
+        anomaly_event["window_buckets"] = window_stats.get("buckets", 0)
 
     producer.send(KAFKA_TOPIC_ANOMALIES, value=anomaly_event)
     anomaly_queue.append(anomaly_event)

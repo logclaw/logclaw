@@ -103,7 +103,7 @@ config:
 
   # ── Anomaly processing ────────────────────────────────────────────────────────
   anomaly:
-    minimumScore: 0.85
+    minimumScore: 0.5
     contextWindowSeconds: 300
     maxLogLinesInTicket: 50
     deduplicationWindowMinutes: 15
