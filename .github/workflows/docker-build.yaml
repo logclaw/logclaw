@@ -195,5 +195,5 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| **Registry** | \`${{ env.REGISTRY_PATH }}/logclaw-${{ matrix.image }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Tags** | \`${{ steps.version.outputs.version }}\`, \`sha-${GITHUB_SHA::7}\`, \`latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tags** | \`${{ steps.version.outputs.version }}\`, \`sha-${GITHUB_SHA::7}\`, \`opus\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Platforms** | \`linux/amd64\`, \`linux/arm64\` |" >> $GITHUB_STEP_SUMMARY
