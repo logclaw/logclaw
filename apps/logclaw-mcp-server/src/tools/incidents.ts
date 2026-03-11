@@ -34,8 +34,8 @@ export async function listIncidents(args: Record<string, unknown>) {
 
 export async function getIncident(args: Record<string, unknown>) {
   const id = String(args.incident_id);
-  const res = await logclawFetch<{ data?: unknown }>(`/api/incidents/${id}`);
-  const incident = res.data ?? res;
+  const res = await logclawFetch<Record<string, unknown>>(`/api/incidents/${id}`);
+  const incident = "data" in res && typeof res.data === "object" && res.data !== null ? res.data : res;
 
   return {
     content: [
@@ -52,11 +52,11 @@ export async function updateIncident(args: Record<string, unknown>) {
   const action = String(args.action);
   const body = args.note ? { note: String(args.note) } : {};
 
-  const res = await logclawFetch<{ data?: unknown }>(
+  const res = await logclawFetch<Record<string, unknown>>(
     `/api/incidents/${id}/${action}`,
     { method: "POST", body },
   );
-  const incident = res.data ?? res;
+  const incident = "data" in res && typeof res.data === "object" && res.data !== null ? res.data : res;
 
   return {
     content: [

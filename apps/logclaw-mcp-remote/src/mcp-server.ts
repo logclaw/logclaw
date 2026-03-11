@@ -72,8 +72,8 @@ export class LogClawMCP extends McpAgent<Env, Record<string, never>, Props> {
       },
       { readOnlyHint: true },
       async (args) => {
-        const res = await logclawFetch<{ data?: unknown }>(`/api/incidents/${args.incident_id}`);
-        const incident = res.data ?? res;
+        const res = await logclawFetch<Record<string, unknown>>(`/api/incidents/${args.incident_id}`);
+        const incident = "data" in res && typeof res.data === "object" && res.data !== null ? res.data : res;
         return {
           content: [{
             type: "text" as const,
@@ -96,11 +96,11 @@ export class LogClawMCP extends McpAgent<Env, Record<string, never>, Props> {
       { readOnlyHint: false, destructiveHint: false },
       async (args) => {
         const body = args.note ? { note: String(args.note) } : {};
-        const res = await logclawFetch<{ data?: unknown }>(
+        const res = await logclawFetch<Record<string, unknown>>(
           `/api/incidents/${args.incident_id}/${args.action}`,
           { method: "POST", body },
         );
-        const incident = res.data ?? res;
+        const incident = "data" in res && typeof res.data === "object" && res.data !== null ? res.data : res;
         return {
           content: [{
             type: "text" as const,
