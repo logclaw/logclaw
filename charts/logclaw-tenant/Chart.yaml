@@ -24,7 +24,7 @@ dependencies:
     repository: "file://../logclaw-ingestion"
     condition: ingestion.enabled
   - name: logclaw-otel-collector
-    version: "0.1.0"
+    version: "0.2.0"
     repository: "file://../logclaw-otel-collector"
     condition: otelCollector.enabled
   - name: logclaw-kafka

@@ -3,8 +3,8 @@ fullnameOverride: ""
 replicaCount: 1
 
 image:
-  repository: "ghcr.io/logclaw/dashboard"
-  tag: "1.0.0"
+  repository: "ghcr.io/logclaw/logclaw-dashboard"
+  tag: "1.1.0"
   pullPolicy: IfNotPresent
 
 serviceAccount:

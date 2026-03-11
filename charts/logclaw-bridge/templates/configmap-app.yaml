@@ -123,7 +123,6 @@ data:
 
             resource = Resource.create({
                 "service.name": os.environ.get("OTEL_SERVICE_NAME", "logclaw-bridge"),
-                "tenant.id": TENANT_ID,
             })
             provider = LoggerProvider(resource=resource)
             endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")

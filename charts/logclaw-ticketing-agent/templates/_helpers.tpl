@@ -150,6 +150,18 @@ Name of the App ConfigMap (Python code).
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — the tenant for LogClaw's own dogfooding logs.
+Defaults to "logclaw" if not set via global.logclawTenantId.
+*/}}
+{{- define "logclaw-ticketing-agent.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Topology spread key — defaults to topology.kubernetes.io/zone if not set.
 */}}
 {{- define "logclaw-ticketing-agent.topologyKey" -}}

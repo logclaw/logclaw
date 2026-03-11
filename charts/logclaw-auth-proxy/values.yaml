@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: logclaw/logclaw-auth-proxy
+  repository: ghcr.io/logclaw/logclaw-auth-proxy
   pullPolicy: IfNotPresent
   tag: "1.0.0"
 

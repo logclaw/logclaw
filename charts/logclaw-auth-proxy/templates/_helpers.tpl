@@ -49,6 +49,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — the tenant for LogClaw's own dogfooding logs.
+*/}}
+{{- define "logclaw-auth-proxy.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "logclaw-auth-proxy.serviceAccountName" -}}

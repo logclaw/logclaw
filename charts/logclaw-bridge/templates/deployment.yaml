@@ -90,7 +90,7 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: "logclaw-bridge"
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "tenant.id={{ include "logclaw-bridge.tenantId" . }}"
+              value: "tenant_id={{ include "logclaw-bridge.logclawTenantId" . }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc.{{ .Values.global.clusterDomain | default "cluster.local" }}:4318"
             # ── Anomaly detection ───────────────────────────────────────────

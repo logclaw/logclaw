@@ -8,7 +8,7 @@ serviceAccount:
 
 flink:
   version: "1.19"
-  jobImageTag: "0.1.0"
+  jobImageTag: "0.2.2"
 
   # Flink configuration overrides (merged into flink-conf.yaml)
   config:

@@ -174,7 +174,6 @@ def _setup_otel_logging():
 
         resource = Resource.create({
             "service.name": os.environ.get("OTEL_SERVICE_NAME", "logclaw-ticketing-agent"),
-            "tenant.id": TENANT_ID,
         })
         provider = LoggerProvider(resource=resource)
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")

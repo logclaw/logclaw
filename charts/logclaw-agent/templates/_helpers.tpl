@@ -40,6 +40,17 @@ logclaw.io/tenant: {{ include "logclaw-agent.tenantId" . }}
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — the tenant for LogClaw's own dogfooding logs.
+*/}}
+{{- define "logclaw-agent.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Selector labels.
 */}}
 {{- define "logclaw-agent.selectorLabels" -}}

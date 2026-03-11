@@ -6,6 +6,9 @@ global:
   tenantId: ""
   tenantName: ""
 
+  # LogClaw's own dogfooding tenant (for self-monitoring logs)
+  logclawTenantId: "logclaw"
+
   # Multi-cloud storage (CSI-compatible — no cloud-specific names)
   storageClass: ""
   storageClassHighThroughput: ""
