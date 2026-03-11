@@ -1,0 +1,369 @@
+# ============================================================================
+# Production Tenant — us-west1 (Oregon, lowest latency to Silicon Valley)
+# Profile: lean-prod — cost-efficient for 100-500 customers, scales with HPA
+#
+# Design principles:
+#   - Start small, scale with demand (HPA + node autoscaler)
+#   - Kafka RF=1 (single broker) — sufficient for early stage, upgrade to 3 later
+#   - OpenSearch: 1 master + 1 data — ISM deletes logs at 7d, incidents at 90d
+#   - pd-balanced instead of pd-ssd (40% cheaper, fine for log workloads)
+#   - All stateless services at 1 replica with HPA ready to scale
+#
+# Estimated cost: ~$800-1,000/mo (3× e2-standard-4 nodes)
+# Scale path: bump Kafka to 3, OS data to 2, when >200 customers
+# ============================================================================
+
+tenantId: "prod"
+clusterServer: ""  # Set to prod GKE cluster API server URL
+
+global:
+  tier: "standard"
+  tenantId: "prod"
+  tenantName: "LogClaw Production"
+  storageClass: "standard-rwo"
+  storageClassHighThroughput: "standard-rwo"
+  imagePullSecrets:
+    - name: ghcr-logclaw
+  ingressClass: nginx
+  resourcePreset: small
+
+  kafkaBrokers: logclaw-kafka-bootstrap.logclaw.svc.cluster.local:9092
+  kafkaTopics:
+    rawLogs: raw-logs
+    enriched: enriched-logs
+    anomalies: anomaly-events
+
+  opensearchEndpoint: https://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200
+
+  secretStore:
+    provider: gcp
+    region: us-west1
+    projectId: ""  # Set to GCP project ID
+    gcp:
+      clusterName: logclaw-prod
+      clusterLocation: us-west1
+      projectId: ""  # Set to GCP project ID
+      serviceAccount: ""  # Set to SA email
+
+  objectStorage:
+    provider: gcs
+    bucket: logclaw-prod-data
+    region: us-west1
+
+  llm:
+    provider: disabled
+
+  monitoring:
+    enabled: false
+
+  tls:
+    enabled: true
+    clusterIssuer: logclaw-issuer
+    issuerKind: ClusterIssuer
+    issuerName: logclaw-issuer
+
+  podSecurityStandards:
+    enforce: privileged
+    audit: restricted
+    warn: restricted
+
+# ============================================================================
+# Component Configuration — Lean Production
+# ============================================================================
+
+# ── Kafka: 1 broker, 100Gi (scale to 3 at >200 customers) ─────────────────
+kafka:
+  enabled: true
+logclaw-kafka:
+  kafka:
+    replicas: 1
+    version: "4.0.0"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 1536Mi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    jvmOptions:
+      -Xms: 1g
+      -Xmx: 2g
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: 100Gi
+          deleteClaim: false
+    config:
+      default.replication.factor: "1"
+      min.insync.replicas: "1"
+      offsets.topic.replication.factor: "1"
+      transaction.state.log.replication.factor: "1"
+      transaction.state.log.min.isr: "1"
+      log.retention.hours: "48"
+      log.segment.bytes: "1073741824"
+      auto.create.topics.enable: "false"
+      num.io.threads: "8"
+      num.network.threads: "3"
+  topics:
+    rawLogs:
+      partitions: 6
+      replicas: 1
+      retentionMs: "172800000"       # 2 days in Kafka (ISM handles OS retention)
+      segmentBytes: "1073741824"
+    enriched:
+      partitions: 6
+      replicas: 1
+      retentionMs: "172800000"
+    anomalies:
+      partitions: 3
+      replicas: 1
+      retentionMs: "604800000"       # 7 days
+    dlq:
+      partitions: 1
+      replicas: 1
+      retentionMs: "2592000000"      # 30 days
+
+# ── OpenSearch: 1 master + 1 data, 100Gi ──────────────────────────────────
+# ISM policies handle retention: logs=7d, anomalies=90d, incidents=90d
+opensearch:
+  enabled: true
+logclaw-opensearch:
+  opensearch:
+    version: "2.14.0"
+    masters:
+      replicas: 1
+      diskSize: 20Gi
+      jvm:
+        xms: 1536m
+        xmx: 1536m
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 2Gi
+        limits:
+          cpu: "1"
+          memory: 3Gi
+    data:
+      replicas: 1
+      diskSize: 100Gi
+      jvm:
+        xms: 2g
+        xmx: 2g
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+    coordinators:
+      replicas: 0
+    security:
+      tls:
+        enabled: false
+  podDisruptionBudget:
+    masterNodes:
+      minAvailable: 0
+    dataNodes:
+      minAvailable: 0
+
+# ── OTel Collector: 2 replicas (HPA scales if ingestion spikes) ───────────
+otelCollector:
+  enabled: true
+logclaw-otel-collector:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "200m"
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# ── Flink: 1 task manager, parallelism 3 ──────────────────────────────────
+flink:
+  enabled: true
+logclaw-flink:
+  flink:
+    version: "1.19"
+    image:
+      repository: ghcr.io/logclaw/logclaw-flink-jobs
+      tag: "2.0.0"
+    jobImageTag: "2.0.0"
+    jobManager:
+      replicas: 1
+      cpu: 0.5
+      memory: 1024m
+    taskManager:
+      replicas: 1
+      cpu: 1
+      memory: 2048m
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+    etlJob:
+      enabled: true
+      parallelism: 3
+    enrichmentJob:
+      enabled: true
+      parallelism: 3
+    anomalyJob:
+      enabled: true
+      parallelism: 3
+    config:
+      execution.checkpointing.interval: "30s"
+      execution.checkpointing.mode: EXACTLY_ONCE
+      state.backend: rocksdb
+      taskmanager.numberOfTaskSlots: "4"
+    sessionCluster:
+      enabled: false
+  podDisruptionBudget:
+    minAvailable: 0
+
+# ── Bridge ────────────────────────────────────────────────────────────────
+bridge:
+  enabled: true
+logclaw-bridge:
+  image:
+    repository: ghcr.io/logclaw/logclaw-bridge
+    tag: "2.0.0"
+    pullPolicy: IfNotPresent
+  bridge:
+    resources:
+      requests:
+        cpu: "200m"
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+# ── Dashboard: 1 replica ─────────────────────────────────────────────────
+dashboard:
+  enabled: true
+logclaw-dashboard:
+  image:
+    repository: ghcr.io/logclaw/logclaw-dashboard
+    tag: "2.0.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+  service:
+    port: 3000
+    type: ClusterIP
+
+# ── Ticketing Agent: 1 replica, HPA scales to 5 ─────────────────────────
+ticketingAgent:
+  enabled: true
+logclaw-ticketing-agent:
+  image:
+    repository: ghcr.io/logclaw/logclaw-ticketing-agent
+    tag: "2.0.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 256Mi
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+
+# ── ML Engine: 1 Feast replica ───────────────────────────────────────────
+mlEngine:
+  enabled: true
+logclaw-ml-engine:
+  mlEngine:
+    feast:
+      replicaCount: 1
+      resources:
+        requests:
+          cpu: "200m"
+          memory: 256Mi
+        limits:
+          cpu: "500m"
+          memory: 512Mi
+    kserve:
+      enabled: false
+    ollama:
+      enabled: false
+  podDisruptionBudget:
+    minAvailable: 0
+
+# ── Airflow: 1 scheduler, 1 webserver ────────────────────────────────────
+airflow:
+  enabled: true
+logclaw-airflow:
+  airflow:
+    executor: KubernetesExecutor
+    images:
+      airflow:
+        repository: apache/airflow
+        tag: "2.9.3"
+    scheduler:
+      replicas: 1
+      resources:
+        requests:
+          cpu: "250m"
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1536Mi
+    webserver:
+      replicas: 1
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      defaultUser:
+        enabled: false
+    redis:
+      enabled: false
+    statsd:
+      enabled: false
+    triggerer:
+      replicas: 0
+    workers:
+      replicas: 0
+    flower:
+      enabled: false
+  podDisruptionBudget:
+    scheduler:
+      minAvailable: 0
+    webserver:
+      minAvailable: 0
+
+# ── Ingress ──────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  api:
+    host: api.logclaw.ai
+  dashboard:
+    host: app.logclaw.ai
+  ticketing:
+    host: ticket.logclaw.ai
+  otel:
+    host: otel.logclaw.ai
+  flink:
+    host: flink.logclaw.ai
+  airflow:
+    host: airflow.logclaw.ai
