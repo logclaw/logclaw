@@ -8,9 +8,16 @@
 #   - OpenSearch: 1 master + 1 data — ISM deletes logs at 7d, incidents at 90d
 #   - pd-balanced instead of pd-ssd (40% cheaper, fine for log workloads)
 #   - All stateless services at 1 replica with HPA ready to scale
+#   - No GCP Global LB — nginx-ingress handles routing
+#   - Cloud SQL db-f1-micro for console DB (minimal data)
 #
-# Estimated cost: ~$800-1,000/mo (3× e2-standard-4 nodes)
-# Scale path: bump Kafka to 3, OS data to 2, when >200 customers
+# Node sizing: 2× e2-standard-4 (4 vCPU, 16 GB each)
+#   Node 1 (stateful): Kafka + OpenSearch master + OpenSearch data
+#   Node 2 (stateless): Flink, OTel, Bridge, Dashboard, Ticketing, Airflow, Feast
+#
+# Estimated cost: ~$253/mo on-demand ($200 GCP credit available until June 2)
+#   Compute: $196 | Storage: $25 | Cloud SQL: $8 | Network+NAT: $24
+# Scale path: add 3rd node + bump Kafka to 3, OS data to 2, when >200 customers
 # ============================================================================
 
 tenantId: "prod"
