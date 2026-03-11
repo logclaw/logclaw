@@ -58,9 +58,12 @@ spec:
       initContainers:
         - name: sysctl
           image: busybox:1.36
-          command: ["sh", "-c", "sysctl -w vm.max_map_count=262144 || true"]
+          command: ["sh", "-c", "sysctl -w vm.max_map_count=262144 || true; chown -R 1000:1000 /usr/share/opensearch/data"]
           securityContext:
             privileged: true
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
       containers:
         - name: opensearch
           image: "opensearchproject/opensearch:{{ .Values.opensearch.version }}"

@@ -1,3 +1,4 @@
+{{- if not .Values.opensearch.devMode.enabled }}
 apiVersion: opensearch.opster.io/v1
 kind: OpenSearchCluster
 metadata:
@@ -117,3 +118,4 @@ spec:
           labelSelector:
             matchLabels:
               opster.io/opensearch-nodepool: coordinators
+{{- end }}

@@ -6,7 +6,7 @@
 #   - Start small, scale with demand (HPA + node autoscaler)
 #   - Kafka RF=1 (single broker) — sufficient for early stage, upgrade to 3 later
 #   - OpenSearch: 1 master + 1 data — ISM deletes logs at 7d, incidents at 90d
-#   - pd-balanced instead of pd-ssd (40% cheaper, fine for log workloads)
+#   - pd-standard (HDD) for PVCs — avoids 250GB SSD quota, fine for log workloads
 #   - All stateless services at 1 replica with HPA ready to scale
 #   - No GCP Global LB — nginx-ingress handles routing
 #   - Cloud SQL db-f1-micro for console DB (minimal data)
@@ -27,8 +27,9 @@ global:
   tier: "standard"
   tenantId: "prod"
   tenantName: "LogClaw Production"
-  storageClass: "standard-rwo"
-  storageClassHighThroughput: "standard-rwo"
+  storageClass: "standard"
+  storageClassHighThroughput: "standard"
+  imageRegistry: ""                # override chart default to prevent Bitnami prefix issue
   imagePullSecrets:
     - name: ghcr-logclaw
   ingressClass: nginx
@@ -40,7 +41,7 @@ global:
     enriched: enriched-logs
     anomalies: anomaly-events
 
-  opensearchEndpoint: https://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200
+  opensearchEndpoint: http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200
 
   secretStore:
     provider: gcp
@@ -82,6 +83,8 @@ global:
 kafka:
   enabled: true
 logclaw-kafka:
+  kafkaConnect:
+    enabled: false
   kafka:
     replicas: 1
     version: "4.0.0"
@@ -101,6 +104,7 @@ logclaw-kafka:
         - id: 0
           type: persistent-claim
           size: 100Gi
+          class: standard
           deleteClaim: false
     config:
       default.replication.factor: "1"
@@ -132,26 +136,29 @@ logclaw-kafka:
       replicas: 1
       retentionMs: "2592000000"      # 30 days
 
-# ── OpenSearch: 1 master + 1 data, 100Gi ──────────────────────────────────
+# ── OpenSearch: standalone single-node (devMode bypasses Opster bootstrap race) ─
 # ISM policies handle retention: logs=7d, anomalies=90d, incidents=90d
+# Security plugin disabled in devMode — switch to Opster CRD when scaling to 3+ masters
 opensearch:
   enabled: true
 logclaw-opensearch:
   opensearch:
     version: "2.14.0"
+    devMode:
+      enabled: true
     masters:
       replicas: 1
       diskSize: 20Gi
       jvm:
-        xms: 1536m
-        xmx: 1536m
+        xms: 2g
+        xmx: 2g
       resources:
         requests:
           cpu: "500m"
           memory: 2Gi
         limits:
-          cpu: "1"
-          memory: 3Gi
+          cpu: "2"
+          memory: 4Gi
     data:
       replicas: 1
       diskSize: 100Gi
@@ -181,6 +188,8 @@ otelCollector:
   enabled: true
 logclaw-otel-collector:
   replicaCount: 2
+  image:
+    tag: "0.114.0"
   resources:
     requests:
       cpu: "200m"
@@ -298,6 +307,9 @@ mlEngine:
 logclaw-ml-engine:
   mlEngine:
     feast:
+      image:
+        repository: feastdev/feature-server
+        tag: "0.40.0"
       replicaCount: 1
       resources:
         requests:
@@ -310,6 +322,15 @@ logclaw-ml-engine:
       enabled: false
     ollama:
       enabled: false
+  redis:
+    image:
+      registry: docker.io
+      tag: latest
+    replica:
+      replicaCount: 0
+    master:
+      persistence:
+        size: "5Gi"
   podDisruptionBudget:
     minAvailable: 0
 
@@ -319,10 +340,21 @@ airflow:
 logclaw-airflow:
   airflow:
     executor: KubernetesExecutor
+    data:
+      metadataSecretName: logclaw-metadata
     images:
       airflow:
         repository: apache/airflow
         tag: "2.9.3"
+    dags:
+      gitSync:
+        enabled: false
+    postgresql:
+      image:
+        registry: docker.io
+        tag: latest
+      persistence:
+        size: "5Gi"
     scheduler:
       replicas: 1
       resources:

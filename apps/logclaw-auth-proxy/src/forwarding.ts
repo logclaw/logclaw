@@ -96,6 +96,42 @@ export async function forwardToTicketingAgent(
 }
 
 /**
+ * Forward request to OpenSearch endpoint
+ */
+export async function forwardToOpenSearch(
+  path: string,
+  options: ForwardOptions
+): Promise<Response> {
+  const endpoint = process.env.OPENSEARCH_ENDPOINT || "https://logclaw-opensearch:9200";
+  const username = process.env.OPENSEARCH_USERNAME || "admin";
+  const password = process.env.OPENSEARCH_PASSWORD || "";
+  const url = `${endpoint}${path}`;
+
+  const auth = Buffer.from(`${username}:${password}`).toString("base64");
+
+  const fetchOptions: any = {
+    method: options.method,
+    headers: {
+      ...options.headers,
+      Authorization: `Basic ${auth}`,
+    },
+    timeout: options.timeout || 30000,
+  };
+
+  if (options.body) {
+    fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+
+  try {
+    const response = await fetch(url, fetchOptions);
+    return response;
+  } catch (error) {
+    console.error(`Failed to forward to OpenSearch: ${url}`, error);
+    throw error;
+  }
+}
+
+/**
  * Determine which backend to use based on path
  */
 export function routeToBackend(path: string): "otel" | "console" | "ticketing" {

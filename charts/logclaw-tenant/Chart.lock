@@ -1,30 +1,30 @@
 dependencies:
 - name: logclaw-otel-collector
   repository: file://../logclaw-otel-collector
-  version: 0.2.0
+  version: 2.0.0
 - name: logclaw-kafka
   repository: file://../logclaw-kafka
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-flink
   repository: file://../logclaw-flink
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-opensearch
   repository: file://../logclaw-opensearch
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-ml-engine
   repository: file://../logclaw-ml-engine
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-airflow
   repository: file://../logclaw-airflow
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-ticketing-agent
   repository: file://../logclaw-ticketing-agent
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-bridge
   repository: file://../logclaw-bridge
-  version: 0.1.0
+  version: 2.0.0
 - name: logclaw-dashboard
   repository: file://../logclaw-dashboard
-  version: 0.2.0
-digest: sha256:8441cbab9d98909e6206b323503204266bd12b8ac7433d9e6570ffa65cf0e8f6
-generated: "2026-03-10T16:17:29.148133-05:00"
+  version: 2.0.0
+digest: sha256:b3b4a23b017528844912ba2ac5dfb841c5110e9e5841b80775fda1e5de73041f
+generated: "2026-03-11T05:41:19.370033-05:00"

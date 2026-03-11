@@ -9,7 +9,7 @@ import {
   stripTenantIdFromQuery,
   getTenantIdHeader,
 } from "./tenant-enforcer.js";
-import { forwardToOtelCollectorHttp, forwardToConsoleApi, forwardToTicketingAgent, routeToBackend } from "./forwarding.js";
+import { forwardToOtelCollectorHttp, forwardToConsoleApi, forwardToTicketingAgent, forwardToOpenSearch, routeToBackend } from "./forwarding.js";
 
 const app = express();
 const dbPool = new Pool({
@@ -178,6 +178,62 @@ app.all(/^\/ticketing\//, async (req: Request, res: Response) => {
     res.status(502).json({ error: "Failed to forward request to Ticketing Agent" });
   }
 });
+
+// ── OpenSearch direct search (MCP server + programmatic access) ──
+// These routes inject tenant_id filter into the OpenSearch query and
+// forward directly to OpenSearch. Must be defined BEFORE the catch-all
+// /api/* route that forwards to the Console API.
+const OS_SEARCH_ROUTES = [
+  { path: "/api/logs/_search", index: "logclaw-logs-*" },
+  { path: "/api/anomalies/_search", index: "logclaw-anomalies-*" },
+];
+
+for (const route of OS_SEARCH_ROUTES) {
+  app.post(route.path, async (req: Request, res: Response) => {
+    const validated = (req as any).validatedKey as ValidatedKey;
+    try {
+      const body = req.body as any;
+
+      // Inject tenant_id filter into the query
+      const tenantFilter = {
+        bool: {
+          should: [
+            { term: { tenant_id: validated.tenantId } },
+            { term: { "tenant_id.keyword": validated.tenantId } },
+          ],
+          minimum_should_match: 1,
+        },
+      };
+
+      // Wrap existing query in a bool/must with tenant filter
+      const existingQuery = body.query || { match_all: {} };
+      body.query = {
+        bool: {
+          must: [existingQuery, tenantFilter],
+        },
+      };
+
+      const response = await forwardToOpenSearch(`/${route.index}/_search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        timeout: 30000,
+      });
+
+      const responseBody = await response.text();
+      const fwdHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        if (!["connection", "transfer-encoding", "content-length", "keep-alive"].includes(key.toLowerCase())) {
+          fwdHeaders[key] = value;
+        }
+      });
+      res.status(response.status).set(fwdHeaders).send(responseBody);
+    } catch (error: any) {
+      logger.error("Forward to OpenSearch failed", { error: error?.message, route: route.path });
+      res.status(502).json({ error: "Failed to forward request to OpenSearch" });
+    }
+  });
+}
 
 // API endpoints (queries, reads, admin)
 app.all(/^\/api\//, async (req: Request, res: Response) => {
