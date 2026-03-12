@@ -22,6 +22,7 @@ features:
     display_name: LogClaw
     always_online: true
   app_home:
+    home_tab_enabled: true
     messages_tab_enabled: false
     messages_tab_read_only_enabled: false
 
@@ -40,6 +41,9 @@ settings:
     request_url: https://slack.logclaw.ai/events
     bot_events:
       - app_mention
+      - app_home_opened
+      - app_uninstalled
+      - tokens_revoked
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

@@ -6,9 +6,9 @@
  * via ctx.waitUntil().
  */
 import { Hono } from "hono";
-import { getInstallation } from "./installations.js";
+import { getInstallation, deleteInstallation } from "./installations.js";
 import { getHistory, saveHistory } from "./conversations.js";
-import { postMessage, updateMessage } from "./slack-api.js";
+import { postMessage, updateMessage, publishHome } from "./slack-api.js";
 import { runAgentLoop } from "./lib/agent.js";
 
 export const eventsApp = new Hono<{ Bindings: Env }>();
@@ -81,17 +81,68 @@ eventsApp.post("/events", async (c) => {
 
   // 4. ACK immediately — Slack requires <3 second response
   const event = body.event;
+
   if (event?.type === "app_mention") {
-    // Process async — this runs after we return 200
     c.executionCtx.waitUntil(
       handleMention(c.env, event).catch((err) => {
         console.error("handleMention error:", err);
       }),
     );
+  } else if (event?.type === "app_home_opened") {
+    const teamId = body.team_id as string;
+    c.executionCtx.waitUntil(
+      handleAppHome(c.env, event, teamId).catch((err) => {
+        console.error("handleAppHome error:", err);
+      }),
+    );
+  } else if (event?.type === "app_uninstalled" || body.type === "event_callback" && event?.type === "app_uninstalled") {
+    // Clean up installation data when app is removed
+    const teamId = body.team_id as string;
+    if (teamId) {
+      c.executionCtx.waitUntil(
+        deleteInstallation(c.env.SLACK_INSTALLATIONS, teamId).catch((err) => {
+          console.error("deleteInstallation error:", err);
+        }),
+      );
+    }
+  } else if (event?.type === "tokens_revoked") {
+    // Handle token revocations — clean up affected installations
+    const teamId = body.team_id as string;
+    if (teamId) {
+      c.executionCtx.waitUntil(
+        deleteInstallation(c.env.SLACK_INSTALLATIONS, teamId).catch((err) => {
+          console.error("deleteInstallation (tokens_revoked) error:", err);
+        }),
+      );
+    }
   }
 
   return c.text("", 200);
 });
+
+// ── App Home handler ─────────────────────────────────────────────
+
+interface AppHomeEvent {
+  type: string;
+  user: string;
+  tab: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  view?: any;
+}
+
+async function handleAppHome(env: Env, event: AppHomeEvent, teamId: string): Promise<void> {
+  if (event.tab !== "home") return;
+  if (!teamId) return;
+
+  const installation = await getInstallation(env.SLACK_INSTALLATIONS, teamId);
+  if (!installation) return;
+
+  await publishHome(
+    installation.botToken,
+    event.user,
+    !!installation.logclawApiKey,
+  );
+}
 
 // ── Async mention handler ────────────────────────────────────────
 
