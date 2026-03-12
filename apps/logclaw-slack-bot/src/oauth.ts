@@ -143,7 +143,11 @@ oauthApp.post("/link", async (c) => {
       return c.html(renderApiKeyForm(newState, "", "Invalid or revoked API key."));
     }
 
-    if (!res.ok) {
+    // 502/503/504 = backend temporarily down but key format is valid — proceed
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      console.warn(`LogClaw API returned ${res.status} during key validation — proceeding (key format valid)`);
+      // Fall through to link the key anyway
+    } else if (!res.ok) {
       const newState = crypto.randomUUID();
       await c.env.OAUTH_STATE.put(`link:${newState}`, teamId, { expirationTtl: 600 });
       return c.html(renderApiKeyForm(newState, "", `LogClaw API returned ${res.status}. Please try again.`));
