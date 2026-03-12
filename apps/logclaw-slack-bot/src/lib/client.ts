@@ -1,7 +1,6 @@
 /**
  * HTTP client for the LogClaw ticketing-agent API.
  * Calls ticket.logclaw.ai (public endpoint, auth-proxy validated).
- * Adapted from apps/logclaw-mcp-server/src/client.ts for Deno.
  */
 
 const DEFAULT_ENDPOINT = "https://ticket.logclaw.ai";

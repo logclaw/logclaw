@@ -2,7 +2,7 @@
  * Incident management tools — adapted from apps/logclaw-mcp-server/src/tools/incidents.ts.
  * Returns raw JSON objects instead of MCP content wrappers.
  */
-import { createClient } from "../client.ts";
+import { createClient } from "../client.js";
 
 type Fetch = ReturnType<typeof createClient>["logclawFetch"];
 

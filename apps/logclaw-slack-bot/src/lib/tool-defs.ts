@@ -1,6 +1,6 @@
 /**
  * OpenAI function-calling tool definitions.
- * Converted from the MCP server Zod schemas (apps/logclaw-mcp-server/src/index.ts).
+ * Converted from the MCP server Zod schemas.
  */
 
 export interface ToolDef {

@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "logclaw-slack-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  /**
+   * Secrets (set via `npx wrangler secret put <NAME>`):
+   *   SLACK_CLIENT_ID       — Slack app client ID
+   *   SLACK_CLIENT_SECRET   — Slack app client secret
+   *   SLACK_SIGNING_SECRET  — Slack Events API signing secret
+   *   OPENAI_API_KEY        — OpenAI API key for the AI agent
+   */
+  "kv_namespaces": [
+    {
+      "binding": "SLACK_INSTALLATIONS",
+      "id": "PLACEHOLDER_INSTALLATIONS"
+    },
+    {
+      "binding": "CONVERSATIONS",
+      "id": "PLACEHOLDER_CONVERSATIONS"
+    },
+    {
+      "binding": "OAUTH_STATE",
+      "id": "PLACEHOLDER_OAUTH_STATE"
+    }
+  ],
+  "vars": {
+    "LOGCLAW_ENDPOINT": "https://ticket.logclaw.ai"
+  },
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "slack.logclaw.ai/*",
+      "zone_name": "logclaw.ai"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8788
+  }
+}

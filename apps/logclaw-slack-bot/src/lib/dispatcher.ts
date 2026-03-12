@@ -1,16 +1,16 @@
 /**
  * Routes an OpenAI tool_call to the correct LogClaw API function.
  */
-import { createClient } from "./client.ts";
+import { createClient } from "./client.js";
 import {
   listIncidents,
   getIncident,
   updateIncident,
   forwardIncident,
   bulkUpdateIncidents,
-} from "./tools/incidents.ts";
-import { searchLogs, getAnomalies } from "./tools/logs.ts";
-import { serviceHealth } from "./tools/health.ts";
+} from "./tools/incidents.js";
+import { searchLogs, getAnomalies } from "./tools/logs.js";
+import { serviceHealth } from "./tools/health.js";
 
 export async function executeToolCall(
   name: string,

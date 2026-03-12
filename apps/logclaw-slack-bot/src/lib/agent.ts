@@ -2,8 +2,8 @@
  * AI agent loop using OpenAI function calling.
  * Takes a user message, runs tool calls in a loop, returns final text.
  */
-import { TOOL_DEFINITIONS } from "./tool_defs.ts";
-import { executeToolCall } from "./dispatcher.ts";
+import { TOOL_DEFINITIONS } from "./tool-defs.js";
+import { executeToolCall } from "./dispatcher.js";
 
 const SYSTEM_PROMPT = `You are LogClaw, an AI-powered incident management assistant in Slack.
 

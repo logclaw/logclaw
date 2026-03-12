@@ -1,7 +1,7 @@
 /**
  * Service health check — adapted from apps/logclaw-mcp-server/src/tools/health.ts.
  */
-import { createClient } from "../client.ts";
+import { createClient } from "../client.js";
 
 type Fetch = ReturnType<typeof createClient>["logclawFetch"];
 

@@ -1,7 +1,7 @@
 /**
  * Log and anomaly search tools — adapted from apps/logclaw-mcp-server/src/tools/logs.ts.
  */
-import { createClient } from "../client.ts";
+import { createClient } from "../client.js";
 
 type Fetch = ReturnType<typeof createClient>["logclawFetch"];
 
@@ -40,17 +40,16 @@ export async function searchLogs(
     _source: ["timestamp", "service", "level", "message", "trace_id", "span_id", "host"],
   };
 
-  // deno-lint-ignore no-explicit-any
-  const res = await fetch<any>("/api/logs/_search", {
+  const res = await fetch<Record<string, unknown>>("/api/logs/_search", {
     method: "POST",
     body,
     timeout: 20_000,
   });
 
-  const hits = res.hits?.hits ?? [];
-  // deno-lint-ignore no-explicit-any
-  const logs = hits.map((h: any) => h._source);
-  return { total: res.hits?.total?.value ?? logs.length, logs };
+  const hits = ((res.hits as Record<string, unknown>)?.hits as Array<Record<string, unknown>>) ?? [];
+  const logs = hits.map((h) => h._source);
+  const total = (res.hits as Record<string, unknown>)?.total;
+  return { total: (total as Record<string, unknown>)?.value ?? logs.length, logs };
 }
 
 export async function getAnomalies(
@@ -78,15 +77,14 @@ export async function getAnomalies(
     ],
   };
 
-  // deno-lint-ignore no-explicit-any
-  const res = await fetch<any>("/api/anomalies/_search", {
+  const res = await fetch<Record<string, unknown>>("/api/anomalies/_search", {
     method: "POST",
     body,
     timeout: 20_000,
   });
 
-  const hits = res.hits?.hits ?? [];
-  // deno-lint-ignore no-explicit-any
-  const anomalies = hits.map((h: any) => ({ id: h._id, ...h._source }));
-  return { total: res.hits?.total?.value ?? anomalies.length, anomalies };
+  const hits = ((res.hits as Record<string, unknown>)?.hits as Array<Record<string, unknown>>) ?? [];
+  const anomalies = hits.map((h) => ({ id: h._id, ...(h._source as object) }));
+  const total = (res.hits as Record<string, unknown>)?.total;
+  return { total: (total as Record<string, unknown>)?.value ?? anomalies.length, anomalies };
 }

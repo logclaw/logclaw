@@ -1,0 +1,167 @@
+/**
+ * Slack Events API handler.
+ *
+ * Receives app_mention events, verifies the Slack signature,
+ * ACKs immediately (<3s), then processes the mention async
+ * via ctx.waitUntil().
+ */
+import { Hono } from "hono";
+import { getInstallation } from "./installations.js";
+import { getHistory, saveHistory } from "./conversations.js";
+import { postMessage, updateMessage } from "./slack-api.js";
+import { runAgentLoop } from "./lib/agent.js";
+
+export const eventsApp = new Hono<{ Bindings: Env }>();
+
+// ── Slack signature verification ─────────────────────────────────
+
+async function verifySlackSignature(
+  signingSecret: string,
+  signature: string | null,
+  timestamp: string | null,
+  rawBody: string,
+): Promise<boolean> {
+  if (!signature || !timestamp) return false;
+
+  // Reject if timestamp is more than 5 minutes old (replay attack protection)
+  const ts = Number(timestamp);
+  if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
+
+  const sigBaseString = `v0:${timestamp}:${rawBody}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(signingSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(sigBaseString));
+  const hex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return signature === `v0=${hex}`;
+}
+
+// ── Strip @mention prefix ────────────────────────────────────────
+
+function stripMention(text: string): string {
+  return text.replace(/<@[A-Z0-9]+>\s*/g, "").trim();
+}
+
+// ── POST /events — Slack Events API webhook ──────────────────────
+
+eventsApp.post("/events", async (c) => {
+  const rawBody = await c.req.text();
+  const body = JSON.parse(rawBody);
+
+  // 1. URL verification challenge (one-time Slack setup)
+  if (body.type === "url_verification") {
+    return c.json({ challenge: body.challenge });
+  }
+
+  // 2. Verify Slack signature
+  const sig = c.req.header("x-slack-signature");
+  const ts = c.req.header("x-slack-request-timestamp");
+  const valid = await verifySlackSignature(c.env.SLACK_SIGNING_SECRET, sig, ts, rawBody);
+  if (!valid) {
+    return c.text("Invalid signature", 401);
+  }
+
+  // 3. Deduplication — skip if we've already processed this event
+  const eventId = body.event_id as string | undefined;
+  if (eventId) {
+    const seen = await c.env.CONVERSATIONS.get(`dedup:${eventId}`);
+    if (seen) {
+      return c.text("", 200); // Already processed
+    }
+    // Mark as seen with 5-minute TTL
+    await c.env.CONVERSATIONS.put(`dedup:${eventId}`, "1", { expirationTtl: 300 });
+  }
+
+  // 4. ACK immediately — Slack requires <3 second response
+  const event = body.event;
+  if (event?.type === "app_mention") {
+    // Process async — this runs after we return 200
+    c.executionCtx.waitUntil(
+      handleMention(c.env, event).catch((err) => {
+        console.error("handleMention error:", err);
+      }),
+    );
+  }
+
+  return c.text("", 200);
+});
+
+// ── Async mention handler ────────────────────────────────────────
+
+interface SlackEvent {
+  type: string;
+  text: string;
+  user: string;
+  channel: string;
+  ts: string;
+  thread_ts?: string;
+  team: string;
+}
+
+async function handleMention(env: Env, event: SlackEvent): Promise<void> {
+  const { text, user, channel, ts, thread_ts, team } = event;
+  const threadTs = thread_ts || ts; // thread root or the message itself
+
+  // 1. Look up workspace installation
+  const installation = await getInstallation(env.SLACK_INSTALLATIONS, team);
+  if (!installation) {
+    console.error(`No installation found for team ${team}`);
+    return;
+  }
+
+  if (!installation.logclawApiKey) {
+    // Workspace installed but API key not linked yet
+    await postMessage(
+      installation.botToken,
+      channel,
+      `:warning: LogClaw is installed but not connected to a project yet.\n` +
+        `Please visit <https://slack.logclaw.ai/oauth/install|Setup LogClaw> to link your API key.`,
+      threadTs,
+    );
+    return;
+  }
+
+  // 2. Post "thinking" placeholder
+  const thinking = await postMessage(
+    installation.botToken,
+    channel,
+    `:hourglass_flowing_sand: <@${user}> Analyzing your request...`,
+    threadTs,
+  );
+
+  // 3. Load conversation history for follow-up context
+  const history = await getHistory(env.CONVERSATIONS, channel, threadTs);
+
+  // 4. Run AI agent loop
+  const cleanText = stripMention(text);
+  let response: string;
+  try {
+    response = await runAgentLoop(
+      cleanText,
+      env.OPENAI_API_KEY,
+      installation.logclawApiKey,
+      history,
+    );
+  } catch (e: unknown) {
+    console.error("Agent loop error:", e);
+    response = ":warning: Something went wrong while processing your request. Please try again.";
+  }
+
+  // 5. Update thinking message with the real response
+  if (thinking.ts) {
+    await updateMessage(installation.botToken, channel, thinking.ts, response);
+  } else {
+    // Fallback: post a new message if the update fails
+    await postMessage(installation.botToken, channel, response, threadTs);
+  }
+
+  // 6. Save conversation turn for follow-up context
+  await saveHistory(env.CONVERSATIONS, channel, threadTs, history, cleanText, response);
+}
