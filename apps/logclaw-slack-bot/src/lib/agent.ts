@@ -1,6 +1,6 @@
 /**
  * AI agent loop using OpenAI function calling.
- * Takes a user message, runs tool calls in a loop, returns final text.
+ * Takes a user message, runs tool calls in a loop, returns text + raw tool results.
  */
 import { TOOL_DEFINITIONS } from "./tool-defs.js";
 import { executeToolCall } from "./dispatcher.js";
@@ -21,10 +21,9 @@ TOOLS AVAILABLE:
 
 FORMATTING RULES:
 - Use Slack mrkdwn: *bold*, \`code\`, _italic_
-- Keep responses concise (under 2000 characters)
-- For incident lists, use a compact format:
-  \`:rotating_light: \`TICK-0001\` *Title* | critical | identified\`
-- For actions, confirm what you did briefly
+- Keep responses concise — 1-2 sentence summary of what you found or did
+- DO NOT manually format incident tables, log lists, or anomaly lists — the system renders those automatically as rich cards
+- For actions (acknowledge, resolve, forward), confirm what you did briefly
 - If no results found, say so clearly
 
 BEHAVIOR:
@@ -59,18 +58,30 @@ interface OpenAIResponse {
   }>;
 }
 
+export interface ToolResult {
+  name: string;
+  result: unknown;
+}
+
+export interface AgentResult {
+  text: string;
+  toolResults: ToolResult[];
+}
+
 export async function runAgentLoop(
   userMessage: string,
   openaiKey: string,
   logclawKey: string,
   conversationHistory: ChatMessage[] = [],
   model = "gpt-4o-mini",
-): Promise<string> {
+): Promise<AgentResult> {
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...conversationHistory,
     { role: "user", content: userMessage },
   ];
+
+  const toolResults: ToolResult[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const res = await fetch(OPENAI_URL, {
@@ -95,15 +106,15 @@ export async function runAgentLoop(
       console.error(`OpenAI API error ${res.status}: ${err.slice(0, 200)}`);
       // Try fallback model on first failure
       if (i === 0 && model === "gpt-4o-mini") {
-        return await runAgentLoop(userMessage, openaiKey, logclawKey, conversationHistory, "gpt-4o");
+        return runAgentLoop(userMessage, openaiKey, logclawKey, conversationHistory, "gpt-4o");
       }
-      return "⚠️ AI service temporarily unavailable. Try again shortly.";
+      return { text: "⚠️ AI service temporarily unavailable. Try again shortly.", toolResults: [] };
     }
 
     const data: OpenAIResponse = await res.json();
     const choice = data.choices?.[0];
     if (!choice) {
-      return "⚠️ Unexpected AI response. Please try again.";
+      return { text: "⚠️ Unexpected AI response. Please try again.", toolResults: [] };
     }
 
     // Add assistant message to history
@@ -113,9 +124,12 @@ export async function runAgentLoop(
       tool_calls: choice.message.tool_calls,
     });
 
-    // If no tool calls, we're done — return the text
+    // If no tool calls, we're done — return the text + accumulated tool results
     if (choice.finish_reason === "stop" || !choice.message.tool_calls?.length) {
-      return choice.message.content || "I processed your request but have no additional information to share.";
+      return {
+        text: choice.message.content || "I processed your request but have no additional information to share.",
+        toolResults,
+      };
     }
 
     // Execute tool calls
@@ -140,6 +154,11 @@ export async function runAgentLoop(
         result = { error: msg };
       }
 
+      // Capture successful tool results for Block Kit formatting
+      if (result && typeof result === "object" && !("error" in (result as Record<string, unknown>))) {
+        toolResults.push({ name: toolCall.function.name, result });
+      }
+
       // Truncate large tool results to keep context manageable
       let resultStr = JSON.stringify(result);
       if (resultStr.length > 8000) {
@@ -154,5 +173,5 @@ export async function runAgentLoop(
     }
   }
 
-  return "I reached the maximum reasoning steps. Please try a simpler or more specific query.";
+  return { text: "I reached the maximum reasoning steps. Please try a simpler or more specific query.", toolResults };
 }

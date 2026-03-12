@@ -9,7 +9,8 @@ import { Hono } from "hono";
 import { getInstallation, deleteInstallation } from "./installations.js";
 import { getHistory, saveHistory } from "./conversations.js";
 import { postMessage, updateMessage, publishHome } from "./slack-api.js";
-import { runAgentLoop } from "./lib/agent.js";
+import { runAgentLoop, type AgentResult } from "./lib/agent.js";
+import { buildBlocks } from "./formatters.js";
 
 export const eventsApp = new Hono<{ Bindings: Env }>();
 
@@ -199,9 +200,9 @@ async function handleMention(env: Env, event: SlackEvent): Promise<void> {
 
   // 4. Run AI agent loop
   const cleanText = stripMention(text);
-  let response: string;
+  let agentResult: AgentResult;
   try {
-    response = await runAgentLoop(
+    agentResult = await runAgentLoop(
       cleanText,
       env.OPENAI_API_KEY,
       installation.logclawApiKey,
@@ -209,17 +210,24 @@ async function handleMention(env: Env, event: SlackEvent): Promise<void> {
     );
   } catch (e: unknown) {
     console.error("Agent loop error:", e);
-    response = ":warning: Something went wrong while processing your request. Please try again.";
+    agentResult = {
+      text: ":warning: Something went wrong while processing your request. Please try again.",
+      toolResults: [],
+    };
   }
 
-  // 5. Update thinking message with the real response
+  // 5. Build Block Kit blocks from tool results
+  const blocks = buildBlocks(agentResult.toolResults);
+  const richBlocks = blocks.length > 0 ? blocks : undefined;
+
+  // 6. Update thinking message with the real response + rich blocks
   if (thinking.ts) {
-    await updateMessage(installation.botToken, channel, thinking.ts, response);
+    await updateMessage(installation.botToken, channel, thinking.ts, agentResult.text, richBlocks);
   } else {
     // Fallback: post a new message if the update fails
-    await postMessage(installation.botToken, channel, response, threadTs);
+    await postMessage(installation.botToken, channel, agentResult.text, threadTs, richBlocks);
   }
 
-  // 6. Save conversation turn for follow-up context
-  await saveHistory(env.CONVERSATIONS, channel, threadTs, history, cleanText, response);
+  // 7. Save conversation turn for follow-up context (text only, not blocks)
+  await saveHistory(env.CONVERSATIONS, channel, threadTs, history, cleanText, agentResult.text);
 }

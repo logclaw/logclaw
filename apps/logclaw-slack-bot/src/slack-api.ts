@@ -16,9 +16,11 @@ export async function postMessage(
   channel: string,
   text: string,
   threadTs?: string,
+  blocks?: unknown[],
 ): Promise<SlackResponse> {
   const body: Record<string, unknown> = { channel, text };
   if (threadTs) body.thread_ts = threadTs;
+  if (blocks?.length) body.blocks = blocks;
 
   return slackFetch(token, "chat.postMessage", body);
 }
@@ -28,8 +30,11 @@ export async function updateMessage(
   channel: string,
   ts: string,
   text: string,
+  blocks?: unknown[],
 ): Promise<SlackResponse> {
-  return slackFetch(token, "chat.update", { channel, ts, text });
+  const body: Record<string, unknown> = { channel, ts, text };
+  if (blocks?.length) body.blocks = blocks;
+  return slackFetch(token, "chat.update", body);
 }
 
 export async function publishHome(
