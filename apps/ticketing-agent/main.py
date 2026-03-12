@@ -88,6 +88,7 @@ _config = {
         "model": os.environ.get("LLM_MODEL", ""),
         "endpoint": os.environ.get("LLM_ENDPOINT", ""),
         "api_key": os.environ.get("LLM_API_KEY", ""),
+        "providers": [],  # Ordered fallback chain — populated by _init_provider_chain()
     },
 }
 
@@ -101,9 +102,12 @@ def get_config(mask_secrets=False):
             for key in list(platform.keys()):
                 if key in _SECRET_FIELDS and platform[key]:
                     platform[key] = "****"
-        # Mask LLM API key
+        # Mask LLM API keys
         if cfg.get("llm", {}).get("api_key"):
             cfg["llm"]["api_key"] = "****"
+        for p in cfg.get("llm", {}).get("providers", []):
+            if p.get("api_key"):
+                p["api_key"] = "****"
     return cfg
 
 
@@ -139,6 +143,14 @@ INCIDENT_INDEX = f"logclaw-incidents-{TENANT_ID}"
 consumer_ready = threading.Event()
 lock = threading.Lock()
 stats = {"consumed": 0, "created": 0, "skipped": 0, "webhooks_sent": 0, "webhooks_failed": 0, "llm_calls": 0, "llm_failures": 0}
+llm_provider_stats = {}  # {"openai:gpt-4o-mini": {"success": 0, "failure": 0, "skipped": 0}, ...}
+
+
+def _track_provider_stat(cb_key, outcome):
+    """Track per-provider+model LLM call outcome."""
+    if cb_key not in llm_provider_stats:
+        llm_provider_stats[cb_key] = {"success": 0, "failure": 0, "skipped": 0}
+    llm_provider_stats[cb_key][outcome] += 1
 
 # ── Audit Trail ──────────────────────────────────────────────────────────
 _audit_log = []  # In-memory ring buffer of recent audit entries
@@ -557,108 +569,286 @@ def os_context(service, tenant_id=None):
         return []
 
 
+# ── LLM Provider Chain + Circuit Breaker ─────────────────────────────
+
+_PROVIDER_ENDPOINTS = {
+    "claude": "https://api.anthropic.com",
+    "openai": "https://api.openai.com",
+}
+_PROVIDER_DEFAULT_MODELS = {
+    "claude": "claude-3-5-haiku-latest",
+    "openai": "gpt-4o-mini",
+    "ollama": "llama3.2:8b",
+}
+
+# Circuit breaker — keyed by "provider:model"
+_circuit_breakers = {}
+_CB_FAILURE_THRESHOLD = int(os.environ.get("LLM_CB_FAILURE_THRESHOLD", "3"))
+_CB_COOLDOWN_SECONDS = int(os.environ.get("LLM_CB_COOLDOWN_SECONDS", "60"))
+
+
+def _cb_key(name, model):
+    return f"{name}:{model}"
+
+
+def _cb_is_open(key):
+    """Check if circuit breaker is tripped (provider+model should be skipped)."""
+    cb = _circuit_breakers.get(key)
+    if not cb or not cb.get("tripped_at"):
+        return False
+    elapsed = time.time() - cb["tripped_at"]
+    if elapsed >= _CB_COOLDOWN_SECONDS:
+        cb["tripped_at"] = None
+        cb["failures"] = 0
+        return False
+    return True
+
+
+def _cb_record_failure(key):
+    """Record a failure. Trip breaker if threshold reached."""
+    cb = _circuit_breakers.setdefault(key, {"failures": 0, "tripped_at": None})
+    cb["failures"] += 1
+    if cb["failures"] >= _CB_FAILURE_THRESHOLD:
+        cb["tripped_at"] = time.time()
+        log(f"Circuit breaker TRIPPED for {key} after {cb['failures']} consecutive failures")
+
+
+def _cb_record_success(key):
+    """Record success. Reset breaker state."""
+    cb = _circuit_breakers.get(key)
+    if cb:
+        cb["failures"] = 0
+        cb["tripped_at"] = None
+
+
+def _build_provider_entry(name, model=None):
+    """Build a provider chain entry dict."""
+    return {
+        "name": name,
+        "model": model or _PROVIDER_DEFAULT_MODELS.get(name, ""),
+        "endpoint": _PROVIDER_ENDPOINTS.get(name, os.environ.get("LLM_ENDPOINT", "")),
+        "api_key": "",   # Empty = use default keys; user can override via API
+        "enabled": True,
+    }
+
+
+def _init_provider_chain():
+    """Build the provider fallback chain from env vars.
+    LLM_PROVIDERS: comma-separated 'provider:model' pairs, e.g.
+      'openai:gpt-4o-mini,openai:gpt-4o,claude:claude-3-5-haiku-latest,claude:claude-sonnet-4-20250514'
+    Falls back to single LLM_PROVIDER for backward compat."""
+    providers_env = os.environ.get("LLM_PROVIDERS", "")
+
+    if providers_env:
+        chain = []
+        for entry in providers_env.split(","):
+            entry = entry.strip()
+            if ":" in entry:
+                name, model = entry.split(":", 1)
+            else:
+                name, model = entry, ""
+            name = name.strip().lower()
+            model = model.strip()
+            if name and name != "disabled" and name in VALID_LLM_PROVIDERS:
+                chain.append(_build_provider_entry(name, model))
+        with _config_lock:
+            _config["llm"]["providers"] = chain
+            if chain:
+                _config["llm"]["provider"] = chain[0]["name"]
+    else:
+        # Legacy single-provider mode
+        provider = _config["llm"]["provider"]
+        if provider and provider != "disabled":
+            with _config_lock:
+                _config["llm"]["providers"] = [
+                    _build_provider_entry(provider, _config["llm"].get("model", ""))
+                ]
+
+
+# Initialize chain at module load
+_init_provider_chain()
+
+
 # ── LLM Integration — Universal Caller + Trace Analysis ──────────────
 
-def _resolve_api_key(provider):
-    """Resolve API key: runtime config > provider-specific env > generic env."""
+def _resolve_api_key(provider_name, provider_entry=None):
+    """Resolve API key with priority: user runtime key > LogClaw default key > legacy env.
+    User keys come from dashboard PATCH (per-provider or legacy single).
+    Default keys come from DEFAULT_ANTHROPIC_API_KEY / DEFAULT_OPENAI_API_KEY env vars.
+    Legacy keys come from ANTHROPIC_API_KEY / OPENAI_API_KEY / LLM_API_KEY env vars."""
+    # 1. Per-provider user-provided runtime key (from dashboard)
+    if provider_entry:
+        runtime_key = provider_entry.get("api_key", "")
+        if runtime_key and runtime_key != "****":
+            return runtime_key
+    # 2. Legacy single-provider runtime key
     cfg = get_config()
-    runtime_key = cfg["llm"].get("api_key", "")
-    if runtime_key and runtime_key != "****":
-        return runtime_key
-    if provider == "claude":
+    legacy_key = cfg["llm"].get("api_key", "")
+    if legacy_key and legacy_key != "****":
+        return legacy_key
+    # 3. LogClaw's default API keys (set by operator via Helm/K8s secrets)
+    if provider_name == "claude":
+        default_key = os.environ.get("DEFAULT_ANTHROPIC_API_KEY", "")
+        if default_key:
+            return default_key
         return os.environ.get("ANTHROPIC_API_KEY", os.environ.get("LLM_API_KEY", ""))
-    if provider == "openai":
+    if provider_name == "openai":
+        default_key = os.environ.get("DEFAULT_OPENAI_API_KEY", "")
+        if default_key:
+            return default_key
         return os.environ.get("OPENAI_API_KEY", os.environ.get("LLM_API_KEY", ""))
     return os.environ.get("LLM_API_KEY", "")
 
 
-def _call_llm(prompt, system=""):
-    """Universal LLM caller routing to configured provider.
-    Uses the official Anthropic SDK for Claude; OpenAI-compatible REST for others.
-    Returns response text or empty string on error/disabled."""
-    cfg = get_config()
-    llm = cfg["llm"]
-    provider = llm["provider"]
-    endpoint = llm.get("endpoint", "")
-    model = llm.get("model", "")
-    temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
-    max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
-    timeout_s = int(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
+def _call_single_llm(provider_name, endpoint, model, api_key, prompt, system="",
+                      temperature=None, max_tokens=None, timeout_s=None):
+    """Call a single LLM provider+model. Returns response text or raises Exception."""
+    if temperature is None:
+        temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
+    if max_tokens is None:
+        max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+    if timeout_s is None:
+        timeout_s = int(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
 
-    if provider == "disabled" or not endpoint:
+    if provider_name in ("ollama", "vllm"):
+        url = endpoint.rstrip("/") + "/v1/chat/completions"
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        payload = json.dumps({
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        })
+        req = Request(url, data=payload.encode(),
+                     headers={"Content-Type": "application/json"}, method="POST")
+        resp = json.loads(urlopen(req, timeout=timeout_s).read())
+        text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            raise ValueError(f"{provider_name} returned empty response")
+        return text
+
+    elif provider_name == "claude":
+        import anthropic
+        if not api_key:
+            raise ValueError("No API key for claude")
+        base_url = endpoint.rstrip("/") if endpoint != "https://api.anthropic.com" else None
+        client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=float(timeout_s))
+        kwargs = {
+            "model": model or "claude-3-5-haiku-latest",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            kwargs["system"] = system
+        message = client.messages.create(**kwargs)
+        text = message.content[0].text if message.content else ""
+        if not text:
+            raise ValueError("Claude returned empty response")
+        return text
+
+    elif provider_name == "openai":
+        import openai
+        if not api_key:
+            raise ValueError("No API key for openai")
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url=endpoint.rstrip("/") + "/v1" if endpoint else None,
+            timeout=float(timeout_s),
+        )
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        response = client.chat.completions.create(
+            model=model or "gpt-4o-mini",
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        text = response.choices[0].message.content or ""
+        if not text:
+            raise ValueError("OpenAI returned empty response")
+        return text
+
+    else:
+        raise ValueError(f"Unknown provider: {provider_name}")
+
+
+def _call_llm(prompt, system=""):
+    """Universal LLM caller with multi-provider+model fallback and circuit breaker.
+    Tries providers in chain order, skipping circuit-broken ones.
+    Returns response text or empty string if all providers fail/disabled."""
+    cfg = get_config()
+    providers = cfg["llm"].get("providers", [])
+
+    # Backward compat: if no providers chain, build from legacy single provider
+    if not providers:
+        legacy = cfg["llm"]["provider"]
+        if legacy == "disabled" or not legacy:
+            return ""
+        providers = [{
+            "name": legacy,
+            "model": cfg["llm"].get("model", ""),
+            "endpoint": cfg["llm"].get("endpoint", ""),
+            "api_key": cfg["llm"].get("api_key", ""),
+            "enabled": True,
+        }]
+
+    if not providers:
         return ""
 
     stats["llm_calls"] += 1
-    try:
-        if provider in ("ollama", "vllm"):
-            url = endpoint.rstrip("/") + "/v1/chat/completions"
-            messages = []
-            if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": prompt})
-            payload = json.dumps({
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            })
-            req = Request(url, data=payload.encode(),
-                         headers={"Content-Type": "application/json"}, method="POST")
-            resp = json.loads(urlopen(req, timeout=timeout_s).read())
-            return resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+    last_error = None
 
-        elif provider == "claude":
-            # Use the official Anthropic SDK for Claude calls
-            import anthropic
-            api_key = _resolve_api_key("claude")
-            if not api_key:
-                log("LLM call skipped (claude): no API key configured")
-                return ""
-            # Allow custom base_url (defaults to https://api.anthropic.com)
-            base_url = endpoint.rstrip("/") if endpoint != "https://api.anthropic.com" else None
-            client = anthropic.Anthropic(
+    for i, p in enumerate(providers):
+        name = p["name"]
+        model = p.get("model", "")
+        endpoint = p.get("endpoint", "")
+
+        if not p.get("enabled", True):
+            continue
+        if not endpoint:
+            continue
+
+        key = _cb_key(name, model)
+
+        # Circuit breaker check
+        if _cb_is_open(key):
+            log(f"LLM {key} skipped (circuit breaker open)")
+            _track_provider_stat(key, "skipped")
+            continue
+
+        api_key = _resolve_api_key(name, p)
+
+        try:
+            result = _call_single_llm(
+                provider_name=name,
+                endpoint=endpoint,
+                model=model,
                 api_key=api_key,
-                base_url=base_url,
-                timeout=float(timeout_s),
+                prompt=prompt,
+                system=system,
             )
-            kwargs = {
-                "model": model or "claude-sonnet-4-20250514",
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            if system:
-                kwargs["system"] = system
-            message = client.messages.create(**kwargs)
-            return message.content[0].text if message.content else ""
+            # Success
+            _cb_record_success(key)
+            _track_provider_stat(key, "success")
+            if i > 0:
+                log(f"LLM fallback succeeded: {key} (after {i} skipped/failed provider(s))")
+            return result
 
-        elif provider == "openai":
-            # Use the official OpenAI SDK for OpenAI calls
-            import openai
-            api_key = _resolve_api_key("openai")
-            if not api_key:
-                log("LLM call skipped (openai): no API key configured")
-                return ""
-            client = openai.OpenAI(
-                api_key=api_key,
-                base_url=endpoint.rstrip("/") + "/v1" if endpoint else None,
-                timeout=float(timeout_s),
-            )
-            messages = []
-            if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": prompt})
-            response = client.chat.completions.create(
-                model=model or "gpt-4o",
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return response.choices[0].message.content or ""
+        except Exception as e:
+            last_error = e
+            _cb_record_failure(key)
+            _track_provider_stat(key, "failure")
+            log(f"LLM call failed ({key}): {e}")
 
-    except Exception as e:
-        stats["llm_failures"] += 1
-        log(f"LLM call failed ({provider}): {e}")
+    # All providers failed
+    stats["llm_failures"] += 1
+    log(f"All LLM providers exhausted. Last error: {last_error}")
     return ""
 
 
@@ -703,7 +893,7 @@ def _analyze_trace_with_llm(event):
     }
 
     cfg = get_config()
-    if cfg["llm"]["provider"] == "disabled":
+    if cfg["llm"]["provider"] == "disabled" and not cfg["llm"].get("providers"):
         return defaults
 
     # Build structured trace log lines
@@ -1537,24 +1727,12 @@ def test_platform_connection(platform: str) -> dict:
         return {"ok": False, "message": str(e)[:200], "latency_ms": ms}
 
 
-def test_llm_connection() -> dict:
-    """Perform a lightweight connectivity test for the configured LLM provider."""
-    cfg = get_config()
-    llm = cfg["llm"]
-    provider = llm["provider"]
-    endpoint = llm.get("endpoint", "")
-    model = llm.get("model", "")
-
-    if provider == "disabled":
-        return {"ok": False, "message": "LLM provider is disabled", "latency_ms": 0}
-    if not endpoint:
-        return {"ok": False, "message": "No endpoint configured", "latency_ms": 0}
-
+def _test_single_provider(provider_name, endpoint, model, api_key) -> dict:
+    """Test connectivity for a single provider+model. Returns {ok, message, latency_ms}."""
     import time as _t
     start = _t.time()
     try:
-        if provider == "ollama":
-            # Ollama: GET /api/tags to list available models
+        if provider_name == "ollama":
             url = endpoint.rstrip("/") + "/api/tags"
             req = Request(url, headers={"Accept": "application/json"}, method="GET")
             resp = urlopen(req, timeout=10)
@@ -1567,8 +1745,7 @@ def test_llm_connection() -> dict:
                 msg += f" (warning: '{model}' not found)"
             return {"ok": True, "message": msg, "latency_ms": ms}
 
-        elif provider == "vllm":
-            # vLLM: GET /v1/models (OpenAI-compatible)
+        elif provider_name == "vllm":
             url = endpoint.rstrip("/") + "/v1/models"
             req = Request(url, headers={"Accept": "application/json"}, method="GET")
             resp = urlopen(req, timeout=10)
@@ -1577,49 +1754,44 @@ def test_llm_connection() -> dict:
             ms = int((_t.time() - start) * 1000)
             return {"ok": True, "message": f"Connected — models: {', '.join(models[:3])}", "latency_ms": ms}
 
-        elif provider == "claude":
-            # Claude: use the Anthropic SDK to validate API key + connectivity
+        elif provider_name == "claude":
             import anthropic
-            api_key = _resolve_api_key("claude")
             if not api_key:
-                return {"ok": False, "message": "No API key configured — set it above or via ANTHROPIC_API_KEY env var", "latency_ms": 0}
+                return {"ok": False, "message": "No API key configured", "latency_ms": 0}
             base_url = endpoint.rstrip("/") if endpoint != "https://api.anthropic.com" else None
             client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=10.0)
             msg = client.messages.create(
-                model=model or "claude-sonnet-4-20250514",
+                model=model or "claude-3-5-haiku-latest",
                 max_tokens=16,
                 messages=[{"role": "user", "content": "Say OK"}],
             )
             ms = int((_t.time() - start) * 1000)
             text = msg.content[0].text if msg.content else ""
-            return {"ok": True, "message": f"Connected — {model or 'claude-sonnet-4-20250514'} responded: \"{text[:30]}\"", "latency_ms": ms}
+            return {"ok": True, "message": f"Connected — {model} responded: \"{text[:30]}\"", "latency_ms": ms}
 
-        elif provider == "openai":
-            # OpenAI: use the OpenAI SDK to validate API key + connectivity
+        elif provider_name == "openai":
             import openai as _openai
-            api_key = _resolve_api_key("openai")
             if not api_key:
-                return {"ok": False, "message": "No API key configured — set it above or via OPENAI_API_KEY env var", "latency_ms": 0}
+                return {"ok": False, "message": "No API key configured", "latency_ms": 0}
             client = _openai.OpenAI(
                 api_key=api_key,
                 base_url=endpoint.rstrip("/") + "/v1" if endpoint else None,
                 timeout=10.0,
             )
             resp = client.chat.completions.create(
-                model=model or "gpt-4o",
+                model=model or "gpt-4o-mini",
                 max_tokens=16,
                 messages=[{"role": "user", "content": "Say OK"}],
             )
             ms = int((_t.time() - start) * 1000)
             text = resp.choices[0].message.content or ""
-            return {"ok": True, "message": f"Connected — {model or 'gpt-4o'} responded: \"{text[:30]}\"", "latency_ms": ms}
+            return {"ok": True, "message": f"Connected — {model} responded: \"{text[:30]}\"", "latency_ms": ms}
 
         else:
-            return {"ok": False, "message": f"Unknown provider: {provider}", "latency_ms": 0}
+            return {"ok": False, "message": f"Unknown provider: {provider_name}", "latency_ms": 0}
 
     except HTTPError as e:
         ms = int((_t.time() - start) * 1000)
-        # 401/403 means the endpoint IS reachable but needs auth — that's actually a partial success
         if e.code in (401, 403):
             return {"ok": True, "message": f"Endpoint reachable (auth required: {e.code})", "latency_ms": ms}
         return {"ok": False, "message": f"HTTP {e.code}: {e.reason}", "latency_ms": ms}
@@ -1629,6 +1801,56 @@ def test_llm_connection() -> dict:
     except Exception as e:
         ms = int((_t.time() - start) * 1000)
         return {"ok": False, "message": str(e)[:200], "latency_ms": ms}
+
+
+def test_llm_connection(target_provider=None) -> dict:
+    """Test LLM connectivity. If target_provider given, tests that one.
+    Otherwise tests all providers in chain and returns summary."""
+    cfg = get_config()
+    llm = cfg["llm"]
+    providers = llm.get("providers", [])
+
+    if not providers:
+        # Legacy single-provider mode
+        provider = llm["provider"]
+        if provider == "disabled":
+            return {"ok": False, "message": "LLM provider is disabled", "latency_ms": 0}
+        if not llm.get("endpoint"):
+            return {"ok": False, "message": "No endpoint configured", "latency_ms": 0}
+        api_key = _resolve_api_key(provider)
+        return _test_single_provider(provider, llm["endpoint"], llm.get("model", ""), api_key)
+
+    # Test specific provider in chain
+    if target_provider:
+        for p in providers:
+            key = _cb_key(p["name"], p.get("model", ""))
+            if key == target_provider or p["name"] == target_provider:
+                api_key = _resolve_api_key(p["name"], p)
+                result = _test_single_provider(p["name"], p["endpoint"], p.get("model", ""), api_key)
+                result["provider"] = key
+                return result
+        return {"ok": False, "message": f"Provider '{target_provider}' not in chain", "latency_ms": 0}
+
+    # Test all providers in chain
+    results = []
+    for p in providers:
+        if not p.get("enabled", True) or not p.get("endpoint"):
+            continue
+        api_key = _resolve_api_key(p["name"], p)
+        r = _test_single_provider(p["name"], p["endpoint"], p.get("model", ""), api_key)
+        key = _cb_key(p["name"], p.get("model", ""))
+        r["provider"] = key
+        results.append(r)
+
+    ok_count = sum(1 for r in results if r["ok"])
+    total = len(results)
+    avg_ms = int(sum(r["latency_ms"] for r in results) / max(total, 1))
+    return {
+        "ok": ok_count > 0,
+        "message": f"{ok_count}/{total} providers healthy",
+        "latency_ms": avg_ms,
+        "providers": results,
+    }
 
 
 # ── API Schema / Discovery ─────────────────────────────────────────────
@@ -1696,6 +1918,10 @@ class H(BaseHTTPRequestHandler):
             for k, v in stats.items():
                 lines.append(f"# TYPE logclaw_ticketing_{k} counter")
                 lines.append(f"logclaw_ticketing_{k} {v}")
+            # Per-provider LLM metrics
+            for pkey, pstats in llm_provider_stats.items():
+                for outcome, count in pstats.items():
+                    lines.append(f'logclaw_ticketing_llm_provider_{outcome}{{provider="{pkey}"}} {count}')
             self.wfile.write("\n".join(lines).encode())
             return
 
@@ -1776,17 +2002,40 @@ class H(BaseHTTPRequestHandler):
 
         # ── Runtime Config: PATCH llm ──
         if api_path == "/api/config/llm" and method == "PATCH":
-            allowed = {"provider", "model", "endpoint", "api_key"}
+            allowed_new = {"providers", "provider", "model", "endpoint", "api_key"}
             for key in body:
-                if key not in allowed:
+                if key not in allowed_new:
                     return self._j(400, {"error": {"code": "unknown_field", "message": f"Unknown LLM field: {key}"}}, req_id)
-            if "provider" in body and body["provider"] not in VALID_LLM_PROVIDERS:
-                return self._j(400, {"error": {"code": "invalid_provider", "message": f"Must be one of: {sorted(VALID_LLM_PROVIDERS)}"}}, req_id)
-            with _config_lock:
-                for key, val in body.items():
-                    if key in allowed:
-                        _config["llm"][key] = val
-            return self._j(200, {"llm": get_config()["llm"], "persisted": False}, req_id)
+
+            if "providers" in body:
+                # New multi-provider update
+                chain = body["providers"]
+                if not isinstance(chain, list):
+                    return self._j(400, {"error": {"code": "invalid_format", "message": "providers must be an array"}}, req_id)
+                for entry in chain:
+                    if not isinstance(entry, dict) or entry.get("name") not in VALID_LLM_PROVIDERS or entry.get("name") == "disabled":
+                        return self._j(400, {"error": {"code": "invalid_provider", "message": f"Invalid provider in chain: {entry.get('name', '?')}"}}, req_id)
+                    # Fill defaults for missing fields
+                    if "endpoint" not in entry or not entry["endpoint"]:
+                        entry["endpoint"] = _PROVIDER_ENDPOINTS.get(entry["name"], "")
+                    if "model" not in entry or not entry["model"]:
+                        entry["model"] = _PROVIDER_DEFAULT_MODELS.get(entry["name"], "")
+                    entry.setdefault("enabled", True)
+                    entry.setdefault("api_key", "")
+                with _config_lock:
+                    _config["llm"]["providers"] = chain
+                    if chain:
+                        _config["llm"]["provider"] = chain[0]["name"]
+            else:
+                # Legacy single-provider update
+                if "provider" in body and body["provider"] not in VALID_LLM_PROVIDERS:
+                    return self._j(400, {"error": {"code": "invalid_provider", "message": f"Must be one of: {sorted(VALID_LLM_PROVIDERS)}"}}, req_id)
+                allowed_flat = {"provider", "model", "endpoint", "api_key"}
+                with _config_lock:
+                    for key, val in body.items():
+                        if key in allowed_flat:
+                            _config["llm"][key] = val
+            return self._j(200, {"llm": get_config(mask_secrets=True)["llm"], "persisted": False}, req_id)
 
         # ── Test platform connection ──
         if api_path == "/api/test-connection" and method == "POST":
@@ -1798,18 +2047,40 @@ class H(BaseHTTPRequestHandler):
 
         # ── Test LLM connection ──
         if api_path == "/api/test-llm" and method == "POST":
-            result = test_llm_connection()
+            target = body.get("provider") if body else None
+            result = test_llm_connection(target_provider=target)
             return self._j(200, result, req_id)
 
         # ── LLM status (for dashboard fallback warning) ──
         if api_path == "/api/llm-status" and method == "GET":
-            cfg = get_config()
+            cfg = get_config(mask_secrets=True)
             llm = cfg["llm"]
+            providers = llm.get("providers", [])
+            providers_status = []
+            for p in providers:
+                name = p["name"]
+                model = p.get("model", "")
+                key = _cb_key(name, model)
+                pstats = llm_provider_stats.get(key, {})
+                success = pstats.get("success", 0)
+                failure = pstats.get("failure", 0)
+                total = success + failure
+                providers_status.append({
+                    "name": name,
+                    "model": model,
+                    "enabled": p.get("enabled", True),
+                    "has_api_key": bool(_resolve_api_key(name, p)),
+                    "using_default_key": not bool(p.get("api_key")) or p.get("api_key") == "****",
+                    "circuit_breaker_open": _cb_is_open(key),
+                    "calls": total,
+                    "failures": failure,
+                    "failure_rate": round(failure / max(total, 1) * 100, 1),
+                })
             return self._j(200, {
-                "provider": llm["provider"],
-                "model": llm.get("model", ""),
-                "enabled": llm["provider"] != "disabled",
-                "endpoint_configured": bool(llm.get("endpoint")),
+                "primary_provider": providers[0]["name"] if providers else llm["provider"],
+                "provider_chain": [_cb_key(p["name"], p.get("model", "")) for p in providers],
+                "providers": providers_status,
+                "enabled": bool(providers) or llm["provider"] != "disabled",
                 "llm_calls": stats.get("llm_calls", 0),
                 "llm_failures": stats.get("llm_failures", 0),
                 "failure_rate": round(stats["llm_failures"] / max(stats["llm_calls"], 1) * 100, 1),

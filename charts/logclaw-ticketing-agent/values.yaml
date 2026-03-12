@@ -119,12 +119,28 @@ config:
 # ── LLM configuration for RCA summary generation ─────────────────────────────
 # Global value global.llm.* takes precedence when deployed via umbrella chart.
 llm:
-  provider: "disabled"        # claude | openai | ollama | vllm | disabled
+  provider: "disabled"        # DEPRECATED — use providers[] instead. Kept for backward compat.
   model: "llama3.2:8b"
   endpoint: ""                # auto-resolved for ollama; required for vllm/custom
   temperature: 0.2
   maxTokens: 2048
   timeoutSeconds: 60
+
+  # Ordered provider+model fallback chain. Same provider can appear with different models.
+  # Default: OpenAI first (fast/cheap), Claude as fallback.
+  providers:
+    - name: "openai"
+      model: "gpt-4o-mini"
+    - name: "openai"
+      model: "gpt-4o"
+    - name: "claude"
+      model: "claude-3-5-haiku-latest"
+    - name: "claude"
+      model: "claude-sonnet-4-20250514"
+
+  circuitBreaker:
+    failureThreshold: 3     # consecutive failures before tripping
+    cooldownSeconds: 60     # how long to skip a tripped provider+model
 
 resources:
   requests:

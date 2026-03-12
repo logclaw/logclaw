@@ -228,12 +228,61 @@ https://api.openai.com
 {{- end }}
 
 {{/*
+Resolve the ordered LLM provider+model chain as a comma-separated string.
+Format: "provider:model,provider:model,..." e.g. "openai:gpt-4o-mini,openai:gpt-4o,claude:claude-3-5-haiku-latest"
+Falls back to single llmProvider:llmModel for backward compat.
+*/}}
+{{- define "logclaw-ticketing-agent.llmProviders" -}}
+{{- $providers := list -}}
+{{- $llm := .Values.llm -}}
+{{- if .Values.global -}}{{- if .Values.global.llm -}}{{- if .Values.global.llm.providers -}}
+  {{- $llm = .Values.global.llm -}}
+{{- end -}}{{- end -}}{{- end -}}
+{{- if $llm.providers -}}
+  {{- range $llm.providers -}}
+    {{- $entry := printf "%s:%s" .name (.model | default "") -}}
+    {{- $providers = append $providers $entry -}}
+  {{- end -}}
+  {{- join "," $providers -}}
+{{- else -}}
+  {{- $p := include "logclaw-ticketing-agent.llmProvider" $ -}}
+  {{- $m := include "logclaw-ticketing-agent.llmModel" $ -}}
+  {{- if and (ne $p "disabled") $p -}}
+    {{- printf "%s:%s" $p $m -}}
+  {{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Check if any LLM provider in the chain is a cloud provider (needs external HTTPS).
+*/}}
+{{- define "logclaw-ticketing-agent.llmHasCloudProvider" -}}
+{{- $found := false -}}
+{{- $llm := .Values.llm -}}
+{{- if .Values.global -}}{{- if .Values.global.llm -}}{{- if .Values.global.llm.providers -}}
+  {{- $llm = .Values.global.llm -}}
+{{- end -}}{{- end -}}{{- end -}}
+{{- if $llm.providers -}}
+  {{- range $llm.providers -}}
+    {{- if or (eq .name "claude") (eq .name "openai") -}}
+      {{- $found = true -}}
+    {{- end -}}
+  {{- end -}}
+{{- else -}}
+  {{- $p := include "logclaw-ticketing-agent.llmProvider" $ -}}
+  {{- if or (eq $p "claude") (eq $p "openai") -}}
+    {{- $found = true -}}
+  {{- end -}}
+{{- end -}}
+{{- if $found -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
+{{/*
 Returns "true" if any platform requires outbound external HTTPS (port 443).
 Covers: PagerDuty, Jira, ServiceNow, OpsGenie, Slack, and cloud LLMs (Claude/OpenAI).
 */}}
 {{- define "logclaw-ticketing-agent.needsExternalHttps" -}}
-{{- $llmProvider := include "logclaw-ticketing-agent.llmProvider" . -}}
-{{- $llmExternal := or (eq $llmProvider "claude") (eq $llmProvider "openai") -}}
+{{- $llmExternal := eq (include "logclaw-ticketing-agent.llmHasCloudProvider" .) "true" -}}
 {{- $extPlatform := or .Values.config.pagerduty.enabled (or .Values.config.jira.enabled (or .Values.config.servicenow.enabled (or .Values.config.opsgenie.enabled .Values.config.slack.enabled))) -}}
 {{- if or $llmExternal $extPlatform -}}true{{- else -}}false{{- end -}}
 {{- end }}

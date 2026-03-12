@@ -505,11 +505,32 @@ export interface AnomalyConfig {
   maxContextLogLines: number;
 }
 
+export interface LlmProviderEntry {
+  name: "ollama" | "claude" | "openai" | "vllm";
+  model: string;
+  endpoint: string;
+  api_key: string;
+  enabled: boolean;
+}
+
+export interface LlmProviderStatus {
+  name: string;
+  model: string;
+  enabled: boolean;
+  has_api_key: boolean;
+  using_default_key: boolean;
+  circuit_breaker_open: boolean;
+  calls: number;
+  failures: number;
+  failure_rate: number;
+}
+
 export interface LlmConfig {
   provider: "ollama" | "claude" | "openai" | "vllm" | "disabled";
   model: string;
   endpoint: string;
   api_key: string;
+  providers: LlmProviderEntry[];
 }
 
 export interface TicketingConfig {
@@ -617,10 +638,12 @@ export async function testPlatformConnection(
   return res.json();
 }
 
-export async function testLlmConnection(): Promise<TestResult> {
+export async function testLlmConnection(provider?: string): Promise<TestResult> {
+  const body = provider ? JSON.stringify({ provider }) : undefined;
   const res = await fetch("/api/ticketing/api/v1/test-llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body,
   });
   return res.json();
 }

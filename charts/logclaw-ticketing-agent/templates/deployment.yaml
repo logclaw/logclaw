@@ -110,7 +110,10 @@ spec:
               value: {{ .Values.config.kafka.maxPollRecords | quote }}
             - name: KAFKA_SESSION_TIMEOUT_MS
               value: {{ .Values.config.kafka.sessionTimeoutMs | quote }}
-            # ── LLM configuration ─────────────────────────────────────────────
+            # ── LLM configuration (multi-provider fallback chain) ────────────
+            - name: LLM_PROVIDERS
+              value: {{ include "logclaw-ticketing-agent.llmProviders" . | quote }}
+            # Legacy single-provider vars (backward compat)
             - name: LLM_PROVIDER
               value: {{ include "logclaw-ticketing-agent.llmProvider" . | quote }}
             - name: LLM_MODEL
@@ -123,6 +126,11 @@ spec:
               value: {{ ((.Values.global).llm).maxTokens | default .Values.llm.maxTokens | quote }}
             - name: LLM_TIMEOUT_SECONDS
               value: {{ ((.Values.global).llm).timeoutSeconds | default .Values.llm.timeoutSeconds | quote }}
+            # ── Circuit breaker ──────────────────────────────────────────────
+            - name: LLM_CB_FAILURE_THRESHOLD
+              value: {{ (.Values.llm.circuitBreaker).failureThreshold | default "3" | quote }}
+            - name: LLM_CB_COOLDOWN_SECONDS
+              value: {{ (.Values.llm.circuitBreaker).cooldownSeconds | default "60" | quote }}
             # ── PagerDuty ─────────────────────────────────────────────────────
             - name: PAGERDUTY_ENABLED
               value: {{ .Values.config.pagerduty.enabled | quote }}
