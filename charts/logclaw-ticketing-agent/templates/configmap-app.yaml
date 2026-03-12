@@ -967,7 +967,7 @@ data:
     5. What is the recommended fix?
 
     Return ONLY a valid JSON object (no markdown, no code fences):
-    {{"title": "Short incident title (under 120 chars)", "root_cause": "Detailed root cause (2-4 sentences)", "impact": "User/business impact (1-2 sentences)", "reproduce_steps": ["Step 1", "Step 2"], "severity": "critical|high|medium|low", "suggested_fix": "Recommended remediation (1-2 sentences)", "error_pattern": "Generalized failure mode description", "tags": ["tag1", "tag2"]}}"""
+    {{ "{{" }}"title": "Short incident title (under 120 chars)", "root_cause": "Detailed root cause (2-4 sentences)", "impact": "User/business impact (1-2 sentences)", "reproduce_steps": ["Step 1", "Step 2"], "severity": "critical|high|medium|low", "suggested_fix": "Recommended remediation (1-2 sentences)", "error_pattern": "Generalized failure mode description", "tags": ["tag1", "tag2"]{{ "}}" }}"""
 
         response = _call_llm(prompt, system)
         if not response:
@@ -1930,7 +1930,7 @@ data:
                 # Per-provider LLM metrics
                 for pkey, pstats in llm_provider_stats.items():
                     for outcome, count in pstats.items():
-                        lines.append(f'logclaw_ticketing_llm_provider_{outcome}{{provider="{pkey}"}} {count}')
+                        lines.append(f'logclaw_ticketing_llm_provider_{outcome}{{ "{{" }}provider="{pkey}"{{ "}}" }} {count}')
                 self.wfile.write("\n".join(lines).encode())
                 return
 

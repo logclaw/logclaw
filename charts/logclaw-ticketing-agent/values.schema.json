@@ -171,7 +171,25 @@
         "endpoint": { "type": "string" },
         "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
         "maxTokens": { "type": "integer", "minimum": 1 },
-        "timeoutSeconds": { "type": "integer", "minimum": 1 }
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "enum": ["claude", "openai", "ollama", "vllm"] },
+              "model": { "type": "string" }
+            },
+            "required": ["name", "model"]
+          }
+        },
+        "circuitBreaker": {
+          "type": "object",
+          "properties": {
+            "failureThreshold": { "type": "integer", "minimum": 1 },
+            "cooldownSeconds": { "type": "integer", "minimum": 1 }
+          }
+        }
       }
     }
   },
