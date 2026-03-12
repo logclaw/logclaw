@@ -13,7 +13,7 @@ import { saveInstallation, linkApiKey, type Installation } from "./installations
 
 const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 const SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access";
-const BOT_SCOPES = "app_mentions:read,chat:write,channels:history,groups:history";
+const BOT_SCOPES = "app_mentions:read,chat:write,channels:history,groups:history,im:history,im:read,im:write";
 
 export const oauthApp = new Hono<{ Bindings: Env }>();
 

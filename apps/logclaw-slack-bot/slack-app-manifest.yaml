@@ -5,7 +5,7 @@ display_information:
   long_description: |
     LogClaw is an AI-powered incident management assistant for SRE and DevOps teams.
 
-    Mention @LogClaw in any channel to:
+    Mention @LogClaw in any channel or DM to:
     • List and filter incidents by severity, state, or service
     • Get full incident details including root cause analysis and timeline
     • Acknowledge, investigate, mitigate, or resolve incidents
@@ -35,12 +35,16 @@ oauth_config:
       - chat:write
       - channels:history
       - groups:history
+      - im:history
+      - im:read
+      - im:write
 
 settings:
   event_subscriptions:
     request_url: https://slack.logclaw.ai/events
     bot_events:
       - app_mention
+      - message.im
       - app_home_opened
       - app_uninstalled
       - tokens_revoked

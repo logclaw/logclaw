@@ -88,6 +88,13 @@ eventsApp.post("/events", async (c) => {
         console.error("handleMention error:", err);
       }),
     );
+  } else if (event?.type === "message" && event?.channel_type === "im" && !event?.bot_id && !event?.subtype) {
+    // DM to the bot — treat like a mention (no @mention prefix needed)
+    c.executionCtx.waitUntil(
+      handleMention(c.env, { ...event, team: body.team_id }).catch((err) => {
+        console.error("handleDM error:", err);
+      }),
+    );
   } else if (event?.type === "app_home_opened") {
     const teamId = body.team_id as string;
     c.executionCtx.waitUntil(
