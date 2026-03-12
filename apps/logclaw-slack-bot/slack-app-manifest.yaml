@@ -1,0 +1,45 @@
+display_information:
+  name: LogClaw
+  description: AI-powered incident management assistant. Query incidents, search logs, detect anomalies, and take actions — all from Slack.
+  background_color: "#FF5722"
+  long_description: |
+    LogClaw is an AI-powered incident management assistant for SRE and DevOps teams.
+
+    Mention @LogClaw in any channel to:
+    • List and filter incidents by severity, state, or service
+    • Get full incident details including root cause analysis and timeline
+    • Acknowledge, investigate, mitigate, or resolve incidents
+    • Forward incidents to PagerDuty, Jira, ServiceNow, or OpsGenie
+    • Search raw logs by service, level, and time range
+    • View anomaly detections (Z-score analysis on error rates)
+    • Check pipeline health status
+    • Bulk update multiple incidents at once
+
+    Powered by AI with natural language understanding — just ask in plain English.
+
+features:
+  bot_user:
+    display_name: LogClaw
+    always_online: true
+  app_home:
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: false
+
+oauth_config:
+  redirect_urls:
+    - https://slack.logclaw.ai/oauth/callback
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - channels:history
+      - groups:history
+
+settings:
+  event_subscriptions:
+    request_url: https://slack.logclaw.ai/events
+    bot_events:
+      - app_mention
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

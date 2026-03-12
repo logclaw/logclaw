@@ -14,15 +14,15 @@
   "kv_namespaces": [
     {
       "binding": "SLACK_INSTALLATIONS",
-      "id": "PLACEHOLDER_INSTALLATIONS"
+      "id": "b0f86ee3621343fa9e51f3796f713c31"
     },
     {
       "binding": "CONVERSATIONS",
-      "id": "PLACEHOLDER_CONVERSATIONS"
+      "id": "9aea8fa50e1c4293b99716bc77ed74c9"
     },
     {
       "binding": "OAUTH_STATE",
-      "id": "PLACEHOLDER_OAUTH_STATE"
+      "id": "91c69ffb09e9427bb2beae4f8f662a1b"
     }
   ],
   "vars": {
