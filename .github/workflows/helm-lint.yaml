@@ -28,7 +28,7 @@ jobs:
           version: v3.15.3
 
       - name: Install chart-testing
-        uses: helm/chart-testing-action@v2.6.1
+        uses: helm/chart-testing-action@v2.8.0
 
       - name: Update chart dependencies
         run: |
