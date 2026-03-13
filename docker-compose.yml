@@ -89,7 +89,7 @@ services:
 
   # ── LogClaw Services ─────────────────────────────────────
   bridge:
-    image: ghcr.io/logclaw/logclaw-bridge:stable
+    image: ghcr.io/logclaw/logclaw-bridge:opus
     labels:
       logclaw.service: bridge
     environment:
@@ -116,7 +116,7 @@ services:
         condition: service_healthy
 
   ticketing-agent:
-    image: ghcr.io/logclaw/logclaw-ticketing-agent:stable
+    image: ghcr.io/logclaw/logclaw-ticketing-agent:opus
     labels:
       logclaw.service: ticketing-agent
     environment:
@@ -140,7 +140,7 @@ services:
         condition: service_healthy
 
   dashboard:
-    image: ghcr.io/logclaw/logclaw-dashboard:stable
+    image: ghcr.io/logclaw/logclaw-dashboard:opus
     labels:
       logclaw.service: dashboard
     environment:

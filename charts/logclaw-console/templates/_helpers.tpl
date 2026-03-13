@@ -100,6 +100,18 @@ http://{{ .Release.Name }}-logclaw-bridge.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — tenant ID for dogfooding OTEL logs.
+Defaults to "logclaw" when global.logclawTenantId is not set.
+*/}}
+{{- define "logclaw-console.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Name of the console secrets K8s secret (from values.secretName).
 */}}
 {{- define "logclaw-console.secretName" -}}

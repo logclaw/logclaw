@@ -76,6 +76,15 @@ spec:
                   optional: true
             - name: OTEL_COLLECTOR_ENDPOINT
               value: {{ include "logclaw-dashboard.otelCollectorEndpoint" . | quote }}
+            # ── OTEL Logging (dashboard's own service logs → OTel Collector) ──
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.exporterEndpoint | default (printf "http://%s-logclaw-otel-collector.%s.svc:4318" .Release.Name .Release.Namespace) | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-dashboard"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant_id={{ include "logclaw-dashboard.logclawTenantId" . }}"
+            - name: LOGCLAW_TENANT_ID
+              value: {{ include "logclaw-dashboard.logclawTenantId" . | quote }}
             - name: TICKETING_ENDPOINT
               value: {{ include "logclaw-dashboard.ticketingEndpoint" . | quote }}
             - name: BRIDGE_ENDPOINT

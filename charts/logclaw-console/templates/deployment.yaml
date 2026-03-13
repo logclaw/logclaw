@@ -104,6 +104,15 @@ spec:
             {{- end }}
             - name: OTEL_COLLECTOR_ENDPOINT
               value: {{ .Values.endpoints.otelCollector | default (include "logclaw-console.otelCollectorEndpoint" .) | quote }}
+            # ── OTEL Logging (console's own service logs → OTel Collector) ──
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.exporterEndpoint | default (printf "http://%s-logclaw-otel-collector.%s.svc:4318" .Release.Name .Release.Namespace) | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "logclaw-console"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "tenant_id={{ include "logclaw-console.logclawTenantId" . }}"
+            - name: LOGCLAW_TENANT_ID
+              value: {{ include "logclaw-console.logclawTenantId" . | quote }}
             - name: TICKETING_ENDPOINT
               value: {{ .Values.endpoints.ticketing | default (include "logclaw-console.ticketingEndpoint" .) | quote }}
             - name: BRIDGE_ENDPOINT

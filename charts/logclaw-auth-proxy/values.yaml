@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/logclaw/logclaw-auth-proxy
   pullPolicy: IfNotPresent
-  tag: "2.0.0"    # OPUS release
+  tag: "2.1.0"    # OPUS release
 
 imagePullSecrets: []
 nameOverride: ""
@@ -63,6 +63,12 @@ database:
     key: connection-string
   # Or provide direct connection string (less secure)
   # connectionString: "postgresql://user:pass@postgres:5432/logclaw"
+
+# -- OTEL Logging (service's own logs → OTel Collector)
+# Override exporterEndpoint when auth-proxy is deployed as a separate Helm release
+# (Release.Name-based auto-discovery only works within the umbrella chart).
+otel:
+  exporterEndpoint: ""
 
 # Environment variables
 env:

@@ -5,8 +5,8 @@ description: >
   queries OpenSearch for context, generates PagerDuty alerts and
   Jira/ServiceNow RCA tickets with root cause, evidence, and timeline.
 type: application
-version: 2.0.0
-appVersion: "2.0.0"
+version: 2.1.0
+appVersion: "2.1.0"
 kubeVersion: ">=1.27.0-0"
 maintainers:
   - name: LogClaw Team

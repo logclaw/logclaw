@@ -80,6 +80,18 @@ Must be set via global.tenantId in parent chart or --set.
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — tenant ID for dogfooding OTEL logs.
+Defaults to "logclaw" when global.logclawTenantId is not set.
+*/}}
+{{- define "logclaw-dashboard.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve opensearchEndpoint — required global value.
 */}}
 {{- define "logclaw-dashboard.opensearchEndpoint" -}}

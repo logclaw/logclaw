@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: "ghcr.io/logclaw/logclaw-bridge"
-  tag: "2.0.0"    # OPUS release
+  tag: "2.1.0"    # OPUS release
   pullPolicy: IfNotPresent
 
 serviceAccount:

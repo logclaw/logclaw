@@ -1,13 +1,18 @@
-# LogClaw — Helm Chart Monorepo
+# LogClaw
+
+**AI SRE that deploys in your VPC.** Real-time anomaly detection, trace-correlated incident tickets, and AI root cause analysis — your logs never leave your infrastructure.
 
 <p align="left">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-green" />
   <img src="https://img.shields.io/badge/helm-3.x-blue?logo=helm" />
   <img src="https://img.shields.io/badge/kubernetes-1.27%2B-blue?logo=kubernetes" />
   <img src="https://img.shields.io/badge/docker-compose-blue?logo=docker" />
-  <img src="https://img.shields.io/badge/license-Apache%202.0-green" />
+  <a href="https://console.logclaw.ai"><img src="https://img.shields.io/badge/try-managed%20cloud-orange" /></a>
 </p>
 
-Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log intelligence platform with real-time anomaly detection, trace-correlated incident ticketing, and GitOps-native multi-tenancy.
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="LogClaw Dashboard — real-time log monitoring with AI anomaly detection" width="800" />
+</p>
 
 ---
 
@@ -64,7 +69,65 @@ docker pull ghcr.io/logclaw/logclaw-dashboard:stable
 
 ---
 
+## See It in Action
+
+<table>
+  <tr>
+    <td align="center"><b>Incident Management</b></td>
+    <td align="center"><b>AI Root Cause Analysis</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/incidents.png" alt="Incident list with severity and blast radius" width="400" /></td>
+    <td><img src="docs/screenshots/ai-analysis.png" alt="AI-powered root cause analysis" width="400" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Log Ingestion</b></td>
+    <td align="center"><b>Dashboard Overview</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/ingestion.png" alt="OTLP log ingestion pipeline" width="400" /></td>
+    <td><img src="docs/screenshots/overview.png" alt="LogClaw dashboard overview" width="400" /></td>
+  </tr>
+</table>
+
+> **Live demo:** [console.logclaw.ai](https://console.logclaw.ai) | **Video walkthrough:** [logclaw.ai](https://logclaw.ai)
+
+---
+
+## Open Source vs Cloud vs Enterprise
+
+| Capability | Open Source (free) | Cloud ($0.30/GB) | Enterprise (custom) |
+|---|---|---|---|
+| **Log Ingestion (OTLP)** | Unlimited | 1 GB/day free | Unlimited |
+| **Anomaly Detection** | Z-score statistical | Z-score + ML pipeline | Z-score + ML + custom models |
+| **AI Root Cause Analysis** | BYO LLM (Ollama/OpenAI/Claude) | Included | Included + fine-tuned models |
+| **Incident Ticketing** | PagerDuty, Jira, ServiceNow, OpsGenie, Slack, Zammad | All 6 platforms | All 6 + custom connectors |
+| **Dashboard** | Full UI (logs, incidents, config) | Full UI + hosted | Full UI + white-label option |
+| **Authentication** | None (open access) | Clerk OAuth + org management | SSO (SAML/OIDC) + RBAC |
+| **Multi-tenancy** | Single tenant | Multi-org, multi-project, multi-env | Full namespace isolation per tenant |
+| **API Keys** | N/A | Per-project, SHA-256 hashed, revocable | Per-project + custom scoping |
+| **Data Residency** | Your infrastructure | LogClaw-managed cloud | Your VPC (AWS/Azure/GCP) |
+| **Secrets Encryption** | At rest (OpenSearch) | At rest + in transit | AES-256-GCM for secrets + full TLS |
+| **Config Management** | Env vars | 6-tab settings UI | UI + API + GitOps |
+| **Retention** | Configurable via Helm | 9-day logs, 97-day incidents | Custom retention policies |
+| **Air-Gapped Mode** | Yes (Zammad + Ollama) | No | Yes |
+| **MCP Server** | Self-hosted | Hosted (mcp.logclaw.ai) | Both |
+| **Support** | GitHub Issues | Email (support@logclaw.ai) | Dedicated SRE team + SLA |
+| **Pricing** | Free forever (Apache 2.0) | $0.30/GB ingested | Custom |
+
+> **No per-seat fees. No per-host fees. AI features included at every tier.**
+
+<p align="center">
+  <a href="https://console.logclaw.ai"><b>Start Free (Cloud)</b></a> &nbsp;|&nbsp;
+  <a href="#tldr--try-it"><b>Deploy from GitHub (OSS)</b></a> &nbsp;|&nbsp;
+  <a href="https://calendly.com/robelkidin/logclaw"><b>Book a Demo (Enterprise)</b></a>
+</p>
+
+---
+
 ## Architecture
+
+> All components below are included in every tier — Open Source, Cloud, and Enterprise.
 
 ```
 LogClaw Stack (per tenant, namespace-isolated)
@@ -347,6 +410,8 @@ docs/                         # Architecture, onboarding, values reference
 
 ## Key Features
 
+> For a side-by-side comparison across tiers, see [Open Source vs Cloud vs Enterprise](#open-source-vs-cloud-vs-enterprise) above.
+
 ### Trace-Correlated AI Ticket Engine
 
 The Bridge runs a 5-layer trace correlation engine:
@@ -589,6 +654,9 @@ Full documentation is available at [docs.logclaw.ai](https://docs.logclaw.ai).
 - [Values Reference](docs/values-reference.md) — Helm chart configuration
 - [Onboarding a New Tenant](docs/onboarding.md)
 - [API Reference](docs/api-reference/overview.md)
+
+**Enterprise:**
+- [Enterprise Console](https://console.logclaw.ai) — multi-org, API key management, project settings
 
 ---
 
