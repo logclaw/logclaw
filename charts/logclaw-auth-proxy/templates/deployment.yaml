@@ -63,6 +63,8 @@ spec:
               value: "logclaw-auth-proxy"
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "tenant_id={{ include "logclaw-auth-proxy.logclawTenantId" . }}"
+            - name: LOGCLAW_TENANT_ID
+              value: {{ include "logclaw-auth-proxy.logclawTenantId" . | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.exporterEndpoint | default (printf "http://%s-logclaw-otel-collector.%s.svc.%s:4318" .Release.Name .Release.Namespace (.Values.global.clusterDomain | default "cluster.local")) | quote }}
             {{- range $key, $value := .Values.env }}

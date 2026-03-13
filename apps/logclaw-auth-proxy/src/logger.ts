@@ -4,7 +4,7 @@ import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { Resource } from "@opentelemetry/resources";
 import { SEMRESATTRS_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 
-const tenantId = process.env.TENANT_ID || "unknown";
+const tenantId = process.env.LOGCLAW_TENANT_ID || process.env.TENANT_ID || "logclaw";
 const serviceName = process.env.OTEL_SERVICE_NAME || "logclaw-auth-proxy";
 
 const resource = new Resource({
