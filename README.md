@@ -11,9 +11,13 @@ Enterprise-grade Kubernetes deployment stack for LogClaw — an AI-powered log i
 
 ---
 
-## TL;DR — Run Locally in One Command
+## TL;DR — Try It
 
-### Option A: Docker Compose (no clone, no build — fastest)
+### Option A: Managed Cloud (no install — fastest)
+
+Try the full experience instantly at **[console.logclaw.ai](https://console.logclaw.ai)** — includes AI root cause analysis, API key management, multi-tenant isolation, and the complete incident pipeline. No Docker required.
+
+### Option B: Docker Compose (self-hosted, no Kubernetes)
 
 ```bash
 curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/docker-compose.yml
@@ -21,7 +25,7 @@ curl -O https://raw.githubusercontent.com/logclaw/logclaw/main/otel-collector-co
 docker compose up -d
 ```
 
-Open **http://localhost:3000** — the full LogClaw stack is running:
+Open **http://localhost:3000** — the LogClaw stack is running:
 - Dashboard (`:3000`) — incidents, log ingestion, config
 - OTel Collector (`:4317` gRPC, `:4318` HTTP) — send logs via OTLP
 - Bridge (`:8080`) — anomaly detection + trace correlation
@@ -31,7 +35,9 @@ Open **http://localhost:3000** — the full LogClaw stack is running:
 
 All images are pulled from `ghcr.io/logclaw/` — no registry auth required.
 
-### Option B: Kind Cluster (full Kubernetes stack)
+> **Note:** The local stack runs in single-tenant mode with LLM-powered root cause analysis disabled. For AI RCA, API key management, and multi-tenant isolation, use the [managed cloud](https://console.logclaw.ai) or deploy to Kubernetes with `LLM_PROVIDER=claude|openai|ollama`.
+
+### Option C: Kind Cluster (full Kubernetes stack)
 
 ```bash
 git clone https://github.com/logclaw/logclaw.git && cd logclaw
@@ -63,20 +69,22 @@ docker pull ghcr.io/logclaw/logclaw-dashboard:stable
 ```
 LogClaw Stack (per tenant, namespace-isolated)
 │
+├── logclaw-auth-proxy       API key validation + tenant ID injection
 ├── logclaw-otel-collector   OpenTelemetry Collector (OTLP gRPC + HTTP)
-├── logclaw-kafka           Strimzi Kafka 3-broker KRaft cluster
-├── logclaw-flink           ETL + enrichment + anomaly scoring
-├── logclaw-opensearch      OpenSearch cluster (hot-tier log storage)
-├── logclaw-bridge          OTLP ETL + trace correlation + lifecycle manager
-├── logclaw-ml-engine       Feast Feature Store + KServe/TorchServe + Ollama
-├── logclaw-airflow         Apache Airflow (ML training DAGs)
-├── logclaw-ticketing-agent AI-powered RCA + multi-platform ticketing
-├── logclaw-dashboard       Next.js web UI (ingestion, incidents, config, dark mode)
-├── logclaw-zammad          In-cluster ITSM (zero-egress alternative)
-└── logclaw-platform        ESO SecretStore, cert-manager, RBAC baseline
+├── logclaw-ingestion        Vector.dev edge ingestion (optional)
+├── logclaw-kafka            Strimzi Kafka 3-broker KRaft cluster
+├── logclaw-flink            ETL + enrichment + anomaly scoring
+├── logclaw-opensearch       OpenSearch cluster (hot-tier log storage)
+├── logclaw-bridge           OTLP ETL + trace correlation + lifecycle manager
+├── logclaw-ml-engine        Feast Feature Store + KServe/TorchServe + Ollama
+├── logclaw-airflow          Apache Airflow (ML training DAGs)
+├── logclaw-ticketing-agent  AI-powered RCA + multi-platform ticketing
+├── logclaw-agent            In-cluster infrastructure health collector
+├── logclaw-dashboard        Next.js web UI (ingestion, incidents, config, dark mode)
+└── logclaw-console          Enterprise SaaS console (multi-tenant)
 ```
 
-**Data flow:** Logs → OTel Collector (OTLP ingestion) → Kafka → Bridge (OTLP ETL + anomaly + trace correlation) → OpenSearch + Ticketing Agent → Incident tickets
+**Data flow:** Logs → Auth Proxy (API key + tenant injection) → OTel Collector (OTLP ingestion) → Kafka → Bridge (ETL + anomaly + trace correlation) → OpenSearch + Ticketing Agent → Incident tickets
 
 All charts are wired together by the **`logclaw-tenant` umbrella chart** — a single `helm install` deploys the full stack for one tenant.
 
@@ -161,7 +169,7 @@ kubectl get pods -n opensearch-operator-system -w
 make install TENANT_ID=dev-local STORAGE_CLASS=standard
 ```
 
-This deploys all 12 helmfile releases in dependency order. Monitor progress:
+This deploys all 16 helmfile releases in dependency order. Monitor progress:
 ```bash
 watch kubectl get pods -n logclaw-dev-local
 ```
@@ -286,27 +294,41 @@ make kind-delete
 ```
 charts/
 ├── logclaw-tenant/           # Umbrella chart — single install entry point
-├── logclaw-platform/         # ESO SecretStore, cert-manager, RBAC
-├── logclaw-kafka/            # Strimzi Kafka + KafkaConnect + MirrorMaker2
+├── logclaw-auth-proxy/       # API key validation + tenant ID injection
 ├── logclaw-otel-collector/   # OpenTelemetry Collector (OTLP gRPC + HTTP)
-├── logclaw-opensearch/       # OpenSearch cluster via Opster operator
+├── logclaw-ingestion/        # Vector.dev edge ingestion
+├── logclaw-kafka/            # Strimzi Kafka + KafkaConnect + MirrorMaker2
 ├── logclaw-flink/            # Flink ETL + enrichment + anomaly jobs
+├── logclaw-opensearch/       # OpenSearch cluster via Opster operator
 ├── logclaw-bridge/           # OTLP ETL + trace correlation + lifecycle manager
 ├── logclaw-ml-engine/        # Feast + KServe/TorchServe + Ollama
 ├── logclaw-airflow/          # Apache Airflow
 ├── logclaw-ticketing-agent/  # AI-powered RCA + multi-platform ticketing
+├── logclaw-agent/            # In-cluster infrastructure health agent
 ├── logclaw-dashboard/        # Next.js web UI
-└── logclaw-zammad/           # In-cluster ITSM (zero-egress option)
+└── logclaw-console/          # Enterprise SaaS console
 
 apps/
-├── dashboard/                # Next.js source (npm run dev for local development)
-└── ticketing-agent/          # Python RCA microservice source
+├── bridge/                # Python — OTLP ETL + anomaly detection + trace correlation
+├── agent/                 # Go — infrastructure health collector
+├── dashboard/             # Next.js — web UI (incidents, logs, config, dark mode)
+├── ticketing-agent/       # Python — AI-powered RCA + multi-platform ticketing
+├── flink-jobs/            # Java — Flink stream processing jobs
+├── logclaw-auth-proxy/    # TypeScript/Express — API key validation + tenant injection
+├── logclaw-slack-bot/     # TypeScript/Hono — Slack incident bot (Cloudflare Workers)
+├── logclaw-mcp-server/    # TypeScript — MCP server for AI coding tools (8 tools)
+└── logclaw-mcp-remote/    # TypeScript — remote MCP client (OAuth 2.1)
+
+cli/                        # Go CLI (logclaw start/stop/status)
 
 scripts/
-├── setup-dev.sh              # One-command local dev setup
-├── ingest-logs.sh            # Log ingestion helper
-├── generate-applepay-logs.py # Generate 500 OTel sample logs (batch 1)
-└── generate-applepay-logs-2.py # Generate 400 infra/security logs (batch 2)
+├── setup-dev.sh                # One-command local dev setup (Kind cluster)
+├── setup-gke.sh                # GKE production cluster setup
+├── ingest-logs.sh              # Log ingestion helper (--generate, --smoke)
+├── generate-applepay-logs.py   # Generate 500 OTel sample logs (batch 1)
+├── generate-applepay-logs-2.py # Generate 400 infra/security logs (batch 2)
+├── trigger-anomaly.sh          # Trigger test anomaly for demo
+└── trigger-request-failure.sh  # Trigger test request failure for demo
 
 operators/                    # Cluster-level operator bootstrap (once per cluster)
 ├── strimzi/                  # strimzi-kafka-operator 0.41.0
@@ -357,7 +379,7 @@ Per-severity routing (`critical → PagerDuty`, `medium → Jira`, etc.) is conf
 
 ### Air-Gapped Mode
 
-When only **Zammad + Ollama** are enabled, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped.
+When paired with **Zammad** (external ITSM chart) and **Ollama** for local LLM inference, the `needsExternalHttps` helper sets the NetworkPolicy to **zero external egress** — fully air-gapped. No logs, tickets, or model calls leave the cluster.
 
 ### LLM Provider Abstraction
 ```yaml
@@ -416,6 +438,28 @@ Any OpenTelemetry SDK, agent, or collector can send logs directly to LogClaw wit
 
 See [OTLP Integration Guide](docs/otlp-integration.md) for Python, Java, and Node.js SDK examples.
 
+### MCP Server — AI Coding Tools
+
+The `logclaw-mcp-server` connects AI coding tools to LogClaw incidents, logs, and anomalies via the [Model Context Protocol](https://modelcontextprotocol.io). Published as an npm package with **8 tools**.
+
+```bash
+npx logclaw-mcp-server
+```
+
+Works with **Claude Code**, **Cursor**, **Windsurf**, and any MCP-compatible client. Also available as a hosted server at `https://mcp.logclaw.ai` (OAuth 2.1, no install needed).
+
+See [MCP Integration Guide](docs/integrations/mcp.mdx) for setup instructions.
+
+### Slack Bot — Incident Notifications
+
+The `logclaw-slack-bot` delivers real-time incident notifications to Slack with rich Block Kit formatting, DM support, and OAuth. Runs on Cloudflare Workers.
+
+See [Integrations](docs/integrations.mdx) for setup.
+
+### Auth Proxy — API Key Validation
+
+The `logclaw-auth-proxy` sits between ingress and the OTel Collector. It validates API keys against PostgreSQL, injects `tenant_id` into OTLP payloads, and enforces rate limits (200 req/min unauthenticated, 6000 req/min per tenant). Stateless and horizontally scalable.
+
 ---
 
 ## Component Versions
@@ -438,7 +482,7 @@ See [OTLP Integration Guide](docs/otlp-integration.md) for Python, Java, and Nod
 
 ## Development
 
-### Dashboard (local dev server)
+### Dashboard (Next.js)
 
 ```bash
 cd apps/dashboard
@@ -447,7 +491,20 @@ npm run dev
 # → http://localhost:3000
 ```
 
-### Ticketing Agent (local)
+### Bridge (Python)
+
+```bash
+cd apps/bridge
+pip install -r requirements.txt
+export KAFKA_BROKERS="localhost:9092"
+export OPENSEARCH_ENDPOINT="http://localhost:9200"
+python main.py
+# → HTTP API on :8080 (/health, /metrics, /config)
+```
+
+See [Bridge docs](docs/components/bridge.md) for configuration reference.
+
+### Ticketing Agent (Python)
 
 ```bash
 cd apps/ticketing-agent
@@ -456,6 +513,33 @@ export KAFKA_BROKERS="localhost:9092"
 export OPENSEARCH_ENDPOINT="http://localhost:9200"
 python main.py
 # → HTTP API on :8080
+```
+
+### Agent (Go)
+
+```bash
+cd apps/agent
+go run main.go
+# → HTTP API on :8080 (/health, /ready, /metrics)
+```
+
+### Auth Proxy (TypeScript)
+
+```bash
+cd apps/logclaw-auth-proxy
+npm install
+npm run dev
+# → HTTP API on :4318
+```
+
+Requires a PostgreSQL database with API keys. See [API Keys docs](docs/api-keys.mdx).
+
+### MCP Server (TypeScript)
+
+```bash
+cd apps/logclaw-mcp-server
+npm install && npm run build
+LOGCLAW_API_KEY=lc_proj_test npx .
 ```
 
 ### Helm Charts
@@ -481,10 +565,42 @@ make push HELM_REGISTRY=oci://ghcr.io/logclaw/charts
 
 ## Docs
 
+Full documentation is available at [docs.logclaw.ai](https://docs.logclaw.ai).
+
+**Getting Started:**
+- [Quick Start — Send Logs](docs/quickstart-send-logs.mdx)
+- [API Keys](docs/api-keys.mdx)
+- [Local Development](docs/local-development.md)
 - [Architecture](docs/architecture.md)
-- [Onboarding a new tenant](docs/onboarding.md)
-- [OTLP Integration Guide](docs/otlp-integration.md)
-- [Values reference](docs/values-reference.md)
+
+**Components:**
+- [Bridge](docs/components/bridge.md) — anomaly detection + trace correlation
+- [Dashboard](docs/components/dashboard.md) — web UI
+- [Ticketing Agent](docs/components/ticketing-agent.md) — multi-platform incident routing
+- [OTel Collector](docs/components/otel-collector.md) — OTLP ingestion
+- [Incident Classification](docs/components/incident-classification.md) — composite scoring
+
+**Integrations:**
+- [Integrations Overview](docs/integrations.mdx) — PagerDuty, Jira, ServiceNow, OpsGenie, Slack
+- [MCP Server](docs/integrations/mcp.mdx) — Claude Code, Cursor, Windsurf
+
+**Reference:**
+- [OTLP Integration Guide](docs/otlp-integration.md) — Python, Java, Node.js, Go SDK examples
+- [Values Reference](docs/values-reference.md) — Helm chart configuration
+- [Onboarding a New Tenant](docs/onboarding.md)
+- [API Reference](docs/api-reference/overview.md)
+
+---
+
+## Contributing
+
+We welcome contributions! Please read our guidelines before opening a PR:
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+
+Use the [issue templates](.github/ISSUE_TEMPLATE/) for bug reports and feature requests.
 
 ---
 
