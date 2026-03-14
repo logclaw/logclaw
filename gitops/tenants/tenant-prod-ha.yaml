@@ -206,8 +206,8 @@ logclaw-flink:
     version: "1.19"
     image:
       repository: ghcr.io/logclaw/logclaw-flink-jobs
-      tag: "2.0.0"
-    jobImageTag: "2.0.0"
+      tag: "2.1.0"
+    jobImageTag: "2.1.0"
     jobManager:
       replicas: 1
       cpu: 0.5
@@ -248,7 +248,7 @@ bridge:
 logclaw-bridge:
   image:
     repository: ghcr.io/logclaw/logclaw-bridge
-    tag: "2.0.0"
+    tag: "2.1.0"
     pullPolicy: IfNotPresent
   bridge:
     resources:
@@ -265,7 +265,7 @@ dashboard:
 logclaw-dashboard:
   image:
     repository: ghcr.io/logclaw/logclaw-dashboard
-    tag: "2.0.0"
+    tag: "2.1.0"
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources:
@@ -285,7 +285,7 @@ ticketingAgent:
 logclaw-ticketing-agent:
   image:
     repository: ghcr.io/logclaw/logclaw-ticketing-agent
-    tag: "2.0.0"
+    tag: "2.1.0"
     pullPolicy: IfNotPresent
   replicaCount: 1
   autoscaling:

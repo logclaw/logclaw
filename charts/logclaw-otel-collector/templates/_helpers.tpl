@@ -93,6 +93,18 @@ Resolve kafkaBrokers — required global value.
 {{- end }}
 
 {{/*
+Resolve logclawTenantId — used for dogfooding (self-monitoring) logs.
+Falls back to "logclaw" if global.logclawTenantId is not set.
+*/}}
+{{- define "logclaw-otel-collector.logclawTenantId" -}}
+{{- if .Values.global -}}
+  {{- .Values.global.logclawTenantId | default "logclaw" -}}
+{{- else -}}
+  {{- "logclaw" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve raw-logs Kafka topic.
 */}}
 {{- define "logclaw-otel-collector.kafkaTopicRaw" -}}
