@@ -394,6 +394,10 @@ logclaw-airflow:
 # ── Ingress ──────────────────────────────────────────────────────────────
 ingress:
   enabled: true
+  console:
+    host: console.logclaw.ai
+    serviceName: logclaw-console    # separate Helm release (logclaw-enterprise)
+    servicePort: 3000
   api:
     host: api.logclaw.ai
   dashboard:

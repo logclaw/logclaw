@@ -166,6 +166,45 @@ spec:
 {{- end }}
 ---
 {{- /* ════════════════════════════════════════════════════════════════════
+     Ingress: Console (logclaw-enterprise — separate Helm release)
+     Routes console.logclaw.ai → logclaw-console:3000
+     Only created if ingress.console.host is set.
+     ════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.ingress.console }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress-console
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.console.host }}
+      secretName: {{ .Release.Name }}-console-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.console.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.ingress.console.serviceName | default "logclaw-console" }}
+                port:
+                  number: {{ .Values.ingress.console.servicePort | default 3000 }}
+{{- end }}
+---
+{{- /* ════════════════════════════════════════════════════════════════════
      Ingress: UI endpoints (dashboard, airflow, flink)
      ════════════════════════════════════════════════════════════════════ */}}
 apiVersion: networking.k8s.io/v1
@@ -177,8 +216,29 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    {{- if .Values.global.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.global.tls.issuerName | default "logclaw-issuer" }}
+    {{- end }}
 spec:
-  ingressClassName: nginx
+  ingressClassName: {{ .Values.global.ingressClass | default "nginx" }}
+  {{- if .Values.global.tls.enabled }}
+  tls:
+    {{- if .Values.ingress.dashboard }}
+    - hosts:
+        - {{ .Values.ingress.dashboard.host }}
+      secretName: {{ .Release.Name }}-app-tls
+    {{- end }}
+    {{- if .Values.ingress.airflow }}
+    - hosts:
+        - {{ .Values.ingress.airflow.host }}
+      secretName: {{ .Release.Name }}-airflow-tls
+    {{- end }}
+    {{- if .Values.ingress.flink }}
+    - hosts:
+        - {{ .Values.ingress.flink.host }}
+      secretName: {{ .Release.Name }}-flink-tls
+    {{- end }}
+  {{- end }}
   rules:
     {{- if .Values.ingress.dashboard }}
     - host: {{ .Values.ingress.dashboard.host }}
