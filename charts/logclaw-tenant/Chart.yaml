@@ -5,8 +5,8 @@ description: >
   Installs all subsystems: OTel Collector (OTLP ingestion), Kafka, Flink, OpenSearch,
   ML engine, Airflow, Ticketing Agent, Bridge (trace correlation), and Dashboard.
 type: application
-version: 2.0.0
-appVersion: "2.0.0"   # Release: OPUS
+version: 2.1.0
+appVersion: "2.1.0"   # Release: OPUS
 kubeVersion: ">=1.27.0-0"
 keywords:
   - logclaw
@@ -44,14 +44,14 @@ dependencies:
     repository: "file://../logclaw-airflow"
     condition: airflow.enabled
   - name: logclaw-ticketing-agent
-    version: "2.0.0"
+    version: "2.1.0"
     repository: "file://../logclaw-ticketing-agent"
     condition: ticketingAgent.enabled
   - name: logclaw-bridge
-    version: "2.0.0"
+    version: "2.1.0"
     repository: "file://../logclaw-bridge"
     condition: bridge.enabled
   - name: logclaw-dashboard
-    version: "2.0.0"
+    version: "2.1.0"
     repository: "file://../logclaw-dashboard"
     condition: dashboard.enabled

@@ -19,12 +19,12 @@ dependencies:
   version: 2.0.0
 - name: logclaw-ticketing-agent
   repository: file://../logclaw-ticketing-agent
-  version: 2.0.0
+  version: 2.1.0
 - name: logclaw-bridge
   repository: file://../logclaw-bridge
-  version: 2.0.0
+  version: 2.1.0
 - name: logclaw-dashboard
   repository: file://../logclaw-dashboard
-  version: 2.0.0
-digest: sha256:b3b4a23b017528844912ba2ac5dfb841c5110e9e5841b80775fda1e5de73041f
-generated: "2026-03-11T05:41:19.370033-05:00"
+  version: 2.1.0
+digest: sha256:10d6a1631bb5ae58aacb42af54e8c5a4b218c1a2c1b1b9bb7141089728429856
+generated: "2026-03-13T19:49:13.717079-05:00"
