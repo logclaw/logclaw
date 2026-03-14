@@ -1,0 +1,346 @@
+# ═══════════════════════════════════════════════════════════════════
+# LogClaw Production — US West (us-west1-b)
+# ═══════════════════════════════════════════════════════════════════
+# Cluster:  gke_project-565165fe-d4ff-48fd-a54_us-west1-b_logclaw-prod-west
+# Account:  househosanna@gmail.com
+# Ingress:  8.229.183.79  (DNS-only, no Cloudflare proxy)
+# Issuer:   logclaw-issuer (Let's Encrypt HTTP-01)
+# Status:   15 pods running, 7 TLS certs issued (2026-03-14)
+#
+# Usage:
+#   helm upgrade logclaw ./charts/logclaw-tenant -n logclaw -f deployments/us-west-prod-values.yaml --no-hooks
+#   helm upgrade logclaw-auth-proxy ./charts/logclaw-auth-proxy -n logclaw --set global.clusterDomain=cluster.local --set replicaCount=1
+#   helm upgrade logclaw-console ./charts/logclaw-console -n logclaw -f deployments/us-west-console-values.yaml
+# ═══════════════════════════════════════════════════════════════════
+
+airflow:
+  enabled: true
+bridge:
+  enabled: true
+dashboard:
+  enabled: true
+flink:
+  enabled: true
+kafka:
+  enabled: true
+opensearch:
+  enabled: true
+otelCollector:
+  enabled: true
+ticketingAgent:
+  enabled: true
+mlEngine:
+  enabled: true
+
+global:
+  tenantId: prod
+  tenantName: "LogClaw Production"
+  tier: standard
+  resourcePreset: small
+  storageClass: standard
+  storageClassHighThroughput: standard
+
+  imagePullSecrets:
+    - name: ghcr-logclaw
+  imageRegistry: ""   # CRITICAL: must be "" — prevents prepending ghcr.io/logclaw to third-party images
+
+  kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc.cluster.local:9092"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
+
+  opensearchEndpoint: "http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
+
+  objectStorage:
+    provider: gcs
+    bucket: logclaw-prod-data
+    region: us-west1
+
+  secretStore:
+    provider: gcp
+    region: us-west1
+    projectId: ""
+    gcp:
+      clusterName: logclaw-prod
+      clusterLocation: us-west1
+      projectId: ""
+      serviceAccount: ""
+
+  ingressClass: nginx
+  tls:
+    enabled: true
+    issuerName: logclaw-issuer
+    issuerKind: ClusterIssuer
+    clusterIssuer: logclaw-issuer
+
+  podSecurityStandards:
+    enforce: privileged     # required for OpenSearch init-sysctl
+    audit: restricted
+    warn: restricted
+
+  monitoring:
+    enabled: false
+
+  llm:
+    provider: disabled
+
+# ─── Ingress (auth-proxy service name fix applied) ────────────────
+ingress:
+  enabled: true
+  authProxyServiceName: "logclaw-auth-proxy"   # separate Helm release — NOT logclaw-logclaw-auth-proxy
+  otel:
+    host: otel.logclaw.ai
+  api:
+    host: api.logclaw.ai
+  ticketing:
+    host: ticket.logclaw.ai
+  console:
+    host: console.logclaw.ai
+    serviceName: logclaw-console
+    servicePort: 3000
+  dashboard:
+    host: app.logclaw.ai
+  airflow:
+    host: airflow.logclaw.ai
+  flink:
+    host: flink.logclaw.ai
+
+# ─── Subchart overrides (working image tags as of 2026-03-14) ─────
+
+logclaw-kafka:
+  kafka:
+    replicas: 1
+    version: "4.0.0"
+    config:
+      auto.create.topics.enable: "false"
+      default.replication.factor: "1"
+      offsets.topic.replication.factor: "1"
+      transaction.state.log.replication.factor: "1"
+      transaction.state.log.min.isr: "1"
+      min.insync.replicas: "1"
+      log.retention.hours: "48"
+      log.segment.bytes: "1073741824"
+      num.io.threads: "8"
+      num.network.threads: "3"
+    jvmOptions:
+      -Xms: "1g"
+      -Xmx: "2g"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1536Mi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: "100Gi"
+          class: standard
+          deleteClaim: false
+  kafkaConnect:
+    enabled: false
+  topics:
+    rawLogs:
+      partitions: 6
+      replicas: 1
+      retentionMs: "172800000"
+      segmentBytes: "1073741824"
+    enriched:
+      partitions: 6
+      replicas: 1
+      retentionMs: "172800000"
+    anomalies:
+      partitions: 3
+      replicas: 1
+      retentionMs: "604800000"
+    dlq:
+      partitions: 1
+      replicas: 1
+      retentionMs: "2592000000"
+
+logclaw-opensearch:
+  opensearch:
+    version: "2.14.0"
+    devMode:
+      enabled: true       # standalone StatefulSet, no Opster CRD race condition
+    security:
+      tls:
+        enabled: false    # internal only (devMode)
+    masters:
+      replicas: 1
+      diskSize: "20Gi"
+      resources:
+        requests: { cpu: "500m", memory: "2Gi" }
+        limits:   { cpu: "2",    memory: "4Gi" }
+      jvm:
+        xms: "2g"         # MUST equal xmx
+        xmx: "2g"
+    data:
+      replicas: 1
+      diskSize: "100Gi"
+      resources:
+        requests: { cpu: "500m", memory: "2Gi" }
+        limits:   { cpu: "2",    memory: "4Gi" }
+      jvm:
+        xms: "2g"         # MUST equal xmx
+        xmx: "2g"
+    coordinators:
+      replicas: 0          # saves SSD quota
+  podDisruptionBudget:
+    dataNodes:  { minAvailable: 0 }
+    masterNodes: { minAvailable: 0 }
+
+logclaw-otel-collector:
+  image:
+    tag: "0.114.0"
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
+
+logclaw-bridge:
+  image:
+    repository: ghcr.io/logclaw/logclaw-bridge
+    tag: "2.1.0"
+    pullPolicy: IfNotPresent
+  bridge:
+    resources:
+      requests: { cpu: "200m", memory: "256Mi" }
+      limits:   { cpu: "1",    memory: "512Mi" }
+
+logclaw-dashboard:
+  image:
+    repository: ghcr.io/logclaw/logclaw-dashboard
+    tag: "sha-95317b6"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  service:
+    type: ClusterIP
+    port: 3000
+
+logclaw-ticketing-agent:
+  image:
+    repository: ghcr.io/logclaw/logclaw-ticketing-agent
+    tag: "sha-9be71f3"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  config:
+    email:
+      enabled: true
+      provider: resend
+      fromAddress: "alert@logclaw.ai"
+      smtpHost: ""
+      smtpPort: 587
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+logclaw-airflow:
+  airflow:
+    executor: KubernetesExecutor
+    images:
+      airflow:
+        repository: apache/airflow
+        tag: "2.9.3"
+    dags:
+      gitSync:
+        enabled: false     # no DAG repo configured yet
+    data:
+      metadataSecretName: logclaw-metadata
+    postgresql:
+      image:
+        registry: docker.io    # prevents global.imageRegistry override
+        tag: latest
+      persistence:
+        size: 5Gi
+    redis:
+      enabled: false
+    statsd:
+      enabled: false
+    webserver:
+      replicas: 1
+      defaultUser:
+        enabled: false
+      resources:
+        requests: { cpu: "500m", memory: "1Gi" }
+        limits:   { cpu: "1",    memory: "2Gi" }
+    scheduler:
+      replicas: 1
+      resources:
+        requests: { cpu: "250m", memory: "512Mi" }
+        limits:   { cpu: "1",    memory: "1536Mi" }
+    workers:
+      replicas: 0
+    triggerer:
+      replicas: 0
+    flower:
+      enabled: false
+  podDisruptionBudget:
+    scheduler: { minAvailable: 0 }
+    webserver: { minAvailable: 0 }
+
+logclaw-flink:
+  flink:
+    version: "1.19"
+    image:
+      repository: ghcr.io/logclaw/logclaw-flink-jobs
+      tag: "2.1.0"
+    jobImageTag: "2.1.0"
+    config:
+      taskmanager.numberOfTaskSlots: "4"
+      state.backend: rocksdb
+      execution.checkpointing.mode: EXACTLY_ONCE
+      execution.checkpointing.interval: "30s"
+    etlJob: { enabled: true, parallelism: 3 }
+    enrichmentJob: { enabled: true, parallelism: 3 }
+    anomalyJob: { enabled: true, parallelism: 3 }
+    sessionCluster: { enabled: false }
+    jobManager:
+      replicas: 1
+      cpu: 0.5
+      memory: "1024m"
+    taskManager:
+      replicas: 1
+      cpu: 1
+      memory: "2048m"
+      resources:
+        requests: { cpu: "500m", memory: "1Gi" }
+        limits:   { cpu: "1",    memory: "2Gi" }
+  podDisruptionBudget:
+    minAvailable: 0
+
+logclaw-ml-engine:
+  mlEngine:
+    feast:
+      image:
+        repository: feastdev/feature-server
+        tag: "0.40.0"
+      replicaCount: 1
+      resources:
+        requests: { cpu: "200m", memory: "256Mi" }
+        limits:   { cpu: "500m", memory: "512Mi" }
+    kserve: { enabled: false }
+    ollama: { enabled: false }
+  redis:
+    image:
+      registry: docker.io
+      tag: latest
+    master:
+      persistence:
+        size: 5Gi
+    replica:
+      replicaCount: 0
+  podDisruptionBudget:
+    minAvailable: 0
