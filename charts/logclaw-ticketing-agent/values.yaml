@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: "ghcr.io/logclaw/logclaw-ticketing-agent"
-  tag: "2.1.1"    # Email notifications (Resend/SMTP)
+  tag: "2.2.0"    # Email always-on + RESEND_API_KEY fallback
   pullPolicy: IfNotPresent
 
 serviceAccount:
@@ -96,7 +96,7 @@ config:
   # Runtime: recipients/credentials injected from console project settings via
   #   PATCH /api/v1/config/platforms?tenant_id=xxx (same as Slack, PD, Jira, etc.)
   email:
-    enabled: false
+    enabled: true               # Email is always-on by default
     provider: "resend"          # resend | smtp
     fromAddress: "alert@logclaw.ai"
     recipients: []              # ["oncall@company.com"] — overridden per-tenant from console
