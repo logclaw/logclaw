@@ -1,0 +1,197 @@
+# ═══════════════════════════════════════════════════════════════════
+# LogClaw Production — US East (us-east1-b)
+# ═══════════════════════════════════════════════════════════════════
+# Cluster:  gke_project-9490bf61-5a92-4130-9de_us-east1-b_logclaw-us-east
+# Account:  househosanna2@gmail.com
+# Ingress:  34.75.117.199  (DNS-only recommended for cert-manager)
+# Issuer:   letsencrypt-prod (Let's Encrypt HTTP-01)
+# Status:   17 pods running (2026-03-14)
+#
+# Usage:
+#   helm upgrade logclaw ./charts/logclaw-tenant -n logclaw -f deployments/us-east-prod-values.yaml --no-hooks
+#   helm upgrade logclaw-auth-proxy ./charts/logclaw-auth-proxy -n logclaw --set global.clusterDomain=cluster.local --set replicaCount=1
+#   helm upgrade logclaw-console ./charts/logclaw-console -n logclaw -f deployments/us-east-console-values.yaml
+# ═══════════════════════════════════════════════════════════════════
+
+airflow:
+  enabled: true
+bridge:
+  enabled: true
+dashboard:
+  enabled: true
+flink:
+  enabled: false          # disabled on us-east (smaller cluster)
+kafka:
+  enabled: true
+opensearch:
+  enabled: true
+otelCollector:
+  enabled: true
+ticketingAgent:
+  enabled: true
+mlEngine:
+  enabled: false          # disabled on us-east (smaller cluster)
+
+global:
+  tenantId: logclaw
+  tenantName: "LogClaw US-East"
+  logclawTenantId: "logclaw"
+  tier: standard
+  storageClass: premium-rwo
+  storageClassHighThroughput: standard   # OpenSearch uses standard (HDD) to stay within SSD quota
+
+  imagePullSecrets:
+    - name: ghcr-logclaw
+  imageRegistry: ""   # CRITICAL: must be "" — prevents prepending ghcr.io/logclaw to third-party images
+
+  kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc:9092"
+
+  opensearchEndpoint: "http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
+
+  objectStorage:
+    provider: gcs
+    bucket: logclaw-us-east-data
+    region: us-east1
+
+  ingressClass: nginx
+  tls:
+    enabled: true
+    issuerName: letsencrypt-prod
+    issuerKind: ClusterIssuer
+
+  podSecurityStandards:
+    enforce: privileged     # required for OpenSearch init-sysctl
+    audit: privileged
+    warn: privileged
+
+  monitoring:
+    enabled: false
+
+# ─── Ingress (auth-proxy service name fix applied) ────────────────
+ingress:
+  enabled: true
+  authProxyServiceName: "logclaw-auth-proxy"
+  otel:
+    host: otel.us-east.logclaw.ai
+  api:
+    host: api.us-east.logclaw.ai
+  ticketing:
+    host: ticket.us-east.logclaw.ai
+  console:
+    host: app.us-east.logclaw.ai
+    serviceName: logclaw-console
+    servicePort: 3000
+  dashboard:
+    host: dashboard.us-east.logclaw.ai
+  airflow:
+    host: airflow.us-east.logclaw.ai
+
+# ─── Subchart overrides ───────────────────────────────────────────
+
+logclaw-kafka:
+  kafka:
+    replicas: 1
+    config:
+      default.replication.factor: "1"
+      offsets.topic.replication.factor: "1"
+      transaction.state.log.replication.factor: "1"
+      transaction.state.log.min.isr: "1"
+      min.insync.replicas: "1"
+    jvmOptions:
+      -Xms: "1g"
+      -Xmx: "2g"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: "20Gi"
+          deleteClaim: false
+  kafkaConnect:
+    enabled: false
+  s3Sink:
+    enabled: false
+  kafkaTopics:
+    rawLogs:
+      replicas: 1
+    enrichedLogs:
+      replicas: 1
+    anomalyEvents:
+      replicas: 1
+    deadLetterQueue:
+      replicas: 1
+
+logclaw-opensearch:
+  opensearch:
+    version: "2.14.0"
+    devMode:
+      enabled: true       # standalone StatefulSet, no Opster CRD race condition
+    security:
+      tls:
+        enabled: false    # internal only (devMode)
+    masters:
+      replicas: 1
+      diskSize: "10Gi"
+      resources:
+        requests: { cpu: "500m", memory: "2Gi" }
+        limits:   { cpu: "1",    memory: "4Gi" }
+      jvm:
+        xms: "1g"         # MUST equal xmx
+        xmx: "1g"
+    data:
+      replicas: 1
+      diskSize: "30Gi"
+      resources:
+        requests: { cpu: "500m", memory: "2Gi" }
+        limits:   { cpu: "1",    memory: "4Gi" }
+      jvm:
+        xms: "1g"         # MUST equal xmx
+        xmx: "1g"
+    coordinators:
+      replicas: 0          # saves SSD quota
+  podDisruptionBudget:
+    dataNodes:  { minAvailable: 0 }
+    masterNodes: { minAvailable: 0 }
+
+logclaw-otel-collector:
+  image:
+    tag: "0.114.0"
+
+logclaw-bridge:
+  image:
+    tag: "2.0.0"
+
+logclaw-dashboard:
+  image:
+    tag: "sha-95317b6"
+
+logclaw-ticketing-agent:
+  image:
+    tag: "sha-9be71f3"
+  config:
+    email:
+      enabled: true
+      provider: resend
+      fromAddress: "alert@logclaw.ai"
+
+logclaw-airflow:
+  airflow:
+    images:
+      airflow:
+        repository: apache/airflow
+        tag: "2.9.3"
+    dags:
+      gitSync:
+        enabled: false
+    postgresql:
+      image:
+        registry: docker.io
+        repository: bitnami/postgresql
+        tag: latest

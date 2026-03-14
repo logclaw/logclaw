@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════════
+# LogClaw Console — US East Production
+# ═══════════════════════════════════════════════════════════════════
+# Deployed as separate Helm release: logclaw-console
+#
+# Usage:
+#   helm upgrade logclaw-console ./charts/logclaw-console -n logclaw -f deployments/us-east-console-values.yaml
+# ═══════════════════════════════════════════════════════════════════
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# OpenSearch connection (devMode = HTTP, no auth needed but we pass it)
+endpoints:
+  opensearch: "http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
+  opensearchUser: "admin"
+  opensearchPasswordSecret: "logclaw-logclaw-opensearch-admin-password"
+  opensearchPasswordKey: "password"
+
+# Skip TLS verification for internal OpenSearch (self-signed)
+nodeTlsRejectUnauthorized: "0"
