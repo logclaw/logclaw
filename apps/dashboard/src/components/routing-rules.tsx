@@ -71,6 +71,7 @@ export default function RoutingRulesPanel({
     servicenow: "ServiceNow",
     opsgenie: "OpsGenie",
     slack: "Slack",
+    email: "Email",
   };
 
   if (enabledPlatforms.length === 0) {

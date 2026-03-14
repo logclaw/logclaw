@@ -713,6 +713,7 @@ export const PLATFORM_REQUIRED_FIELDS: Record<string, string[]> = {
   servicenow: ["instanceUrl", "username", "password"],
   opsgenie: ["apiKey"],
   slack: ["webhookUrl"],
+  email: ["apiKey", "recipients"],
 };
 
 // ── Agent (infrastructure health) helpers ────────────────────

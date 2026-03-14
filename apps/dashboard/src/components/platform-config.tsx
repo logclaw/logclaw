@@ -83,6 +83,20 @@ const PLATFORM_DEFS: Record<
       { key: "channel", label: "Channel", type: "string", placeholder: "#incidents" },
     ],
   },
+  email: {
+    label: "Email (Resend / SMTP)",
+    icon: "EM",
+    fields: [
+      { key: "provider", label: "Provider", type: "string", placeholder: "resend" },
+      { key: "apiKey", label: "Resend API Key", type: "secret", placeholder: "re_...", required: true },
+      { key: "fromAddress", label: "From Address", type: "string", placeholder: "alert@logclaw.ai" },
+      { key: "recipients", label: "Recipients (comma-separated)", type: "string", placeholder: "oncall@company.com, sre@company.com", required: true },
+      { key: "smtpHost", label: "SMTP Host (if provider=smtp)", type: "string", placeholder: "smtp.gmail.com" },
+      { key: "smtpPort", label: "SMTP Port", type: "string", placeholder: "587" },
+      { key: "smtpUsername", label: "SMTP Username", type: "string" },
+      { key: "password", label: "SMTP Password", type: "secret" },
+    ],
+  },
 };
 
 /* ── Component ───────────────────────────────────────────── */

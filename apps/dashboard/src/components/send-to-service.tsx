@@ -24,6 +24,7 @@ const PLATFORMS = [
   { key: "servicenow", label: "ServiceNow", icon: "SN", bg: "bg-[#81B5A1]", bgMuted: "bg-[#81B5A1]/15", text: "text-white", textMuted: "text-[#5A8F7A]" },
   { key: "opsgenie", label: "OpsGenie", icon: "OG", bg: "bg-[#2684FF]", bgMuted: "bg-[#2684FF]/15", text: "text-white", textMuted: "text-[#2684FF]" },
   { key: "slack", label: "Slack", icon: "SK", bg: "bg-[#E01E5A]", bgMuted: "bg-[#E01E5A]/15", text: "text-white", textMuted: "text-[#E01E5A]" },
+  { key: "email", label: "Email", icon: "EM", bg: "bg-[#7C3AED]", bgMuted: "bg-[#7C3AED]/15", text: "text-white", textMuted: "text-[#7C3AED]" },
 ] as const;
 
 /* ── Component ───────────────────────────────────────────── */
