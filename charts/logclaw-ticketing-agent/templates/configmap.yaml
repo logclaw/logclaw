@@ -65,6 +65,14 @@ data:
         icon_emoji: {{ .Values.config.slack.iconEmoji | quote }}
         notify_on_severity: {{ toJson .Values.config.slack.notifyOnSeverity }}
 
+      email:
+        enabled: {{ .Values.config.email.enabled }}
+        provider: {{ .Values.config.email.provider | quote }}
+        fromAddress: {{ .Values.config.email.fromAddress | quote }}
+        recipients: {{ toJson .Values.config.email.recipients }}
+        smtpHost: {{ .Values.config.email.smtpHost | quote }}
+        smtpPort: {{ .Values.config.email.smtpPort }}
+
     routing:
       critical: {{ toJson .Values.config.routing.critical }}
       high: {{ toJson .Values.config.routing.high }}

@@ -137,7 +137,7 @@ data:
     VALID_STATES = ["identified", "acknowledged", "investigating", "mitigated", "resolved"]
     VALID_SEVERITIES = ["critical", "high", "medium", "low"]
     VALID_URGENCIES = ["high", "medium", "low"]
-    VALID_PLATFORMS = {"pagerduty", "jira", "servicenow", "opsgenie", "slack"}
+    VALID_PLATFORMS = {"pagerduty", "jira", "servicenow", "opsgenie", "slack", "email"}
     VALID_LLM_PROVIDERS = {"ollama", "claude", "openai", "vllm", "disabled"}
 
     # ITIL Priority Matrix: severity x urgency
@@ -1071,6 +1071,74 @@ data:
         return None
 
 
+    # ── Email helpers ─────────────────────────────────────────────────────
+    def _build_email_html(incident):
+        """Build subject + HTML body for an incident alert email."""
+        sev = incident.get("severity", "medium")
+        sev_emoji = {"critical": "\U0001f6a8", "high": "\u26a0\ufe0f", "medium": "\U0001f536", "low": "\u2139\ufe0f"}.get(sev, "\U0001f514")
+        subject = f"{sev_emoji} [{sev.upper()}] {incident['title']}"
+        html = f"""<div style="font-family:sans-serif;max-width:600px;">
+      <h2 style="color:#e53e3e;">{sev_emoji} {incident['title']}</h2>
+      <table style="border-collapse:collapse;width:100%;margin:16px 0;">
+        <tr><td style="padding:6px 12px;font-weight:bold;background:#f7f7f7;">Incident ID</td><td style="padding:6px 12px;">{incident['id']}</td></tr>
+        <tr><td style="padding:6px 12px;font-weight:bold;background:#f7f7f7;">Service</td><td style="padding:6px 12px;">{incident.get('service', 'unknown')}</td></tr>
+        <tr><td style="padding:6px 12px;font-weight:bold;background:#f7f7f7;">Severity</td><td style="padding:6px 12px;">{sev}</td></tr>
+        <tr><td style="padding:6px 12px;font-weight:bold;background:#f7f7f7;">Priority</td><td style="padding:6px 12px;">{incident.get('priority', 'P3')}</td></tr>
+        <tr><td style="padding:6px 12px;font-weight:bold;background:#f7f7f7;">Anomaly Score</td><td style="padding:6px 12px;">{incident.get('anomaly_score', 'N/A')}</td></tr>
+      </table>
+      <p style="white-space:pre-wrap;">{incident.get('description', '')}</p>
+      <hr style="margin:24px 0;border:none;border-top:1px solid #eee;">
+      <p style="color:#888;font-size:12px;">LogClaw AI SRE &mdash; <a href="https://app.logclaw.ai">Open Console</a></p>
+    </div>"""
+        return subject, html
+
+
+    def _send_email(email_cfg, incident):
+        """Send incident email via configured provider (resend or smtp). Returns ref_id or raises."""
+        provider = email_cfg.get("provider", "resend")
+        from_addr = email_cfg.get("fromAddress", "alert@logclaw.ai")
+        recipients = email_cfg.get("recipients", [])
+        if not recipients:
+            raise ValueError("No email recipients configured")
+
+        subject, html = _build_email_html(incident)
+
+        if provider == "resend":
+            api_key = email_cfg.get("apiKey", "")
+            if not api_key:
+                raise ValueError("Resend API key not configured")
+            payload = {"from": from_addr, "to": recipients, "subject": subject, "html": html}
+            req = Request("https://api.resend.com/emails", json.dumps(payload).encode(),
+                          {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}, method="POST")
+            r = json.loads(urlopen(req, timeout=10).read())
+            return r.get("id", "")
+
+        elif provider == "smtp":
+            import smtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            host = email_cfg.get("smtpHost", "")
+            port = int(email_cfg.get("smtpPort", 587))
+            username = email_cfg.get("smtpUsername", "")
+            password = email_cfg.get("password", "")
+            if not host:
+                raise ValueError("SMTP host not configured")
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = from_addr
+            msg["To"] = ", ".join(recipients)
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(host, port) as srv:
+                srv.starttls()
+                if username:
+                    srv.login(username, password)
+                srv.sendmail(from_addr, recipients, msg.as_string())
+            return f"smtp-{incident['id']}"
+
+        else:
+            raise ValueError(f"Unknown email provider: {provider}")
+
+
     # ── Webhook integrations (with severity-based routing) ────────────────
     def send_webhooks(incident):
         cfg = get_config()
@@ -1232,6 +1300,19 @@ data:
                     stats["webhooks_failed"] += 1
                     log(f"  OpsGenie error: {e}")
 
+        # ── Email (Resend / SMTP) ──────────────────────────────────────────────
+        if should_send("email"):
+            email_cfg = platforms.get("email", {})
+            recipients = email_cfg.get("recipients", [])
+            if recipients:
+                try:
+                    ref_id = _send_email(email_cfg, incident)
+                    ext_refs.append({"system": "email", "ref_id": ref_id, "url": "", "synced_at": now_iso()})
+                    stats["webhooks_sent"] += 1
+                except Exception as e:
+                    stats["webhooks_failed"] += 1
+                    log(f"  Email error: {e}")
+
         return ext_refs
 
 
@@ -1363,6 +1444,18 @@ data:
                 req = Request(f"{og_api_url}/v2/alerts", json.dumps(payload).encode(), {"Content-Type": "application/json", "Authorization": f"GenieKey {og_key}"}, method="POST")
                 r = json.loads(urlopen(req, timeout=10).read())
                 ext_ref = {"system": "opsgenie", "ref_id": r.get("requestId", ""), "url": "", "synced_at": now_iso()}
+                stats["webhooks_sent"] += 1
+            except Exception as e:
+                stats["webhooks_failed"] += 1
+                return {"ok": False, "error": str(e)}
+
+        elif platform == "email":
+            recipients = p_cfg.get("recipients", [])
+            if not recipients:
+                return {"ok": False, "error": "Email recipients not configured"}
+            try:
+                ref_id = _send_email(p_cfg, incident)
+                ext_ref = {"system": "email", "ref_id": ref_id, "url": "", "synced_at": now_iso()}
                 stats["webhooks_sent"] += 1
             except Exception as e:
                 stats["webhooks_failed"] += 1

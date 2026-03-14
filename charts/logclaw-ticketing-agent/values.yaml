@@ -91,6 +91,22 @@ config:
       - "critical"
       - "high"
 
+  # ── Email Notifications ──────────────────────────────────────────────────────
+  # Configurable provider: Resend (default) or SMTP (bring-your-own).
+  # Runtime: recipients/credentials injected from console project settings via
+  #   PATCH /api/v1/config/platforms?tenant_id=xxx (same as Slack, PD, Jira, etc.)
+  email:
+    enabled: false
+    provider: "resend"          # resend | smtp
+    fromAddress: "alert@logclaw.ai"
+    recipients: []              # ["oncall@company.com"] — overridden per-tenant from console
+    # ── Resend (default) ──
+    # apiKey comes from console project settings (encrypted) or ExternalSecret
+    # ── SMTP (bring-your-own) ──
+    smtpHost: ""                # e.g. smtp.gmail.com, smtp.sendgrid.net
+    smtpPort: 587
+    # smtpUsername + password from console project settings (encrypted)
+
   # ── Severity-based routing ────────────────────────────────────────────────────
   # Optional. Controls which enabled platforms receive each severity level.
   # Empty list = route to ALL enabled platforms.

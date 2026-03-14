@@ -172,6 +172,17 @@ spec:
               value: {{ .Values.config.slack.username | quote }}
             - name: SLACK_ICON_EMOJI
               value: {{ .Values.config.slack.iconEmoji | quote }}
+            # ── Email ───────────────────────────────────────────────────────
+            - name: EMAIL_ENABLED
+              value: {{ .Values.config.email.enabled | quote }}
+            - name: EMAIL_PROVIDER
+              value: {{ .Values.config.email.provider | quote }}
+            - name: EMAIL_FROM_ADDRESS
+              value: {{ .Values.config.email.fromAddress | quote }}
+            - name: EMAIL_SMTP_HOST
+              value: {{ .Values.config.email.smtpHost | quote }}
+            - name: EMAIL_SMTP_PORT
+              value: {{ .Values.config.email.smtpPort | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "logclaw-ticketing-agent.fullname" . }}-credentials
