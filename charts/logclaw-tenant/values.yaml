@@ -16,6 +16,9 @@ global:
 
   # Image registry and pull secrets
   imagePullSecrets: []
+  # WARNING: imageRegistry gets prepended to ALL subchart images including
+  # third-party (bitnami/postgresql, apache/airflow). Override to "" when
+  # deploying non-LogClaw images or use explicit image overrides per subchart.
   imageRegistry: "ghcr.io/logclaw"
 
   # Kafka — injected into OTel Collector, Flink, Bridge, ticketing-agent
@@ -63,7 +66,7 @@ global:
 
   # Pod Security Standards
   podSecurityStandards:
-    enforce: "restricted"
+    enforce: "baseline"      # OpenSearch needs privileged init-sysctl for vm.max_map_count
     audit: "restricted"
     warn: "restricted"
 

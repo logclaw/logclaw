@@ -12,7 +12,7 @@ releases:
   - name: strimzi-kafka-operator
     namespace: strimzi-system
     chart: strimzi/strimzi-kafka-operator
-    version: "0.41.0"
+    version: "0.44.0"   # v1 CRD support required by modern Strimzi operators
     createNamespace: true
     values:
       - ../operators/strimzi/values.yaml

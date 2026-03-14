@@ -20,7 +20,7 @@ opensearch:
         cpu: "2"
         memory: "8Gi"
     jvm:
-      xms: "2g"
+      xms: "4g"   # MUST equal xmx — OpenSearch crashes otherwise
       xmx: "4g"
 
   data:
@@ -34,7 +34,7 @@ opensearch:
         cpu: "4"
         memory: "16Gi"
     jvm:
-      xms: "4g"
+      xms: "8g"   # MUST equal xmx — OpenSearch crashes otherwise
       xmx: "8g"
 
   coordinators:

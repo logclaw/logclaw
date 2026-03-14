@@ -24,7 +24,7 @@ airflow:
 
   dags:
     gitSync:
-      enabled: true
+      enabled: false   # opt-in only — crashes when repo is empty
       repo: ""
       branch: "main"
       rev: "HEAD"
