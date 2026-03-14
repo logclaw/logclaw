@@ -120,3 +120,13 @@ dashboard:
 
 zammad:
   enabled: false                # opt-in: deploy in-cluster Zammad ITSM (replaces PD + Jira)
+
+# =============================================================
+# INGRESS — set ingress.enabled=true + hosts to create ingresses
+# =============================================================
+ingress:
+  enabled: false
+  # Auth Proxy is deployed as a separate Helm release, so its service
+  # name won't follow {{ .Release.Name }}-logclaw-auth-proxy convention.
+  # Override if your auth-proxy release has a different name.
+  authProxyServiceName: "logclaw-auth-proxy"
