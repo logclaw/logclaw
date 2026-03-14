@@ -69,6 +69,17 @@ _config = {
             "webhookUrl": os.environ.get("SLACK_WEBHOOK_URL", ""),
             "channel": os.environ.get("SLACK_CHANNEL", "#logclaw-alerts"),
         },
+        "email": {
+            "enabled": os.environ.get("EMAIL_ENABLED", "true").lower() == "true",
+            "provider": os.environ.get("EMAIL_PROVIDER", "resend"),
+            "fromAddress": os.environ.get("EMAIL_FROM_ADDRESS", "alert@logclaw.ai"),
+            "recipients": [],
+            "apiKey": "",
+            "smtpHost": os.environ.get("EMAIL_SMTP_HOST", ""),
+            "smtpPort": os.environ.get("EMAIL_SMTP_PORT", "587"),
+            "smtpUsername": "",
+            "password": "",
+        },
     },
     "routing": {
         "critical": [],
@@ -1096,6 +1107,8 @@ def _send_email(email_cfg, incident):
 
     if provider == "resend":
         api_key = email_cfg.get("apiKey", "")
+        if not api_key or api_key == "****":
+            api_key = os.environ.get("RESEND_API_KEY", "")
         if not api_key:
             raise ValueError("Resend API key not configured")
         payload = {"from": from_addr, "to": recipients, "subject": subject, "html": html}
@@ -1813,6 +1826,8 @@ def test_platform_connection(platform: str) -> dict:
                 # Resend: validate API key by listing domains (lightweight GET)
                 api_key = pcfg.get("apiKey", "")
                 if not api_key or api_key == "****":
+                    api_key = os.environ.get("RESEND_API_KEY", "")
+                if not api_key:
                     return {"ok": False, "message": "Resend API key not configured", "latency_ms": 0}
                 req = Request("https://api.resend.com/domains",
                               headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"}, method="GET")

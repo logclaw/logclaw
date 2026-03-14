@@ -183,6 +183,13 @@ spec:
               value: {{ .Values.config.email.smtpHost | quote }}
             - name: EMAIL_SMTP_PORT
               value: {{ .Values.config.email.smtpPort | quote }}
+            # ── LogClaw Default Resend API Key ────────────────────────
+            - name: RESEND_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: logclaw-resend-api-key
+                  key: api-key
+                  optional: true
           envFrom:
             - secretRef:
                 name: {{ include "logclaw-ticketing-agent.fullname" . }}-credentials

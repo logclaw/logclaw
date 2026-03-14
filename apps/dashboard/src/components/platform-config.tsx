@@ -20,6 +20,8 @@ import {
   Zap,
   XCircle,
   CheckCircle2,
+  X,
+  Mail,
 } from "lucide-react";
 
 /* ── Platform definitions ────────────────────────────────── */
@@ -35,7 +37,7 @@ interface FieldDef {
 
 const PLATFORM_DEFS: Record<
   string,
-  { label: string; icon: string; fields: FieldDef[] }
+  { label: string; icon: string; fields: FieldDef[]; customUI?: boolean }
 > = {
   pagerduty: {
     label: "PagerDuty",
@@ -85,20 +87,30 @@ const PLATFORM_DEFS: Record<
     ],
   },
   email: {
-    label: "Email (Resend / SMTP)",
+    label: "Email Alerts",
     icon: "EM",
-    fields: [
-      { key: "provider", label: "Provider", type: "string", placeholder: "resend", defaultValue: "resend" },
-      { key: "apiKey", label: "Resend API Key", type: "secret", placeholder: "re_...", required: true },
-      { key: "fromAddress", label: "From Address", type: "string", placeholder: "alert@logclaw.ai", defaultValue: "alert@logclaw.ai" },
-      { key: "recipients", label: "Recipients (comma-separated)", type: "string", placeholder: "oncall@company.com, sre@company.com", required: true },
-      { key: "smtpHost", label: "SMTP Host (if provider=smtp)", type: "string", placeholder: "smtp.gmail.com" },
-      { key: "smtpPort", label: "SMTP Port", type: "string", placeholder: "587", defaultValue: "587" },
-      { key: "smtpUsername", label: "SMTP Username", type: "string" },
-      { key: "password", label: "SMTP Password", type: "secret" },
-    ],
+    fields: [],
+    customUI: true,
   },
 };
+
+/* ── Email chips helpers ──────────────────────────────────── */
+
+function parseRecipients(val: unknown): string[] {
+  if (Array.isArray(val)) return val.filter(Boolean);
+  if (typeof val === "string" && val) {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch { /* not JSON, try comma-split */ }
+    return val.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 /* ── Component ───────────────────────────────────────────── */
 
@@ -116,10 +128,12 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
 
+  // Email-specific state
+  const [emailInput, setEmailInput] = useState("");
+
   const toggleExpand = (p: string) => {
     const opening = expanded !== p;
     setExpanded((prev) => (prev === p ? null : p));
-    // Auto-populate default values for fields that have no existing value
     if (opening && PLATFORM_DEFS[p]) {
       const cfg = platforms[p] ?? {};
       const defaults: Record<string, string> = {};
@@ -152,24 +166,59 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
     return val !== undefined ? String(val) : "";
   };
 
-  const setField = (platform: string, field: string, value: string) => {
+  const setField = (platform: string, field: string, value: unknown) => {
     setLocalEdits((prev) => ({
       ...prev,
       [platform]: { ...prev[platform], [field]: value },
     }));
   };
 
-  /** Check if all required fields have real (non-masked, non-empty) values */
+  const getEmailRecipients = (): string[] => {
+    const edited = localEdits.email?.recipients;
+    if (edited !== undefined) return parseRecipients(edited);
+    return parseRecipients(platforms.email?.recipients);
+  };
+
+  const addEmail = (email: string) => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !isValidEmail(trimmed)) return;
+    const current = getEmailRecipients();
+    if (current.includes(trimmed)) return;
+    setField("email", "recipients", [...current, trimmed]);
+  };
+
+  const removeEmail = (email: string) => {
+    const current = getEmailRecipients();
+    setField("email", "recipients", current.filter((e) => e !== email));
+  };
+
+  const handleEmailKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addEmail(emailInput);
+      setEmailInput("");
+    }
+    if (e.key === "Backspace" && !emailInput) {
+      const current = getEmailRecipients();
+      if (current.length > 0) {
+        removeEmail(current[current.length - 1]);
+      }
+    }
+  };
+
   const isConfigured = (platform: string): boolean => {
     const required = PLATFORM_REQUIRED_FIELDS[platform] ?? [];
     const cfg = platforms[platform] ?? {};
     return required.every((f) => {
+      if (f === "recipients") {
+        const recipients = parseRecipients(cfg[f]);
+        return recipients.length > 0;
+      }
       const val = String(cfg[f] ?? "");
       return val !== "" && val !== "****";
     });
   };
 
-  /** Get status label and style for a platform */
   const getStatus = (platform: string) => {
     const cfg = platforms[platform] ?? { enabled: false };
     const enabled = !!cfg.enabled;
@@ -180,7 +229,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
       return { label: "Off", style: "bg-[#f5f5f7] text-[#aeaeb2]", sublabel: "Disabled" };
     }
     if (!configured) {
-      return { label: "Setup required", style: "bg-amber-50 text-amber-600", sublabel: "Enabled — missing credentials" };
+      return { label: "Setup required", style: "bg-amber-50 text-amber-600", sublabel: "Enabled — add recipients" };
     }
     if (testResult?.ok) {
       return { label: "Connected", style: "bg-emerald-50 text-emerald-600", sublabel: `Verified — ${testResult.latency_ms}ms` };
@@ -188,8 +237,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
     if (testResult && !testResult.ok) {
       return { label: "Failed", style: "bg-red-50 text-red-500", sublabel: testResult.message };
     }
-    // Configured but not tested
-    return { label: "Not verified", style: "bg-blue-50 text-blue-600", sublabel: "Configured — run test to verify" };
+    return { label: "Active", style: "bg-emerald-50 text-emerald-600", sublabel: `${parseRecipients(cfg.recipients).length} recipient(s)` };
   };
 
   const handleToggle = async (platform: string) => {
@@ -216,7 +264,6 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
         delete next[platform];
         return next;
       });
-      // Clear old test result since config changed
       setTestResults((prev) => {
         const next = { ...prev };
         delete next[platform];
@@ -292,14 +339,12 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
                 </button>
 
                 <div className="flex items-center gap-2 sm:gap-3">
-                  {/* Status badge */}
                   <span
                     className={`hidden rounded-full px-2.5 py-0.5 text-[10px] font-semibold sm:inline ${status.style}`}
                   >
                     {status.label}
                   </span>
 
-                  {/* Toggle switch */}
                   <button
                     onClick={() => handleToggle(key)}
                     disabled={saving === key}
@@ -316,51 +361,107 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
                 </div>
               </div>
 
-              {/* Expanded config form */}
+              {/* Expanded config */}
               {isExpanded && (
                 <div className="border-t border-[#f2f2f7] bg-[#fafafa] px-4 py-4 sm:px-5">
-                  <div className="space-y-3">
-                    {def.fields.map((field) => {
-                      const isSecret = field.type === "secret";
-                      const revealKey = `${key}.${field.key}`;
-                      const revealed = revealedFields.has(revealKey);
-                      const val = getFieldValue(key, field.key);
+                  {/* ── Email: Custom chips UI ── */}
+                  {key === "email" ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 border border-[#e5e5ea]">
+                        <Mail className="h-3.5 w-3.5 text-[#aeaeb2]" />
+                        <span className="text-[12px] text-[#6e6e73]">From:</span>
+                        <span className="font-mono text-[12px] text-[#1d1d1f]">alert@logclaw.ai</span>
+                        <span className="ml-auto rounded-full bg-[#f5f5f7] px-2 py-0.5 text-[10px] font-medium text-[#6e6e73]">
+                          via Resend
+                        </span>
+                      </div>
 
-                      return (
-                        <div key={field.key}>
-                          <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-[#6e6e73]">
-                            {field.label}
-                            {field.required && (
-                              <span className="text-[#FF5722]">*</span>
-                            )}
-                          </label>
-                          <div className="relative">
-                            <input
-                              type={isSecret && !revealed ? "password" : "text"}
-                              value={val}
-                              placeholder={field.placeholder}
-                              onChange={(e) =>
-                                setField(key, field.key, e.target.value)
-                              }
-                              className="w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2 font-mono text-[12px] text-[#1d1d1f] outline-none transition-colors focus:border-[#FF5722] focus:ring-1 focus:ring-[#FF5722]/20"
-                            />
-                            {isSecret && (
+                      <label className="flex items-center gap-1 text-[11px] font-medium text-[#6e6e73]">
+                        Recipients
+                        <span className="text-[#FF5722]">*</span>
+                      </label>
+
+                      <div className="min-h-[44px] rounded-xl border border-[#e5e5ea] bg-white px-2 py-1.5 focus-within:border-[#FF5722] focus-within:ring-1 focus-within:ring-[#FF5722]/20 transition-colors">
+                        <div className="flex flex-wrap gap-1.5">
+                          {getEmailRecipients().map((email) => (
+                            <span
+                              key={email}
+                              className="inline-flex items-center gap-1 rounded-full bg-[#f5f5f7] px-2.5 py-1 text-[11px] font-medium text-[#1d1d1f]"
+                            >
+                              {email}
                               <button
-                                onClick={() => toggleReveal(revealKey)}
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#aeaeb2] hover:text-[#6e6e73]"
+                                onClick={() => removeEmail(email)}
+                                className="rounded-full p-0.5 text-[#aeaeb2] hover:bg-[#e5e5ea] hover:text-[#6e6e73] transition-colors"
                               >
-                                {revealed ? (
-                                  <EyeOff className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Eye className="h-3.5 w-3.5" />
-                                )}
+                                <X className="h-2.5 w-2.5" />
                               </button>
-                            )}
-                          </div>
+                            </span>
+                          ))}
+                          <input
+                            type="email"
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            onKeyDown={handleEmailKeyDown}
+                            onBlur={() => {
+                              if (emailInput.trim()) {
+                                addEmail(emailInput);
+                                setEmailInput("");
+                              }
+                            }}
+                            placeholder={getEmailRecipients().length === 0 ? "Type email and press Enter" : "Add more..."}
+                            className="min-w-[120px] flex-1 border-none bg-transparent px-1 py-1 text-[12px] text-[#1d1d1f] outline-none placeholder-[#c7c7cc]"
+                          />
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                      <p className="text-[10px] text-[#aeaeb2]">
+                        Press Enter or comma to add. Backspace to remove last.
+                      </p>
+                    </div>
+                  ) : (
+                    /* ── Generic fields UI ── */
+                    <div className="space-y-3">
+                      {def.fields.map((field) => {
+                        const isSecret = field.type === "secret";
+                        const revealKey = `${key}.${field.key}`;
+                        const revealed = revealedFields.has(revealKey);
+                        const val = getFieldValue(key, field.key);
+
+                        return (
+                          <div key={field.key}>
+                            <label className="mb-1 flex items-center gap-1 text-[11px] font-medium text-[#6e6e73]">
+                              {field.label}
+                              {field.required && (
+                                <span className="text-[#FF5722]">*</span>
+                              )}
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={isSecret && !revealed ? "password" : "text"}
+                                value={val}
+                                placeholder={field.placeholder}
+                                onChange={(e) =>
+                                  setField(key, field.key, e.target.value)
+                                }
+                                className="w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2 font-mono text-[12px] text-[#1d1d1f] outline-none transition-colors focus:border-[#FF5722] focus:ring-1 focus:ring-[#FF5722]/20"
+                              />
+                              {isSecret && (
+                                <button
+                                  onClick={() => toggleReveal(revealKey)}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#aeaeb2] hover:text-[#6e6e73]"
+                                >
+                                  {revealed ? (
+                                    <EyeOff className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <Eye className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Action buttons */}
                   <div className="mt-4 flex flex-wrap items-center gap-2 sm:gap-3">
@@ -430,12 +531,13 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
                     </div>
                   )}
 
-                  {/* Credential security note */}
+                  {/* Security note */}
                   <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2">
                     <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0 text-amber-500" />
                     <p className="text-[10px] text-amber-700">
-                      Runtime credentials are in-memory only. For production, use External
-                      Secrets Operator to manage credentials securely.
+                      {key === "email"
+                        ? "Email alerts are sent via Resend from alert@logclaw.ai."
+                        : "Runtime credentials are in-memory only. For production, use External Secrets Operator to manage credentials securely."}
                     </p>
                   </div>
                 </div>
