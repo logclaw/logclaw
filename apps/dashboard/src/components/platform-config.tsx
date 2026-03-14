@@ -221,7 +221,7 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
 
   const getStatus = (platform: string) => {
     const cfg = platforms[platform] ?? { enabled: false };
-    const enabled = !!cfg.enabled;
+    const enabled = platform === "email" ? true : !!cfg.enabled; // email is always on
     const configured = isConfigured(platform);
     const testResult = testResults[platform];
 
@@ -345,19 +345,26 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
                     {status.label}
                   </span>
 
-                  <button
-                    onClick={() => handleToggle(key)}
-                    disabled={saving === key}
-                    className={`relative h-6 w-11 rounded-full transition-colors ${
-                      isEnabled ? "bg-[#FF5722]" : "bg-[#e5e5ea]"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                        isEnabled ? "translate-x-5" : "translate-x-0"
+                  {/* Email is always-on — no toggle */}
+                  {key === "email" ? (
+                    <div className="relative h-6 w-11 rounded-full bg-[#FF5722] cursor-default" title="Email is always enabled">
+                      <span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow translate-x-5" />
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleToggle(key)}
+                      disabled={saving === key}
+                      className={`relative h-6 w-11 rounded-full transition-colors ${
+                        isEnabled ? "bg-[#FF5722]" : "bg-[#e5e5ea]"
                       }`}
-                    />
-                  </button>
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                          isEnabled ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  )}
                 </div>
               </div>
 
