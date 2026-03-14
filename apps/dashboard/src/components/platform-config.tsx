@@ -30,6 +30,7 @@ interface FieldDef {
   type: "string" | "secret";
   placeholder?: string;
   required?: boolean;
+  defaultValue?: string;
 }
 
 const PLATFORM_DEFS: Record<
@@ -87,12 +88,12 @@ const PLATFORM_DEFS: Record<
     label: "Email (Resend / SMTP)",
     icon: "EM",
     fields: [
-      { key: "provider", label: "Provider", type: "string", placeholder: "resend" },
+      { key: "provider", label: "Provider", type: "string", placeholder: "resend", defaultValue: "resend" },
       { key: "apiKey", label: "Resend API Key", type: "secret", placeholder: "re_...", required: true },
-      { key: "fromAddress", label: "From Address", type: "string", placeholder: "alert@logclaw.ai" },
+      { key: "fromAddress", label: "From Address", type: "string", placeholder: "alert@logclaw.ai", defaultValue: "alert@logclaw.ai" },
       { key: "recipients", label: "Recipients (comma-separated)", type: "string", placeholder: "oncall@company.com, sre@company.com", required: true },
       { key: "smtpHost", label: "SMTP Host (if provider=smtp)", type: "string", placeholder: "smtp.gmail.com" },
-      { key: "smtpPort", label: "SMTP Port", type: "string", placeholder: "587" },
+      { key: "smtpPort", label: "SMTP Port", type: "string", placeholder: "587", defaultValue: "587" },
       { key: "smtpUsername", label: "SMTP Username", type: "string" },
       { key: "password", label: "SMTP Password", type: "secret" },
     ],
@@ -115,8 +116,26 @@ export default function PlatformConfigPanel({ platforms, onUpdate }: Props) {
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
 
-  const toggleExpand = (p: string) =>
+  const toggleExpand = (p: string) => {
+    const opening = expanded !== p;
     setExpanded((prev) => (prev === p ? null : p));
+    // Auto-populate default values for fields that have no existing value
+    if (opening && PLATFORM_DEFS[p]) {
+      const cfg = platforms[p] ?? {};
+      const defaults: Record<string, string> = {};
+      for (const field of PLATFORM_DEFS[p].fields) {
+        if (field.defaultValue && !cfg[field.key] && !localEdits[p]?.[field.key]) {
+          defaults[field.key] = field.defaultValue;
+        }
+      }
+      if (Object.keys(defaults).length > 0) {
+        setLocalEdits((prev) => ({
+          ...prev,
+          [p]: { ...prev[p], ...defaults },
+        }));
+      }
+    }
+  };
 
   const toggleReveal = (key: string) => {
     setRevealedFields((prev) => {

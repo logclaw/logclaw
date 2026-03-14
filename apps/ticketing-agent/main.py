@@ -1728,6 +1728,7 @@ PLATFORM_REQUIRED_FIELDS = {
     "servicenow": ["instanceUrl", "username", "password"],
     "opsgenie": ["apiKey"],
     "slack": ["webhookUrl"],
+    "email": ["apiKey", "recipients"],
 }
 
 
@@ -1805,6 +1806,40 @@ def test_platform_connection(platform: str) -> dict:
             resp = urlopen(req, timeout=10)
             ms = int((_t.time() - start) * 1000)
             return {"ok": True, "message": f"OpsGenie responded {resp.status}", "latency_ms": ms}
+
+        elif platform == "email":
+            provider = pcfg.get("provider", "resend")
+            if provider == "resend":
+                # Resend: validate API key by listing domains (lightweight GET)
+                api_key = pcfg.get("apiKey", "")
+                if not api_key or api_key == "****":
+                    return {"ok": False, "message": "Resend API key not configured", "latency_ms": 0}
+                req = Request("https://api.resend.com/domains",
+                              headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"}, method="GET")
+                resp = urlopen(req, timeout=10)
+                data = json.loads(resp.read())
+                ms = int((_t.time() - start) * 1000)
+                domains = data.get("data", [])
+                domain_names = ", ".join(d.get("name", "?") for d in domains[:3]) if domains else "none"
+                recipients = pcfg.get("recipients", [])
+                r_count = len(recipients) if isinstance(recipients, list) else len(str(recipients).split(","))
+                return {"ok": True, "message": f"Resend OK — domains: {domain_names}, {r_count} recipient(s)", "latency_ms": ms}
+            elif provider == "smtp":
+                # SMTP: test connection + STARTTLS handshake
+                import smtplib
+                host = pcfg.get("smtpHost", "")
+                port = int(pcfg.get("smtpPort", 587))
+                if not host:
+                    return {"ok": False, "message": "SMTP host not configured", "latency_ms": 0}
+                with smtplib.SMTP(host, port, timeout=10) as srv:
+                    srv.starttls()
+                    username = pcfg.get("smtpUsername", "")
+                    if username:
+                        srv.login(username, pcfg.get("password", ""))
+                ms = int((_t.time() - start) * 1000)
+                return {"ok": True, "message": f"SMTP {host}:{port} — TLS handshake OK", "latency_ms": ms}
+            else:
+                return {"ok": False, "message": f"Unknown email provider: {provider}", "latency_ms": 0}
 
         else:
             return {"ok": False, "message": f"Unknown platform: {platform}", "latency_ms": 0}
