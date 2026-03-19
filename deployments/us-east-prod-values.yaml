@@ -52,6 +52,7 @@ global:
     provider: gcs
     bucket: logclaw-us-east-data
     region: us-east1
+    workloadIdentityGSA: ""   # TODO: create GCP SA and set here if Flink is enabled
 
   ingressClass: nginx
   tls:
@@ -166,7 +167,7 @@ logclaw-otel-collector:
 
 logclaw-bridge:
   image:
-    tag: "2.0.0"
+    tag: "2.1.0"
 
 logclaw-dashboard:
   image:
@@ -194,4 +195,4 @@ logclaw-airflow:
       image:
         registry: docker.io
         repository: bitnami/postgresql
-        tag: latest
+        tag: "18"
