@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: "ghcr.io/logclaw/logclaw-dashboard"
-  tag: "2.2.0"    # Email always-on UI
+  tag: "sha-95317b6"    # Email always-on UI
   pullPolicy: IfNotPresent
 
 # -- OTEL Logging (dashboard's own service logs → OTel Collector)

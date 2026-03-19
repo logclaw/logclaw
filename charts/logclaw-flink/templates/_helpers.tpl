@@ -144,5 +144,21 @@ Render the merged flinkConfiguration map (base config + checkpoint/savepoint dir
 {{- $cfg := deepCopy (.Values.flink.config | default dict) }}
 {{- $_ := set $cfg "state.checkpoints.dir" (include "logclaw-flink.checkpointDir" .) }}
 {{- $_ := set $cfg "state.savepoints.dir"   (include "logclaw-flink.savepointDir" .) }}
+{{- $_ := set $cfg "high-availability.storageDir" (include "logclaw-flink.haStorageDir" .) }}
 {{- toYaml $cfg }}
+{{- end }}
+
+{{/*
+Return the HA storage directory using the configured object storage.
+Usage: {{ include "logclaw-flink.haStorageDir" . }}
+*/}}
+{{- define "logclaw-flink.haStorageDir" -}}
+{{- $provider := (.Values.global).objectStorage | default dict | dig "provider" "s3" }}
+{{- $bucket  := (.Values.global).objectStorage | default dict | dig "bucket" "" }}
+{{- if not $bucket }}
+{{- fail "global.objectStorage.bucket is required for HA storage" }}
+{{- end }}
+{{- $scheme := $provider }}
+{{- if eq $provider "gcs" }}{{- $scheme = "gs" }}{{- end }}
+{{- printf "%s://%s/flink/ha" $scheme $bucket }}
 {{- end }}

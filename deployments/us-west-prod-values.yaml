@@ -303,6 +303,7 @@ logclaw-flink:
       state.backend: rocksdb
       execution.checkpointing.mode: EXACTLY_ONCE
       execution.checkpointing.interval: "30s"
+      high-availability.type: "kubernetes"
     etlJob: { enabled: true, parallelism: 3 }
     enrichmentJob: { enabled: true, parallelism: 3 }
     anomalyJob: { enabled: true, parallelism: 3 }

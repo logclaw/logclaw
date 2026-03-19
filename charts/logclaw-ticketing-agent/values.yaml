@@ -5,7 +5,7 @@ replicaCount: 1
 
 image:
   repository: "ghcr.io/logclaw/logclaw-ticketing-agent"
-  tag: "2.2.0"    # Email always-on + RESEND_API_KEY fallback
+  tag: "sha-9be71f3"    # Email always-on + RESEND_API_KEY fallback
   pullPolicy: IfNotPresent
 
 serviceAccount:

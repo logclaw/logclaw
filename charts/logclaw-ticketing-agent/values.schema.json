@@ -164,7 +164,6 @@
     "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } },
     "llm": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "provider": { "type": "string", "enum": ["claude", "openai", "ollama", "vllm", "disabled"] },
         "model": { "type": "string" },

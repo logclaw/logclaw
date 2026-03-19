@@ -4,7 +4,7 @@ replicaCount: 2
 
 image:
   repository: "ghcr.io/logclaw/logclaw-enterprise"
-  tag: "2.2.0"    # Email always-on + org member auto-population
+  tag: "sha-287f501"    # Email always-on + org member auto-population
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
