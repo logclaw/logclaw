@@ -1,6 +1,6 @@
 {{- $storageClass := default "standard" .Values.global.storageClassHighThroughput }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: combined

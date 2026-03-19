@@ -1,6 +1,6 @@
 {{- if .Values.kafkaConnect.enabled }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
   name: {{ .Release.Name }}-connect

@@ -2,7 +2,7 @@
 {{- $bucket := required "global.objectStorage.bucket is required when s3Sink.enabled=true" .Values.global.objectStorage.bucket }}
 {{- $region := default "us-east-1" .Values.global.objectStorage.region }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnector
 metadata:
   name: {{ .Release.Name }}-s3-sink

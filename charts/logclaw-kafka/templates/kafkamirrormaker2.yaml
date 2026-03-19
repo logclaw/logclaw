@@ -1,7 +1,7 @@
 {{- if .Values.mirrorMaker2.enabled }}
 {{- $sourceBootstrap := required "mirrorMaker2.sourceBootstrapServers is required when mirrorMaker2.enabled=true" .Values.mirrorMaker2.sourceBootstrapServers }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaMirrorMaker2
 metadata:
   name: {{ .Release.Name }}-mirror
