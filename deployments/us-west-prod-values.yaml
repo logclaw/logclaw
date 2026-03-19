@@ -56,6 +56,7 @@ global:
     provider: gcs
     bucket: logclaw-prod-data
     region: us-west1
+    workloadIdentityGSA: "logclaw-flink@project-565165fe-d4ff-48fd-a54.iam.gserviceaccount.com"
 
   secretStore:
     provider: gcp
@@ -292,6 +293,13 @@ logclaw-airflow:
     webserver: { minAvailable: 0 }
 
 logclaw-flink:
+  nodeSelector:
+    logclaw.io/pool: flink
+  tolerations:
+    - key: logclaw.io/pool
+      operator: Equal
+      value: flink
+      effect: NoSchedule
   flink:
     version: "1.19"
     image:
@@ -310,15 +318,15 @@ logclaw-flink:
     sessionCluster: { enabled: false }
     jobManager:
       replicas: 1
-      cpu: 0.5
-      memory: "1024m"
+      cpu: 0.25
+      memory: "768m"
     taskManager:
       replicas: 1
-      cpu: 1
-      memory: "2048m"
+      cpu: 0.25
+      memory: "1024m"
       resources:
-        requests: { cpu: "500m", memory: "1Gi" }
-        limits:   { cpu: "1",    memory: "2Gi" }
+        requests: { cpu: "250m", memory: "768Mi" }
+        limits:   { cpu: "500m", memory: "1536Mi" }
   podDisruptionBudget:
     minAvailable: 0
 

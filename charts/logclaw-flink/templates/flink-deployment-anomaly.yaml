@@ -56,7 +56,14 @@ spec:
   podTemplate:
     spec:
       serviceAccountName: {{ include "logclaw-flink.serviceAccountName" . }}
-      {{- /* Priority class for the latency-critical anomaly job */}}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if ((.Values.global).highPriorityClassName) }}
       priorityClassName: {{ .Values.global.highPriorityClassName | quote }}
       {{- end }}

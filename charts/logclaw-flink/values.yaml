@@ -66,5 +66,8 @@ flink:
   sessionCluster:
     enabled: false
 
+nodeSelector: {}
+tolerations: []
+
 podDisruptionBudget:
   minAvailable: 1
