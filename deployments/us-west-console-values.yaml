@@ -7,6 +7,11 @@
 #   helm upgrade logclaw-console ./charts/logclaw-console -n logclaw -f deployments/us-west-console-values.yaml
 # ═══════════════════════════════════════════════════════════════════
 
+image:
+  repository: ghcr.io/logclaw/logclaw-enterprise
+  tag: "2.2.0"
+  pullPolicy: IfNotPresent
+
 replicaCount: 1
 
 autoscaling:
