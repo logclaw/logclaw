@@ -90,7 +90,7 @@ data:
       "template": {
         "settings": {
           "number_of_shards": 3,
-          "number_of_replicas": 1,
+          "number_of_replicas": {{ .Values.opensearch.indexReplicas | default 0 }},
           "index.lifecycle.name": "logclaw-hot-delete",
           "index.lifecycle.rollover_alias": "logclaw-logs",
           "index.codec": "best_compression",
@@ -186,7 +186,7 @@ data:
       "template": {
         "settings": {
           "number_of_shards": 1,
-          "number_of_replicas": 1,
+          "number_of_replicas": {{ .Values.opensearch.indexReplicas | default 0 }},
           "index.lifecycle.name": "logclaw-anomaly-lifecycle",
           "index.lifecycle.rollover_alias": "logclaw-anomalies",
           "index.codec": "best_compression",

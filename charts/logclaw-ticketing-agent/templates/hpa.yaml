@@ -14,6 +14,7 @@ spec:
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
+    {{- if .Values.autoscaling.kafkaConsumerLagEnabled }}
     - type: External
       external:
         metric:
@@ -24,6 +25,7 @@ spec:
         target:
           type: AverageValue
           averageValue: "{{ .Values.autoscaling.kafkaConsumerLagThreshold }}"
+    {{- end }}
     - type: Resource
       resource:
         name: cpu

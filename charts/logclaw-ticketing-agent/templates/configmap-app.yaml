@@ -259,7 +259,7 @@ data:
         except HTTPError as e:
             if e.code == 404:
                 mapping = {
-                    "settings": {"number_of_shards": 1, "number_of_replicas": 1},
+                    "settings": {"number_of_shards": 1, "number_of_replicas": int(os.environ.get("OPENSEARCH_INDEX_REPLICAS", "0"))},
                     "mappings": {
                         "properties": {
                             "id": {"type": "keyword"},

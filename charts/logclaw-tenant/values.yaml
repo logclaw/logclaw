@@ -41,6 +41,7 @@ global:
 
   # Secret management backend
   secretStore:
+    enabled: false        # set to true when SecretStore/ClusterSecretStore is configured
     provider: "aws"       # aws | gcp | vault | azure
     region: "us-east-1"
     projectId: ""

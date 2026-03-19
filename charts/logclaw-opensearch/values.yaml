@@ -3,6 +3,7 @@ fullnameOverride: ""
 
 opensearch:
   version: "2.14.0"
+  indexReplicas: 0    # set to 1+ when running multiple data nodes
 
   # Dev mode: use standalone StatefulSet instead of Opster CRD
   # Avoids bootstrap pod race condition with single-master deployments

@@ -170,6 +170,7 @@ autoscaling:
   enabled: true
   minReplicas: 1
   maxReplicas: 10
+  kafkaConsumerLagEnabled: false   # requires KEDA or Prometheus Adapter with kafka_consumergroup_lag metric
   kafkaConsumerLagThreshold: 1000
   targetCPUUtilizationPercentage: 70
 
