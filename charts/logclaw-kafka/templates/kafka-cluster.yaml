@@ -64,20 +64,9 @@ spec:
       log.flush.interval.messages: "10000"
       log.flush.interval.ms: "1000"
 
-    # ── Resources ──────────────────────────────────────────────────────────
-    resources:
-      requests:
-        cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
-        memory: {{ .Values.kafka.resources.requests.memory | quote }}
-      limits:
-        cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
-        memory: {{ .Values.kafka.resources.limits.memory | quote }}
-
-    # ── JVM options ────────────────────────────────────────────────────────
-    jvmOptions:
-      "-Xms": {{ index .Values.kafka.jvmOptions "-Xms" | quote }}
-      "-Xmx": {{ index .Values.kafka.jvmOptions "-Xmx" | quote }}
-      gcLoggingEnabled: true
+    # NOTE: resources, jvmOptions, storage, replicas are defined in the
+    # KafkaNodePool CR (kafka-nodepool.yaml), NOT here. Strimzi v1 API
+    # requires these fields on the NodePool, not the Kafka CR.
 
     # ── Metrics ────────────────────────────────────────────────────────────
     metricsConfig:

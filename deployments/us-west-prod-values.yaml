@@ -263,7 +263,7 @@ logclaw-airflow:
     postgresql:
       image:
         registry: docker.io    # prevents global.imageRegistry override
-        tag: "18"              # pinned — was :latest (PostgreSQL 18.x)
+        tag: latest            # Bitnami doesn't publish major-only tags
       persistence:
         size: 5Gi
     redis:
@@ -345,7 +345,7 @@ logclaw-ml-engine:
   redis:
     image:
       registry: docker.io
-      tag: "8.6"               # pinned — was :latest (Redis 8.6.x)
+      tag: latest              # Bitnami doesn't publish major-only tags
     master:
       persistence:
         size: 5Gi

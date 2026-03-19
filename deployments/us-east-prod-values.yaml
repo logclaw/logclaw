@@ -3,9 +3,7 @@
 # ═══════════════════════════════════════════════════════════════════
 # Cluster:  gke_project-9490bf61-5a92-4130-9de_us-east1-b_logclaw-us-east
 # Account:  househosanna2@gmail.com
-# Ingress:  34.75.117.199  (DNS-only recommended for cert-manager)
-# Issuer:   letsencrypt-prod (Let's Encrypt HTTP-01)
-# Status:   17 pods running (2026-03-14)
+# Issuer:   logclaw-issuer (Let's Encrypt HTTP-01)
 #
 # Usage:
 #   helm upgrade logclaw ./charts/logclaw-tenant -n logclaw -f deployments/us-east-prod-values.yaml --no-hooks
@@ -20,7 +18,7 @@ bridge:
 dashboard:
   enabled: true
 flink:
-  enabled: false          # disabled on us-east (smaller cluster)
+  enabled: false              # disabled — requires flink-pool node + Workload Identity
 kafka:
   enabled: true
 opensearch:
@@ -30,21 +28,25 @@ otelCollector:
 ticketingAgent:
   enabled: true
 mlEngine:
-  enabled: false          # disabled on us-east (smaller cluster)
+  enabled: true
 
 global:
-  tenantId: logclaw
+  tenantId: prod
   tenantName: "LogClaw US-East"
-  logclawTenantId: "logclaw"
   tier: standard
-  storageClass: premium-rwo
-  storageClassHighThroughput: standard   # OpenSearch uses standard (HDD) to stay within SSD quota
+  resourcePreset: small
+  storageClass: standard
+  storageClassHighThroughput: standard
 
   imagePullSecrets:
     - name: ghcr-logclaw
   imageRegistry: ""   # CRITICAL: must be "" — prevents prepending ghcr.io/logclaw to third-party images
 
-  kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc:9092"
+  kafkaBrokers: "logclaw-kafka-bootstrap.logclaw.svc.cluster.local:9092"
+  kafkaTopics:
+    rawLogs: "raw-logs"
+    enriched: "enriched-logs"
+    anomalies: "anomaly-events"
 
   opensearchEndpoint: "http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
 
@@ -52,23 +54,26 @@ global:
     provider: gcs
     bucket: logclaw-us-east-data
     region: us-east1
-    workloadIdentityGSA: ""   # TODO: create GCP SA and set here if Flink is enabled
 
   ingressClass: nginx
   tls:
     enabled: true
-    issuerName: letsencrypt-prod
+    issuerName: logclaw-issuer
     issuerKind: ClusterIssuer
+    clusterIssuer: logclaw-issuer
 
   podSecurityStandards:
     enforce: privileged     # required for OpenSearch init-sysctl
-    audit: privileged
-    warn: privileged
+    audit: restricted
+    warn: restricted
 
   monitoring:
     enabled: false
 
-# ─── Ingress (auth-proxy service name fix applied) ────────────────
+  llm:
+    provider: disabled
+
+# ─── Ingress ─────────────────────────────────────────────────────
 ingress:
   enabled: true
   authProxyServiceName: "logclaw-auth-proxy"
@@ -79,32 +84,38 @@ ingress:
   ticketing:
     host: ticket.us-east.logclaw.ai
   console:
-    host: app.us-east.logclaw.ai
+    host: console.us-east.logclaw.ai
     serviceName: logclaw-console
     servicePort: 3000
   dashboard:
-    host: dashboard.us-east.logclaw.ai
+    host: app.us-east.logclaw.ai
   airflow:
     host: airflow.us-east.logclaw.ai
 
-# ─── Subchart overrides ───────────────────────────────────────────
+# ─── Subchart overrides (mirrored from us-west) ──────────────────
 
 logclaw-kafka:
   kafka:
     replicas: 1
+    version: "4.0.0"
     config:
+      auto.create.topics.enable: "false"
       default.replication.factor: "1"
       offsets.topic.replication.factor: "1"
       transaction.state.log.replication.factor: "1"
       transaction.state.log.min.isr: "1"
       min.insync.replicas: "1"
+      log.retention.hours: "48"
+      log.segment.bytes: "1073741824"
+      num.io.threads: "8"
+      num.network.threads: "3"
     jvmOptions:
       -Xms: "1g"
       -Xmx: "2g"
     resources:
       requests:
         cpu: "500m"
-        memory: "2Gi"
+        memory: "1536Mi"
       limits:
         cpu: "2"
         memory: "4Gi"
@@ -113,50 +124,58 @@ logclaw-kafka:
       volumes:
         - id: 0
           type: persistent-claim
-          size: "20Gi"
+          size: "50Gi"
+          class: standard
           deleteClaim: false
   kafkaConnect:
     enabled: false
-  s3Sink:
-    enabled: false
-  kafkaTopics:
+  topics:
     rawLogs:
+      partitions: 6
       replicas: 1
-    enrichedLogs:
+      retentionMs: "172800000"
+      segmentBytes: "1073741824"
+    enriched:
+      partitions: 6
       replicas: 1
-    anomalyEvents:
+      retentionMs: "172800000"
+    anomalies:
+      partitions: 3
       replicas: 1
-    deadLetterQueue:
+      retentionMs: "604800000"
+    dlq:
+      partitions: 1
       replicas: 1
+      retentionMs: "2592000000"
 
 logclaw-opensearch:
   opensearch:
     version: "2.14.0"
     devMode:
-      enabled: true       # standalone StatefulSet, no Opster CRD race condition
+      enabled: true
     security:
       tls:
-        enabled: false    # internal only (devMode)
+        enabled: false
     masters:
       replicas: 1
-      diskSize: "10Gi"
+      diskSize: "20Gi"
       resources:
         requests: { cpu: "500m", memory: "2Gi" }
-        limits:   { cpu: "1",    memory: "4Gi" }
+        limits:   { cpu: "2",    memory: "4Gi" }
       jvm:
-        xms: "1g"         # MUST equal xmx
-        xmx: "1g"
+        xms: "2g"
+        xmx: "2g"
     data:
       replicas: 1
-      diskSize: "30Gi"
+      diskSize: "50Gi"
       resources:
         requests: { cpu: "500m", memory: "2Gi" }
-        limits:   { cpu: "1",    memory: "4Gi" }
+        limits:   { cpu: "2",    memory: "4Gi" }
       jvm:
-        xms: "1g"         # MUST equal xmx
-        xmx: "1g"
+        xms: "2g"
+        xmx: "2g"
     coordinators:
-      replicas: 0          # saves SSD quota
+      replicas: 0
   podDisruptionBudget:
     dataNodes:  { minAvailable: 0 }
     masterNodes: { minAvailable: 0 }
@@ -164,26 +183,59 @@ logclaw-opensearch:
 logclaw-otel-collector:
   image:
     tag: "0.114.0"
+  replicaCount: 2
+  resources:
+    requests: { cpu: "200m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
 
 logclaw-bridge:
   image:
+    repository: ghcr.io/logclaw/logclaw-bridge
     tag: "2.1.0"
+    pullPolicy: IfNotPresent
+  bridge:
+    resources:
+      requests: { cpu: "200m", memory: "256Mi" }
+      limits:   { cpu: "1",    memory: "512Mi" }
 
 logclaw-dashboard:
   image:
+    repository: ghcr.io/logclaw/logclaw-dashboard
     tag: "sha-95317b6"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  service:
+    type: ClusterIP
+    port: 3000
 
 logclaw-ticketing-agent:
   image:
+    repository: ghcr.io/logclaw/logclaw-ticketing-agent
     tag: "sha-9be71f3"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
   config:
     email:
       enabled: true
       provider: resend
       fromAddress: "alert@logclaw.ai"
+      smtpHost: ""
+      smtpPort: 587
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
 
 logclaw-airflow:
   airflow:
+    executor: KubernetesExecutor
     images:
       airflow:
         repository: apache/airflow
@@ -191,8 +243,60 @@ logclaw-airflow:
     dags:
       gitSync:
         enabled: false
+    data:
+      metadataSecretName: logclaw-metadata
     postgresql:
       image:
         registry: docker.io
-        repository: bitnami/postgresql
-        tag: "18"
+        tag: latest
+      persistence:
+        size: 5Gi
+    redis:
+      enabled: false
+    statsd:
+      enabled: false
+    webserver:
+      replicas: 1
+      defaultUser:
+        enabled: false
+      resources:
+        requests: { cpu: "500m", memory: "1Gi" }
+        limits:   { cpu: "1",    memory: "2Gi" }
+    scheduler:
+      replicas: 1
+      resources:
+        requests: { cpu: "250m", memory: "512Mi" }
+        limits:   { cpu: "1",    memory: "1536Mi" }
+    workers:
+      replicas: 0
+    triggerer:
+      replicas: 0
+    flower:
+      enabled: false
+  podDisruptionBudget:
+    scheduler: { minAvailable: 0 }
+    webserver: { minAvailable: 0 }
+
+logclaw-ml-engine:
+  mlEngine:
+    feast:
+      image:
+        repository: feastdev/feature-server
+        tag: "0.40.0"
+      replicaCount: 1
+      resources:
+        requests: { cpu: "200m", memory: "256Mi" }
+        limits:   { cpu: "500m", memory: "512Mi" }
+    kserve: { enabled: false }
+    ollama: { enabled: false }
+  redis:
+    image:
+      registry: docker.io
+      tag: latest
+    master:
+      persistence:
+        size: 5Gi
+    replica:
+      replicaCount: 0
+  podDisruptionBudget:
+    minAvailable: 0
