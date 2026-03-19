@@ -105,8 +105,9 @@ spec:
             - name: OTEL_COLLECTOR_ENDPOINT
               value: {{ .Values.endpoints.otelCollector | default (include "logclaw-console.otelCollectorEndpoint" .) | quote }}
             # ── OTEL Logging (console's own service logs → OTel Collector) ──
+            {{- $tn := .Values.tenantReleaseName | default "logclaw" }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.exporterEndpoint | default (printf "http://%s-logclaw-otel-collector.%s.svc:4318" .Release.Name .Release.Namespace) | quote }}
+              value: {{ .Values.otel.exporterEndpoint | default (printf "http://%s-logclaw-otel-collector.%s.svc:4318" $tn .Release.Namespace) | quote }}
             - name: OTEL_SERVICE_NAME
               value: "logclaw-console"
             - name: OTEL_RESOURCE_ATTRIBUTES
@@ -114,15 +115,15 @@ spec:
             - name: LOGCLAW_TENANT_ID
               value: {{ include "logclaw-console.logclawTenantId" . | quote }}
             - name: TICKETING_ENDPOINT
-              value: {{ .Values.endpoints.ticketing | default (include "logclaw-console.ticketingEndpoint" .) | quote }}
+              value: {{ .Values.endpoints.ticketing | default (printf "http://%s-logclaw-ticketing-agent.%s.svc:8080" $tn .Release.Namespace) | quote }}
             - name: BRIDGE_ENDPOINT
-              value: {{ .Values.endpoints.bridge | default (include "logclaw-console.bridgeEndpoint" .) | quote }}
+              value: {{ .Values.endpoints.bridge | default (printf "http://%s-logclaw-bridge.%s.svc:8080" $tn .Release.Namespace) | quote }}
             - name: FEAST_ENDPOINT
-              value: {{ .Values.endpoints.feast | default (printf "http://%s-logclaw-ml-engine-feast-server.%s.svc:6567" .Release.Name .Release.Namespace) | quote }}
+              value: {{ .Values.endpoints.feast | default (printf "http://%s-logclaw-ml-engine-feast-server.%s.svc:6567" $tn .Release.Namespace) | quote }}
             - name: AIRFLOW_ENDPOINT
-              value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
+              value: {{ .Values.endpoints.airflow | default (printf "http://%s-webserver.%s.svc:8080" $tn .Release.Namespace) | quote }}
             - name: AGENT_ENDPOINT
-              value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" .Release.Name .Release.Namespace) | quote }}
+              value: {{ .Values.endpoints.agent | default (printf "http://%s-logclaw-agent.%s.svc:8080" $tn .Release.Namespace) | quote }}
             {{- if hasKey .Values "nodeTlsRejectUnauthorized" }}
             {{- if ne (toString .Values.nodeTlsRejectUnauthorized) "" }}
             - name: NODE_TLS_REJECT_UNAUTHORIZED

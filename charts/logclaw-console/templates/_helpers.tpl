@@ -79,24 +79,33 @@ Resolve opensearchEndpoint — required global value.
 {{- end }}
 
 {{/*
+Resolve the umbrella release name for backend service discovery.
+Uses tenantReleaseName (default: "logclaw") instead of .Release.Name
+so the console always finds services regardless of its own release name.
+*/}}
+{{- define "logclaw-console.tenantRelease" -}}
+{{- .Values.tenantReleaseName | default "logclaw" }}
+{{- end }}
+
+{{/*
 Resolve otelCollectorEndpoint — OTel Collector OTLP HTTP ingestion service.
 */}}
 {{- define "logclaw-console.otelCollectorEndpoint" -}}
-http://{{ .Release.Name }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc:4318
+http://{{ include "logclaw-console.tenantRelease" . }}-logclaw-otel-collector.{{ .Release.Namespace }}.svc:4318
 {{- end }}
 
 {{/*
 Resolve ticketingEndpoint — LogClaw Ticketing Agent service.
 */}}
 {{- define "logclaw-console.ticketingEndpoint" -}}
-http://{{ .Release.Name }}-logclaw-ticketing-agent.{{ .Release.Namespace }}.svc:8080
+http://{{ include "logclaw-console.tenantRelease" . }}-logclaw-ticketing-agent.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*
 Resolve bridgeEndpoint — LogClaw Bridge service.
 */}}
 {{- define "logclaw-console.bridgeEndpoint" -}}
-http://{{ .Release.Name }}-logclaw-bridge.{{ .Release.Namespace }}.svc:8080
+http://{{ include "logclaw-console.tenantRelease" . }}-logclaw-bridge.{{ .Release.Namespace }}.svc:8080
 {{- end }}
 
 {{/*

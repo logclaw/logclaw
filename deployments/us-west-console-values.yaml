@@ -23,12 +23,13 @@ resources:
     cpu: "500m"
     memory: "512Mi"
 
-# OpenSearch connection (devMode = HTTP, no auth needed but we pass it)
+# OpenSearch connection
 endpoints:
   opensearch: "http://logclaw-logclaw-opensearch.logclaw.svc.cluster.local:9200"
   opensearchUser: "admin"
   opensearchPasswordSecret: "logclaw-logclaw-opensearch-admin-password"
   opensearchPasswordKey: "password"
+  # All other endpoints auto-resolved via tenantReleaseName (default: "logclaw")
 
 # Skip TLS verification for internal OpenSearch (self-signed)
 nodeTlsRejectUnauthorized: "0"

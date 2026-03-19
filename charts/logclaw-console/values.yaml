@@ -112,9 +112,13 @@ config:
   clerkSignInUrl: "/sign-in"
   clerkSignUpUrl: "/sign-up"
 
+# -- Name of the umbrella Helm release that deploys backend services.
+# Used to auto-generate service URLs (e.g. {tenantReleaseName}-logclaw-bridge).
+# Defaults to "logclaw" — no per-region overrides needed.
+tenantReleaseName: "logclaw"
+
 # -- Backend service endpoints (explicit overrides)
-# When set, these take precedence over the auto-generated Release.Name-based URLs.
-# Use these when the console and backend stack have different Helm release names.
+# When set, these take precedence over the auto-generated tenantReleaseName-based URLs.
 endpoints:
   opensearch: ""
   otelCollector: ""
