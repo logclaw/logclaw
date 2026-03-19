@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 
 # Keep in sync with pom.xml <version>
-ARG VERSION=2.1.0
+ARG VERSION=2.2.0
 
 # ── Stage 1: Build ──────────────────────────────────────────
 FROM maven:3.9-eclipse-temurin-11 AS builder
