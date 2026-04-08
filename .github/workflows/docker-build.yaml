@@ -146,7 +146,7 @@ jobs:
       - name: Docker metadata
         if: steps.gate.outputs.should_build == 'true'
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY_PATH }}/logclaw-${{ matrix.image }}
           tags: |
