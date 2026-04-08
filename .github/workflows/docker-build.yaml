@@ -39,7 +39,7 @@ jobs:
       auth-proxy: ${{ steps.filter.outputs.auth-proxy }}
       flink-jobs: ${{ steps.filter.outputs.flink-jobs }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -103,7 +103,7 @@ jobs:
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
           echo "🔍 ${{ matrix.image }}: should_build=$SHOULD_BUILD"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: steps.gate.outputs.should_build == 'true'
 
       # ── Read version from source (package.json or VERSION file) ──
