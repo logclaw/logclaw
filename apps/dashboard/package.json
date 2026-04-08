@@ -14,7 +14,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "@opentelemetry/sdk-node": "^0.53.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.53.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.213.0",
     "@opentelemetry/api-logs": "^0.53.0"
   },
   "devDependencies": {
